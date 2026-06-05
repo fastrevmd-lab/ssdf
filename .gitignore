@@ -19,6 +19,9 @@ venv/
 .env.*
 !.env.example
 
+# Brainstorm scratch (visual companion)
+.superpowers/
+
 # Editor / OS
 .DS_Store
 .idea/
