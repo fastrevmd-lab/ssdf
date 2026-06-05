@@ -202,7 +202,9 @@ client-supplied). Services scope all store queries by `tenant_id`.
 
 ## 6. MCP Tools
 
-All read-only, **LLM → SSDF**. Delivered as **two MCP servers** over the same backend.
+Read/query tools are **read-only, LLM → SSDF**, delivered as **two read MCP servers**. Source
+onboarding is handled by a **separate admin MCP server** that writes **SSDF's own config only**
+(never a device).
 
 ### Catalog
 | Tool | Input | Output (LLM-shaped) | Tier |
@@ -228,6 +230,32 @@ Default outputs are summaries + IDs; raw payloads (`ext.*`) require `raw:read` +
 - **`ssdf-frontier-mcp`** (Claude/GPT): subset of tools, redacted output, **no raw/row-level
   tools in its catalog** — a frontier model physically cannot invoke them. The Sovereignty
   Guard applies per-dataset flags on top.
+
+### Admin / onboarding server (`ssdf-admin-mcp`)
+A third MCP server, **operator-only, local tier only, `config:write` scope, never exposed to
+frontier**. Thin wrapper over `IngestionService`. It configures **SSDF's own ingest config**;
+it never writes to a security device.
+
+| Tool | Purpose |
+|---|---|
+| `list_source_types` | Self-describing: supported types (srx, panos, okta, wazuh) + required fields per type. Agent reads this, then asks the user only for what's needed. |
+| `add_source` | Register a source `{type, name, tenant, connection{...}, secret_ref}`. Returns `source_id`, ingest endpoint/token, onboarding instructions. |
+| `get_source_onboarding(source_id)` | Exact device-side config snippet for push sources (Junos syslog stanza / PAN-OS log-forwarding profile). |
+| `get_source_health` / `list_sources` / `pause_source` / `remove_source` | Lifecycle + verification. |
+
+**Onboarding paths (by transport):**
+- **Pull (Okta, Wazuh)** — one call: API URL + `secret_ref` → SSDF connector starts polling immediately.
+- **Push (SRX, PAN-OS)** — `add_source` registers and returns the device config to apply; SSDF
+  auto-detects inbound data and flips the source to `healthy`.
+
+**Boundary (decision: Option A — SSDF hands off).** For push sources, SSDF only *emits* the
+required device config. Applying it is done by the **agent** using the **separate vendor MCP**
+(junos-mcp / panos-mcp) — not by SSDF. The end UX stays one conversational turn (agent chains
+`list_source_types` → `add_source` → vendor MCP apply → `get_source_health`), while SSDF
+remains a pure data plane that never writes to a device.
+
+**Secrets:** credentials are passed by **reference** (`secret_ref` into a secrets backend),
+never as raw tool args — so they never land in the audit log.
 
 ---
 
@@ -287,9 +315,10 @@ two MCP servers, multi-LLM layer) · ClickHouse · Neo4j Community · Postgres �
   + Entity Resolution → ClickHouse + Neo4j + Postgres. GraphService + QueryService (gRPC).
   Ontology v1. Audit table. Single tenant.
   **Done =** a cross-source incident timeline is answerable via gRPC (no MCP yet).
-- **v0.1 — MCP + sovereignty + PAN-OS:** both MCP servers; Sovereignty Guard + policy YAML;
-  PolicyService + Ingestion/Normalization APIs; add PAN-OS connector.
-  **Done =** a local LLM answers questions over the fabric; frontier gets safe summaries.
+- **v0.1 — MCP + sovereignty + onboarding + PAN-OS:** both read MCP servers + `ssdf-admin-mcp`
+  (conversational source onboarding); Sovereignty Guard + policy YAML; PolicyService +
+  Ingestion/Normalization APIs; add PAN-OS connector.
+  **Done =** a local LLM answers questions over the fabric and can onboard a new source; frontier gets safe summaries.
 - **v0.2 — multi-LLM + hardening:** model-agnostic agent layer; entity-resolution merge review;
   hash-chained audit; MinIO cold tiering + retention TTLs.
   **Done =** agents correlate identity+network+endpoint with provenance, sovereignty enforced.
