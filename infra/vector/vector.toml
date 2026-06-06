@@ -140,6 +140,29 @@ assert_eq!(.ext."session-id-32", "40000123")
 '''
 
 [[tests]]
+name = "session_create_maps_to_ecs"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-06-06T12:00:01.000Z srx-test10 RT_FLOW - RT_FLOW_SESSION_CREATE [junos@2636.1.1.1.2.36 source-address="10.65.1.11" source-port="52020" destination-address="10.66.2.21" destination-port="22" service-name="junos-ssh" application="SSH" protocol-id="6" policy-name="trust-to-untrust" source-zone-name="trust" destination-zone-name="untrust" session-id-32="40000124" username="bob"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "flow_session_create")
+assert_eq!(.event_outcome, "success")
+assert_eq!(.source_ip, "10.65.1.11")
+assert_eq!(.destination_port, 22)
+assert_eq!(.network_transport, "tcp")
+assert_eq!(.rule_name, "trust-to-untrust")
+assert_eq!(.user_name, "bob")
+# create logs carry no byte counters -> to_int() yields 0, so network_bytes is 0
+assert_eq!(.network_bytes, 0)
+assert_eq!(.ext."session-id-32", "40000124")
+'''
+
+[[tests]]
 name = "session_deny_maps_to_ecs"
 [[tests.inputs]]
 insert_at = "srx_ecs"
