@@ -1,0 +1,1 @@
+<14>1 2026-06-06T12:00:02.000Z srx-test10 RT_FLOW - RT_FLOW_SESSION_DENY [junos@2636.1.1.1.2.36 source-address="10.73.9.9" source-port="40000" destination-address="10.66.2.22" destination-port="3389" service-name="junos-rdp" application="RDP" protocol-id="6" policy-name="default-deny" source-zone-name="untrust" destination-zone-name="trust" username="N/A"]
