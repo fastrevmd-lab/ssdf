@@ -1,0 +1,101 @@
+# src/ssdf_mcp_query/tools.py
+"""Tool implementations: builders + guard + client -> result dicts."""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+from .builders import build_query_flows, build_top_talkers, BuilderError, MAX_LIMIT
+from .sql_guard import guard_sql, GuardError
+from .timeparse import TimeParseError
+
+
+def _ok(result: dict, requested_limit: int) -> dict:
+    rows = result["rows"]
+    return {
+        "rows": rows,
+        "columns": result["columns"],
+        "row_count": result["row_count"],
+        "truncated": result["row_count"] >= requested_limit,
+        "elapsed_ms": result.pop("_elapsed_ms", 0),
+    }
+
+
+class Tools:
+    """Stateless tool surface bound to a ClickHouse client."""
+
+    def __init__(self, client, max_rows: int = MAX_LIMIT):
+        self._client = client
+        self._max_rows = max_rows
+
+    def _execute(self, sql: str, params: dict, requested_limit: int) -> dict:
+        start = time.monotonic()
+        result = self._client.run(sql, params)
+        result["_elapsed_ms"] = int((time.monotonic() - start) * 1000)
+        return _ok(result, requested_limit)
+
+    def query_flows(self, src_ip=None, dst_ip=None, dst_port=None, action=None,
+                    outcome=None, provider=None, zone=None, since=None,
+                    until=None, limit=100) -> dict:
+        try:
+            sql, params = build_query_flows(
+                src_ip=src_ip, dst_ip=dst_ip, dst_port=dst_port, action=action,
+                outcome=outcome, provider=provider, zone=zone, since=since,
+                until=until, limit=limit,
+            )
+        except (BuilderError, TimeParseError, ValueError) as exc:
+            return {"error": "validation", "detail": str(exc)}
+        return self._safe_execute(sql, params, min(int(limit), self._max_rows))
+
+    def top_talkers(self, by="bytes", side="src", since=None, until=None, limit=10) -> dict:
+        try:
+            sql, params = build_top_talkers(by=by, side=side, since=since,
+                                            until=until, limit=limit)
+        except (BuilderError, TimeParseError, ValueError) as exc:
+            return {"error": "validation", "detail": str(exc)}
+        return self._safe_execute(sql, params, int(limit))
+
+    def describe_schema(self) -> dict:
+        try:
+            cols = self._client.run("DESCRIBE ssdf.events")
+            columns = [{"name": r["name"], "type": r["type"]} for r in cols["rows"]]
+            enums: dict[str, Any] = {}
+            for key, col in (("event_actions", "event_action"),
+                             ("event_outcomes", "event_outcome"),
+                             ("event_providers", "event_provider")):
+                res = self._client.run(
+                    f"SELECT DISTINCT {col} AS v FROM ssdf.events LIMIT 100"
+                )
+                enums[key] = [r["v"] for r in res["rows"]]
+            zones = self._client.run(
+                "SELECT DISTINCT observer_ingress_zone AS v FROM ssdf.events "
+                "WHERE v != '' LIMIT 100"
+            )
+            stats = self._client.run(
+                "SELECT count() AS c, min(timestamp) AS mn, max(timestamp) AS mx "
+                "FROM ssdf.events"
+            )
+            stat_row = stats["rows"][0] if stats["rows"] else {"c": 0, "mn": None, "mx": None}
+            return {
+                "columns": columns,
+                "zones": [r["v"] for r in zones["rows"]],
+                "row_count": stat_row["c"],
+                "time_range": {"min": stat_row["mn"], "max": stat_row["mx"]},
+                **enums,
+            }
+        except Exception as exc:  # noqa: BLE001 - surface as structured upstream error
+            return {"error": "upstream", "detail": str(exc)}
+
+    def run_sql(self, query: str) -> dict:
+        try:
+            safe_sql = guard_sql(query, max_limit=self._max_rows)
+        except GuardError as exc:
+            return {"error": "validation", "detail": str(exc)}
+        return self._safe_execute(safe_sql, {}, self._max_rows)
+
+    def _safe_execute(self, sql: str, params: dict, requested_limit: int) -> dict:
+        try:
+            return self._execute(sql, params, requested_limit)
+        except Exception as exc:  # noqa: BLE001 - upstream/CH failures
+            return {"error": "upstream", "detail": str(exc)}
