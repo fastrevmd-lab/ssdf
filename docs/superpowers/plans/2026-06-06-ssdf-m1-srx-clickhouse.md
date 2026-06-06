@@ -186,6 +186,8 @@ git commit -m "feat(m1): add ClickHouse ssdf.events schema + apply/verify script
 ## Task 3: Provision the M1 LXCs on Proxmox
 
 > Environment: Proxmox host `pve3.example.com` (root SSH via `~/.ssh/id_ed25519`). Reserved VMIDs to NEVER touch: 100, 301, 500, 600, 601, 900. Pick two free IDs (this plan uses **620 = clickhouse**, **621 = vector**; confirm free first). Record the assigned container IPs in `infra/ENV.local` (gitignored) for later tasks.
+>
+> **As built (2026-06-06):** ClickHouse = **VMID 104** (`ssdf-clickhouse`, 198.51.100.151), Vector = **VMID 102** (`ssdf-vector`, 198.51.100.150) — 100-range static IPs per operator preference. Debian 12.12 template, `local-lvm` rootfs. Vector installed from the GitHub release `.deb` (v0.56.0) because the timber.io apt repo is dead; the apt-repo step in Step 7 no longer works. Vector's systemd unit defaults to `/etc/vector/vector.yaml`, so a drop-in sets `Environment=VECTOR_CONFIG=/etc/vector/vector.toml` alongside `CH_HOST`. Tasks 4/7/8/9 below use the as-built VMIDs (104/102).
 
 **Files:**
 - Create: `infra/ENV.local` (gitignored — holds `CH_HOST` / `VECTOR_HOST` IPs)
@@ -228,21 +230,21 @@ ssh root@pve3.example.com 'pct create 621 local:vztmpl/debian-12-standard_12.7-1
 - [ ] **Step 5: Capture the container IPs**
 
 ```bash
-ssh root@pve3.example.com "pct exec 620 -- ip -4 -o addr show eth0 | awk '{print \$4}' | cut -d/ -f1"
-ssh root@pve3.example.com "pct exec 621 -- ip -4 -o addr show eth0 | awk '{print \$4}' | cut -d/ -f1"
+ssh root@pve3.example.com "pct exec 104 -- ip -4 -o addr show eth0 | awk '{print \$4}' | cut -d/ -f1"
+ssh root@pve3.example.com "pct exec 102 -- ip -4 -o addr show eth0 | awk '{print \$4}' | cut -d/ -f1"
 ```
 
 Write the results into `infra/ENV.local`:
 
 ```bash
 CH_HOST=<clickhouse-620-ip>
-VECTOR_HOST=<vector-621-ip>
+VECTOR_HOST=<vector-102-ip>
 ```
 
 - [ ] **Step 6: Install ClickHouse on 620**
 
 ```bash
-ssh root@pve3.example.com 'pct exec 620 -- bash -lc "apt-get update && apt-get install -y apt-transport-https ca-certificates curl gnupg && \
+ssh root@pve3.example.com 'pct exec 104 -- bash -lc "apt-get update && apt-get install -y apt-transport-https ca-certificates curl gnupg && \
   curl -fsSL https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key | gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg && \
   echo \"deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg] https://packages.clickhouse.com/deb stable main\" > /etc/apt/sources.list.d/clickhouse.list && \
   DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y clickhouse-server clickhouse-client && \
@@ -252,13 +254,13 @@ ssh root@pve3.example.com 'pct exec 620 -- bash -lc "apt-get update && apt-get i
 Then allow remote connections (Vector + your workstation reach it over HTTP/native):
 
 ```bash
-ssh root@pve3.example.com 'pct exec 620 -- bash -lc "mkdir -p /etc/clickhouse-server/config.d && printf \"<clickhouse><listen_host>0.0.0.0</listen_host></clickhouse>\n\" > /etc/clickhouse-server/config.d/listen.xml && systemctl restart clickhouse-server"'
+ssh root@pve3.example.com 'pct exec 104 -- bash -lc "mkdir -p /etc/clickhouse-server/config.d && printf \"<clickhouse><listen_host>0.0.0.0</listen_host></clickhouse>\n\" > /etc/clickhouse-server/config.d/listen.xml && systemctl restart clickhouse-server"'
 ```
 
 - [ ] **Step 7: Install Vector on 621** (apt package → provides the systemd unit)
 
 ```bash
-ssh root@pve3.example.com 'pct exec 621 -- bash -lc "apt-get update && apt-get install -y curl gnupg ca-certificates && \
+ssh root@pve3.example.com 'pct exec 102 -- bash -lc "apt-get update && apt-get install -y curl gnupg ca-certificates && \
   curl -1sLf https://repositories.timber.io/public/vector/gpg.3543DB2D0A2BC4B8.key | gpg --dearmor -o /usr/share/keyrings/vector-archive-keyring.gpg && \
   echo \"deb [signed-by=/usr/share/keyrings/vector-archive-keyring.gpg] https://repositories.timber.io/public/vector/deb/debian bookworm main\" > /etc/apt/sources.list.d/vector.list && \
   apt-get update && apt-get install -y vector"'
@@ -268,8 +270,8 @@ ssh root@pve3.example.com 'pct exec 621 -- bash -lc "apt-get update && apt-get i
 
 ```bash
 source infra/ENV.local
-ssh root@pve3.example.com "pct exec 620 -- clickhouse-client --query 'SELECT version()'"
-ssh root@pve3.example.com "pct exec 621 -- vector --version"
+ssh root@pve3.example.com "pct exec 104 -- clickhouse-client --query 'SELECT version()'"
+ssh root@pve3.example.com "pct exec 102 -- vector --version"
 ```
 
 Expected: a ClickHouse version string and a `vector x.y.z` string.
@@ -291,15 +293,15 @@ git commit -m "chore(m1): provision ClickHouse(620)+Vector(621) LXCs; gitignore 
 
 ```bash
 scp infra/clickhouse/001_events.sql root@pve3.example.com:/tmp/001_events.sql
-ssh root@pve3.example.com "pct push 620 /tmp/001_events.sql /tmp/001_events.sql"
-ssh root@pve3.example.com "pct exec 620 -- bash -lc 'clickhouse-client --multiquery < /tmp/001_events.sql'"
+ssh root@pve3.example.com "pct push 104 /tmp/001_events.sql /tmp/001_events.sql"
+ssh root@pve3.example.com "pct exec 104 -- bash -lc 'clickhouse-client --multiquery < /tmp/001_events.sql'"
 ```
 
 - [ ] **Step 2: Verify the table exists with the expected columns**
 
 Run:
 ```bash
-ssh root@pve3.example.com "pct exec 620 -- clickhouse-client --query \"SELECT count() FROM system.columns WHERE database='ssdf' AND table='events'\""
+ssh root@pve3.example.com "pct exec 104 -- clickhouse-client --query \"SELECT count() FROM system.columns WHERE database='ssdf' AND table='events'\""
 ```
 Expected: `22`
 
@@ -556,38 +558,39 @@ git commit -m "feat(m1): Vector VRL normalizer mapping SRX RT_FLOW to ECS (+unit
 ```bash
 source infra/ENV.local
 scp infra/vector/vector.toml root@pve3.example.com:/tmp/vector.toml
-ssh root@pve3.example.com "pct push 621 /tmp/vector.toml /etc/vector/vector.toml"
+ssh root@pve3.example.com "pct push 102 /tmp/vector.toml /etc/vector/vector.toml"
 ```
 
 - [ ] **Step 2: Set CH_HOST for the Vector service and start it**
 
 ```bash
 source infra/ENV.local
-ssh root@pve3.example.com "pct exec 621 -- bash -lc 'mkdir -p /etc/systemd/system/vector.service.d && printf \"[Service]\nEnvironment=CH_HOST=${CH_HOST}\n\" > /etc/systemd/system/vector.service.d/env.conf && systemctl daemon-reload && systemctl enable --now vector && systemctl restart vector'"
+ssh root@pve3.example.com "pct exec 102 -- bash -lc 'mkdir -p /etc/systemd/system/vector.service.d && printf \"[Service]\nEnvironment=CH_HOST=${CH_HOST}\n\" > /etc/systemd/system/vector.service.d/env.conf && systemctl daemon-reload && systemctl enable --now vector && systemctl restart vector'"
 ```
 
 - [ ] **Step 3: Confirm Vector is listening on UDP/514 and healthy**
 
 ```bash
-ssh root@pve3.example.com "pct exec 621 -- bash -lc 'systemctl is-active vector && ss -ulnp | grep :514'"
+ssh root@pve3.example.com "pct exec 102 -- bash -lc 'systemctl is-active vector && ss -ulnp | grep :514'"
 ```
 Expected: `active` and a line showing `*:514` bound by vector.
 
 - [ ] **Step 4: Smoke-test end-to-end with a fixture line**
 
-Install netcat in the container, send the fixture to Vector's UDP listener, then query ClickHouse:
+Install netcat in the container, send the fixture to Vector's UDP listener, then query ClickHouse.
+**Important:** copy the fixture as a *file* into the container and pipe it from there — do NOT interpolate the fixture string through nested `ssh`/`pct exec`/`bash` shells. The fixture contains `key="value"` pairs (e.g. `reason="TCP RST"`); shell layers strip the quotes and collapse the spaces, so Vector receives `reason=TCPRST`, the SD regex matches nothing, and every parsed field lands empty/null.
 ```bash
-ssh root@pve3.example.com "pct exec 621 -- bash -lc 'apt-get install -y netcat-openbsd >/dev/null 2>&1 || true'"
-FIX=$(cat tests/fixtures/srx/session_close.txt)
-ssh root@pve3.example.com "pct exec 621 -- bash -lc \"printf '%s' '$FIX' | nc -u -w1 127.0.0.1 514\""
+ssh root@pve3.example.com "pct exec 102 -- bash -lc 'apt-get install -y netcat-openbsd >/dev/null 2>&1 || true'"
+scp tests/fixtures/srx/session_close.txt root@pve3.example.com:/tmp/session_close.txt
+ssh root@pve3.example.com "pct push 102 /tmp/session_close.txt /tmp/session_close.txt && pct exec 102 -- bash -lc 'nc -u -w1 127.0.0.1 514 < /tmp/session_close.txt'"
 sleep 7
-ssh root@pve3.example.com "pct exec 620 -- clickhouse-client --query \"SELECT event_action, source_ip, destination_port, network_bytes FROM ssdf.events WHERE rule_name='trust-to-untrust' ORDER BY timestamp DESC LIMIT 1\""
+ssh root@pve3.example.com "pct exec 104 -- clickhouse-client --query \"SELECT event_action, source_ip, destination_port, network_bytes FROM ssdf.events WHERE rule_name='trust-to-untrust' ORDER BY timestamp DESC LIMIT 1\""
 ```
 Expected one row: `flow_session_close   10.65.1.10   443   7500`
 
 - [ ] **Step 5: Commit (no file change; record success here)**
 
-If the row appears, M1 plumbing works with synthetic data. If the sink errored, check `pct exec 621 -- journalctl -u vector -n 50` and fix `vector.toml` (commit any fix with `fix(m1): ...`).
+If the row appears, M1 plumbing works with synthetic data. If the sink errored, check `pct exec 102 -- journalctl -u vector -n 50` and fix `vector.toml` (commit any fix with `fix(m1): ...`).
 
 ---
 
@@ -600,14 +603,14 @@ If the row appears, M1 plumbing works with synthetic data. If the sink errored, 
 
 - [ ] **Step 1: Write the Junos onboarding config**
 
-Create `onboarding/srx/stream-config.set` (replace `<vector-621-ip>` and `<srx-src-ip>` from `infra/ENV.local` / device facts when applying):
+Create `onboarding/srx/stream-config.set` (replace `<vector-102-ip>` and `<srx-src-ip>` from `infra/ENV.local` / device facts when applying):
 
 ```
 set security log mode stream
 set security log source-address <srx-src-ip>
 set security log stream SSDF format sd-syslog
 set security log stream SSDF category all
-set security log stream SSDF host <vector-621-ip> port 514
+set security log stream SSDF host <vector-102-ip> port 514
 ```
 
 - [ ] **Step 2: Apply the config to vSRX-test10 via the Junos MCP**
@@ -618,7 +621,7 @@ Use the `rust-junosmcp` tools (e.g. `load_and_commit_config`) to apply the five 
 
 Generate traffic through the SRX (or wait for ambient flows), then read what Vector received:
 ```bash
-ssh root@pve3.example.com "pct exec 621 -- journalctl -u vector -n 20 --no-pager | grep RT_FLOW | tail -1"
+ssh root@pve3.example.com "pct exec 102 -- journalctl -u vector -n 20 --no-pager | grep RT_FLOW | tail -1"
 ```
 Compare the real SD parameter names (e.g. `source-address`, `bytes-from-client`, `policy-name`) against `tests/fixtures/srx/*.txt`. If any differ, update the fixtures **and** the VRL field references in `infra/vector/vector.toml`, then re-run `vector test infra/vector/vector.toml` until green, redeploy (Task 7 Step 1–2), and commit:
 ```bash
@@ -629,7 +632,7 @@ git commit -m "fix(m1): align VRL+fixtures to live vSRX sd-syslog field names"
 - [ ] **Step 4: Verify real events are landing in ClickHouse**
 
 ```bash
-ssh root@pve3.example.com "pct exec 620 -- clickhouse-client --query \"SELECT count(), min(timestamp), max(timestamp) FROM ssdf.events WHERE event_provider='juniper'\""
+ssh root@pve3.example.com "pct exec 104 -- clickhouse-client --query \"SELECT count(), min(timestamp), max(timestamp) FROM ssdf.events WHERE event_provider='juniper'\""
 ```
 Expected: a non-zero count with a recent `max(timestamp)`.
 
@@ -651,7 +654,7 @@ git commit -m "feat(m1): add vSRX stream-mode onboarding config (applied via rus
 
 "Denied flows from a host in the last hour" — run against live data (substitute a real source host seen in your traffic):
 ```bash
-ssh root@pve3.example.com "pct exec 620 -- clickhouse-client --query \"SELECT timestamp, source_ip, destination_ip, destination_port, rule_name FROM ssdf.events WHERE event_action='flow_session_deny' AND timestamp > now() - INTERVAL 1 HOUR ORDER BY timestamp DESC LIMIT 50\""
+ssh root@pve3.example.com "pct exec 104 -- clickhouse-client --query \"SELECT timestamp, source_ip, destination_ip, destination_port, rule_name FROM ssdf.events WHERE event_action='flow_session_deny' AND timestamp > now() - INTERVAL 1 HOUR ORDER BY timestamp DESC LIMIT 50\""
 ```
 Expected: zero or more rows, returning without error, with correctly typed columns. M1 is **done** when this (and an allowed-flow variant) returns real SRX data.
 
@@ -667,7 +670,7 @@ In `CLAUDE.md`, under "## Commands", replace the "No build, lint, test, or run c
 - Validate Vector config: `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`
 - Apply ClickHouse schema: `CH_HOST=<ip> ./scripts/apply_clickhouse_schema.sh`
 - Query events: `clickhouse-client --host <ch-host> --query "SELECT ... FROM ssdf.events ..."`
-- Infra runs on Proxmox LXC (no Docker): ClickHouse=ct620, Vector=ct621 on pve3.example.com.
+- Infra runs on Proxmox LXC (no Docker): ClickHouse=ct104, Vector=ct102 on pve3.example.com.
 - SRX onboarding applied via rust-junosmcp using onboarding/srx/stream-config.set.
 ```
 
@@ -683,7 +686,7 @@ git commit -m "docs(m1): record real M1 commands; mark SRX->ClickHouse pipe done
 ## Done criteria (M1)
 
 - `vector test infra/vector/vector.toml` passes (RT_FLOW → ECS mapping verified).
-- ClickHouse `ssdf.events` exists (22 columns) on ct620.
-- A real vSRX (test10) streams `sd-syslog` security logs to Vector (ct621), normalized to the ECS subset, landing in ClickHouse.
+- ClickHouse `ssdf.events` exists (22 columns) on ct104.
+- A real vSRX (test10) streams `sd-syslog` security logs to Vector (ct102), normalized to the ECS subset, landing in ClickHouse.
 - The acceptance query (denied/allowed flows by host + time window) returns real data via SQL.
 - No Rust service, message bus, graph, Python, or Docker introduced — all parked behind seams per the spec.
