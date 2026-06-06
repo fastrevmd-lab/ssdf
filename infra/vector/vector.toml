@@ -1,0 +1,182 @@
+# SSDF M1 — SRX security logs (sd-syslog) -> ECS subset -> ClickHouse.
+# CH_HOST is injected via environment at runtime (see infra/ENV.local).
+
+[sources.srx_syslog]
+type = "socket"
+mode = "udp"
+address = "0.0.0.0:514"
+max_length = 102400
+
+[transforms.srx_ecs]
+type = "remap"
+inputs = ["srx_syslog"]
+source = '''
+raw = .message
+parsed, err = parse_syslog(raw)
+if err != null {
+    . = { "raw": raw, "event_kind": "event", "event_action": "parse_error" }
+} else {
+    # Extract all structured-data key=value pairs from the raw message via regex.
+    # Junos RT_FLOW syslog: [junos@2636... key="val" key2="val2" ...]
+    # We parse all key="value" pairs within the SD block.
+    fields = {}
+    sd_match, sd_err = parse_regex(raw, r'\[(?:[^\]]*?) (?P<params>(?:\S+="[^"]*" ?)+)\]')
+    if sd_err == null {
+        params_str = string(sd_match.params) ?? ""
+        kv_matches, _kv_err = parse_regex_all(params_str, r'(?P<key>[^=\s]+)="(?P<val>[^"]*)"')
+        for_each(kv_matches) -> |_i, kv| {
+            k = string(kv.key) ?? ""
+            v = string(kv.val) ?? ""
+            fields = set!(fields, [k], v)
+        }
+    }
+
+    action = downcase(string(parsed.msgid) ?? "")
+    event_action = "unknown"
+    event_outcome = "unknown"
+    if action == "rt_flow_session_create" {
+        event_action = "flow_session_create"
+        event_outcome = "success"
+    } else if action == "rt_flow_session_close" {
+        event_action = "flow_session_close"
+        event_outcome = "success"
+    } else if action == "rt_flow_session_deny" {
+        event_action = "flow_session_deny"
+        event_outcome = "failure"
+    }
+
+    proto_id = to_int(fields."protocol-id")
+    transport = "unknown"
+    if proto_id == 6 {
+        transport = "tcp"
+    } else if proto_id == 17 {
+        transport = "udp"
+    } else if proto_id == 1 {
+        transport = "icmp"
+    }
+
+    src_bytes = to_int(fields."bytes-from-client")
+    dst_bytes = to_int(fields."bytes-from-server")
+    net_bytes = null
+    if src_bytes != null && dst_bytes != null {
+        net_bytes = src_bytes + dst_bytes
+    }
+
+    user = string(fields.username) ?? ""
+    if user == "N/A" {
+        user = ""
+    }
+
+    . = {
+        "timestamp": parsed.timestamp,
+        "event_id": uuid_v4(),
+        "tenant_id": "t_main",
+        "event_kind": "event",
+        "event_category": ["network"],
+        "event_action": event_action,
+        "event_outcome": event_outcome,
+        "event_provider": "juniper",
+        "source_ip": fields."source-address",
+        "source_port": to_int(fields."source-port"),
+        "source_bytes": src_bytes,
+        "destination_ip": fields."destination-address",
+        "destination_port": to_int(fields."destination-port"),
+        "destination_bytes": dst_bytes,
+        "network_transport": transport,
+        "network_bytes": net_bytes,
+        "rule_name": string(fields."policy-name") ?? "",
+        "observer_ingress_zone": string(fields."source-zone-name") ?? "",
+        "observer_egress_zone": string(fields."destination-zone-name") ?? "",
+        "user_name": user,
+        "ext": map_values(fields) -> |v| { string(v) },
+        "raw": raw
+    }
+}
+'''
+
+[sinks.clickhouse]
+type = "clickhouse"
+inputs = ["srx_ecs"]
+endpoint = "http://${CH_HOST}:8123"
+database = "ssdf"
+table = "events"
+skip_unknown_fields = false
+date_time_best_effort = true
+
+[sinks.clickhouse.batch]
+max_events = 1000
+timeout_secs = 5
+
+# ---------------- unit tests ----------------
+
+[[tests]]
+name = "session_close_maps_to_ecs"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-06-06T12:00:00.000Z srx-test10 RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 reason="TCP RST" source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" service-name="junos-https" application="HTTPS" protocol-id="6" policy-name="trust-to-untrust" source-zone-name="trust" destination-zone-name="untrust" session-id-32="40000123" packets-from-client="12" bytes-from-client="1500" packets-from-server="10" bytes-from-server="6000" elapsed-time="5" username="alice"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "flow_session_close")
+assert_eq!(.event_kind, "event")
+assert_eq!(.event_category, ["network"])
+assert_eq!(.event_provider, "juniper")
+assert_eq!(.source_ip, "10.65.1.10")
+assert_eq!(.source_port, 51514)
+assert_eq!(.destination_ip, "10.66.2.20")
+assert_eq!(.destination_port, 443)
+assert_eq!(.network_transport, "tcp")
+assert_eq!(.source_bytes, 1500)
+assert_eq!(.destination_bytes, 6000)
+assert_eq!(.network_bytes, 7500)
+assert_eq!(.rule_name, "trust-to-untrust")
+assert_eq!(.observer_ingress_zone, "trust")
+assert_eq!(.observer_egress_zone, "untrust")
+assert_eq!(.user_name, "alice")
+assert_eq!(.ext."session-id-32", "40000123")
+'''
+
+[[tests]]
+name = "session_create_maps_to_ecs"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-06-06T12:00:01.000Z srx-test10 RT_FLOW - RT_FLOW_SESSION_CREATE [junos@2636.1.1.1.2.36 source-address="10.65.1.11" source-port="52020" destination-address="10.66.2.21" destination-port="22" service-name="junos-ssh" application="SSH" protocol-id="6" policy-name="trust-to-untrust" source-zone-name="trust" destination-zone-name="untrust" session-id-32="40000124" username="bob"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "flow_session_create")
+assert_eq!(.event_outcome, "success")
+assert_eq!(.source_ip, "10.65.1.11")
+assert_eq!(.destination_port, 22)
+assert_eq!(.network_transport, "tcp")
+assert_eq!(.rule_name, "trust-to-untrust")
+assert_eq!(.user_name, "bob")
+# create logs carry no byte counters -> to_int() yields 0, so network_bytes is 0
+assert_eq!(.network_bytes, 0)
+assert_eq!(.ext."session-id-32", "40000124")
+'''
+
+[[tests]]
+name = "session_deny_maps_to_ecs"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-06-06T12:00:02.000Z srx-test10 RT_FLOW - RT_FLOW_SESSION_DENY [junos@2636.1.1.1.2.36 source-address="10.73.9.9" source-port="40000" destination-address="10.66.2.22" destination-port="3389" service-name="junos-rdp" application="RDP" protocol-id="6" policy-name="default-deny" source-zone-name="untrust" destination-zone-name="trust" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "flow_session_deny")
+assert_eq!(.event_outcome, "failure")
+assert_eq!(.source_ip, "10.73.9.9")
+assert_eq!(.destination_port, 3389)
+assert_eq!(.rule_name, "default-deny")
+assert_eq!(.user_name, "")
+'''

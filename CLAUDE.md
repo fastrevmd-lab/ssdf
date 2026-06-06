@@ -74,16 +74,15 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
 
 ## Commands
 
-No build, lint, test, or run commands exist yet — there is no code. **When you scaffold a
-component, add its real commands here**, per language:
+### M1 (SRX → Vector → ClickHouse)
+- Run Vector unit tests: `vector test infra/vector/vector.toml`
+- Validate Vector config: `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`
+- Apply ClickHouse schema: `CH_HOST=<ip> ./scripts/apply_clickhouse_schema.sh`
+- Query events: `clickhouse-client --host <ch-host> --query "SELECT ... FROM ssdf.events ..."`
+- Infra runs on Proxmox LXC (no Docker): ClickHouse=ct104, Vector=ct102 on pve3.example.com.
+- SRX onboarding applied via rust-junosmcp using onboarding/srx/stream-config.set.
 
-- Rust services: standard `cargo build` / `cargo test` / `cargo run -p <crate>` (record the
-  actual crate/workspace layout once it exists, including how to run a single test:
-  `cargo test <name>`).
-- Python services: record the chosen tooling (e.g. `uv` / `poetry`), how to run the MCP
-  server(s), and how to run a single test (e.g. `pytest path::test_name`).
-
-Until then, do not invent commands.
+Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems
 
