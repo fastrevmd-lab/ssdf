@@ -27,10 +27,16 @@ class Config:
 def _read_token() -> str:
     inline = os.environ.get("MCP_AUTH_TOKEN")
     if inline:
-        return inline.strip()
+        token = inline.strip()
+        if not token:
+            raise ConfigError("auth token is empty")
+        return token
     token_file = os.environ.get("MCP_TOKEN_FILE")
     if token_file and Path(token_file).is_file():
-        return Path(token_file).read_text(encoding="utf-8").strip()
+        token = Path(token_file).read_text(encoding="utf-8").strip()
+        if not token:
+            raise ConfigError("auth token is empty")
+        return token
     raise ConfigError("no bearer token: set MCP_AUTH_TOKEN or MCP_TOKEN_FILE")
 
 

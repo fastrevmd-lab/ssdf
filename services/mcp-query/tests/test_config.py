@@ -28,3 +28,12 @@ def test_missing_token_raises(monkeypatch):
     monkeypatch.delenv("MCP_TOKEN_FILE", raising=False)
     with pytest.raises(ConfigError):
         load_config()
+
+def test_whitespace_only_token_raises(monkeypatch, tmp_path):
+    token_file = tmp_path / "token"
+    token_file.write_text("   \n")
+    monkeypatch.setenv("CH_PASSWORD", "pw")
+    monkeypatch.setenv("MCP_TOKEN_FILE", str(token_file))
+    monkeypatch.delenv("MCP_AUTH_TOKEN", raising=False)
+    with pytest.raises(ConfigError):
+        load_config()

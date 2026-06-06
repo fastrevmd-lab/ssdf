@@ -53,7 +53,7 @@ def guard_sql(query: str, max_limit: int = 1000) -> str:
         # Anonymous/Func with no db/name; reject anything not a plain ssdf table.
         if not isinstance(table.this, exp.Identifier):
             raise GuardError("table functions are not allowed")
-        db = (table.db or "").lower()
+        db = table.db or ""
         if db != ALLOWED_DB:
             raise GuardError(
                 f"only the '{ALLOWED_DB}' database is allowed (got {table.db or 'unqualified'}.{table.name})"

@@ -19,6 +19,9 @@ DENIED = [
     "SELECT * FROM events",
     "SELECT * FROM other.secrets",
     "TRUNCATE TABLE ssdf.events",
+    "SELECT * FROM SSDF.events",
+    "SELECT * FROM system.tables UNION ALL SELECT event_action FROM ssdf.events",
+    "WITH x AS (SELECT * FROM system.tables) SELECT * FROM x",
 ]
 
 @pytest.mark.parametrize("query", ALLOWED)
@@ -40,3 +43,8 @@ def test_oversized_limit_is_clamped():
     out = guard_sql("SELECT * FROM ssdf.events LIMIT 999999", max_limit=1000)
     assert "1000" in out
     assert "999999" not in out
+
+def test_lowercase_ssdf_table_is_allowed():
+    out = guard_sql("SELECT * FROM ssdf.events", max_limit=1000)
+    assert "ssdf.events" in out.lower()
+    assert "limit" in out.lower()
