@@ -42,10 +42,16 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
 ## Forward roadmap (proposed, renumbered from as-built — adjust as we go)
 
 - **M3 — completed current milestone.** Do not assign new design work to M3.
-- **M4 — dynamic connectivity graph.** Observed connectivity rollups from `ssdf.events` into
-  `ssdf.connectivity_edges_hourly`, plus MCP tools for connectivity, rule usage, trends, new
-  paths, and evidence-backed explanations. Spec:
-  `docs/superpowers/specs/2026-06-07-ssdf-m4-dynamic-connectivity-graph-design.md`.
+- **M4 — dynamic connectivity / topology graph.** ✅ Built 2026-06-07. Collectors (junos,
+  unifi, panos, proxmox) reuse the deployed read-only MCPs to gather LLDP/MAC/ARP/interface +
+  VM-NIC facts into `ssdf.topo_observations`; a resolver fuses them with L3 flow rollups into
+  `ssdf.graph_nodes`/`graph_edges` (MAC-anchored identity, IP-never-identity-alone). Six
+  read-only topology tools added to `ssdf-mcp-query`. Deployed on LXC **ct109** (`ssdf-topo`,
+  .153, 5-min timer); graph tools on ct106. First live cycle: 197 observations → 209 nodes /
+  205 edges. Spec: `specs/2026-06-07-ssdf-m4-topology-graph-design.md`; plan:
+  `plans/2026-06-07-ssdf-m4-topology-graph*.md`. (Supersedes the earlier proposed M4 —
+  `connectivity_edges_hourly` rollups; the shipped M4 is the richer topology-graph design.
+  Note: plan reserved ct107, but VMID 107 was occupied by an unrelated VM, so ct109 was used.)
 - **M5 — second source: PAN-OS.** Onboard `panos-fw` (VMID 900) via the M1 Vector-VRL pattern
   (Elastic `panw` map; Log Forwarding Profile applied through `panos-mcp`) into `ssdf.events`.
   Proves the schema generalizes to a 2nd vendor; live device + MCP already available.
@@ -69,4 +75,5 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
 ## Protected lab infra (do not reclaim)
 
 SSDF LXCs on Proxmox pve3.example.com: **ct102** (Vector), **ct104** (ClickHouse), **ct106**
-(MCP query server). Plus the cluster-wide protected VMIDs in `~/.claude/CLAUDE.md`.
+(MCP query server), **ct109** (topo collectors+resolver). Plus the cluster-wide protected
+VMIDs in `~/.claude/CLAUDE.md`.
