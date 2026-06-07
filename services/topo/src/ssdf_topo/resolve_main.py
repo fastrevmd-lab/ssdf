@@ -16,9 +16,11 @@ log = logging.getLogger("ssdf_topo.resolve")
 OBS_SQL = (
     "SELECT toString(observed_at) AS observed_at, collector, source_device, tenant_id, "
     "layer, observation_type, subj_kind, subj_id, obj_kind, obj_id, attrs, raw "
-    "FROM ssdf.topo_observations "
+    "FROM ("
+    "SELECT * FROM ssdf.topo_observations "
     "WHERE tenant_id = {tenant:String} "
     "AND observed_at >= now() - INTERVAL {window_hours:UInt32} HOUR"
+    ")"
 )
 
 

@@ -1,4 +1,15 @@
-from ssdf_topo.resolve_main import run_resolver
+from ssdf_topo.resolve_main import OBS_SQL, run_resolver
+
+
+def test_obs_sql_filters_before_aliasing_observed_at():
+    """The observed_at time filter must bind to the DateTime column, not the
+    String alias. ClickHouse resolves a SELECT alias of the same name in WHERE,
+    which made `observed_at >= now() - INTERVAL ...` compare String vs DateTime
+    (error 386). Keep the filter inside a subquery so the alias cannot shadow it.
+    """
+    where_pos = OBS_SQL.index("observed_at >= now()")
+    subquery_pos = OBS_SQL.index("FROM (")
+    assert subquery_pos < where_pos, "time filter must live inside the subquery"
 
 class FakeWriter:
     def __init__(self, obs_rows, flow_rows):
