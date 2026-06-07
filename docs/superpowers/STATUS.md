@@ -22,7 +22,7 @@ boundary, AI-native, minimal.
 |---|---|---|---|---|
 | **M1** | SRX security logs → Vector (VRL/ECS-subset) → ClickHouse `ssdf.events`, SQL-queryable | ✅ Done | `infra/vector/`, `infra/clickhouse/`, `onboarding/srx/`; LXC ct102 (Vector, .150) + ct104 (ClickHouse, .151) | PR #1; real vSRX-test10 data |
 | **M2** | Read-only **MCP query layer** over `ssdf.events` (Python/FastMCP): `query_flows`, `describe_schema`, `top_talkers`, guarded `run_sql` | ✅ Done | `services/mcp-query/`; LXC ct106 (.152:30032), reads CH as read-only `ssdf_ro` | PR #2; 47 unit + 5 live integration tests; bearer-auth enforced |
-| **M3** | PAN-OS firewall logs → Vector (VRL/CSV) → ClickHouse `ssdf.events` (2nd vendor; `event_provider=paloalto`, vendor extras under `panw.panos.*`) | ✅ Done (Stage A live; pipeline validated) | `infra/vector/vector.toml` (`panos_ecs` transform), `onboarding/panos/`; live device panosvm (VMID 900, PAN-OS 12.1.5, 198.51.100.225); Vector ct102 UDP:515 (live); reads via M2 MCP ct106 | 10 vector unit tests; end-to-end validated: line → ct102:515 → `ssdf.events` → `query_flows(provider="paloalto")` returns row; `juniper:13, paloalto:1` coexist |
+| **M3** | PAN-OS firewall logs → Vector (VRL/CSV) → ClickHouse `ssdf.events` (2nd vendor; `event_provider=paloalto`, vendor extras under `panw.panos.*`) | ✅ Done (Stage A+B live; real-wire validated) | `infra/vector/vector.toml` (`panos_ecs` transform), `onboarding/panos/`; live device panosvm (VMID 900, PAN-OS 12.1.5, 198.51.100.225); Vector ct102 UDP:515 (live); reads via M2 MCP ct106 | 10 vector unit tests; real-wire validated: SYSTEM (9 subtypes) + CONFIG logs → `ssdf.events`; TRAFFIC via synthetic line → `query_flows(provider="paloalto")`; both vendors coexist |
 
 ## Numbering reconciliation (the drift)
 
@@ -51,13 +51,24 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   paloalto`, IPv4 src/dst, ports, bytes, `rule_name`, `panw.panos.*` extras; returned by the M2
   MCP `query_flows(provider="paloalto")`; both vendors coexist (`juniper:13, paloalto:1`). Proves
   the ECS-subset schema generalizes to a 2nd vendor.
-  - **Carve-outs (follow-ups, not blockers):** (1) panosvm currently has **no transit traffic**
-    (empty session table), so the end-to-end proof used a synthetic-but-positionally-exact line;
-    real-wire TRAFFIC validation will self-confirm the first time traffic hits a logged rule
-    (PAN-OS transit-only-logging trap, same as SRX). (2) **Stage B device-plane log-settings**
-    (system/config self-generated logs, which would give real-wire validation without transit
-    traffic) is **not applied** — the panos-mcp config-write path began returning "Unauthorized
-    request" (read ops still work), a credential issue to resolve on the panos-mcp side.
+  - **Stage B device-plane log-settings (system + config) — applied & validated 2026-06-07.**
+    `shared log-settings system|config` match-lists → SSDF syslog profile, committed live. Gave
+    **real-wire validation** without transit traffic: the firewall's own SYSTEM logs (9 subtypes:
+    general/vpn/routing/ras/sslmgr/satd/auth/url-filtering/device-telemetry) and CONFIG set/commit
+    logs land in `ssdf.events` with correct typed columns — CONFIG `user_name`/`command`/`client`/
+    `result` map exactly as the unit tests asserted (admin idx 10, command idx 9). correlation/
+    globalprotect/hipmatch intentionally not applied (those features aren't configured → no logs).
+  - **The earlier "Unauthorized request" was NOT an auth defect.** Root cause: pan-os-python's
+    `xapi.set` does not prepend `/config/`, so a relative xpath (`shared/log-settings`) is rejected
+    by PAN-OS as "Unauthorized request". Fix = pass **absolute `/config/...` xpaths** to
+    `load_and_commit_pan_config` (fmt=xml). The `mcp-api` admin is superuser; no credential change
+    was needed.
+  - **Remaining carve-out:** panosvm still has **no transit traffic** (empty session table), so
+    real-wire **TRAFFIC** validation used a synthetic-but-positionally-exact line; it self-confirms
+    the first time traffic hits a logged rule (PAN-OS transit-only-logging trap, same as SRX).
+  - **Observation (pre-existing M1 concern, not M3):** PAN-OS stamps receive-time in local EDT
+    (`-04:00`); ingest stores it without TZ conversion, so event `timestamp` sits ~4h behind
+    ClickHouse `now()` (UTC). Affects relative-time `WHERE` filters across all sources.
 - **M4 — entity/correlation layer.** Deterministic Asset/Identity resolution from ECS events
   behind a `GraphStore` seam (Postgres-as-graph first, Neo4j deferred). Build when
   ClickHouse-only correlation stops sufficing.

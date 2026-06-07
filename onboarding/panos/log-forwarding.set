@@ -45,11 +45,26 @@ set vsys vsys1 rulebase security rules allow-trust-to-untrust log-setting SSDF-L
 set vsys vsys1 rulebase security rules allow-trust-to-untrust log-end yes
 
 # ---------------------------------------------------------------------------
-# 4. Device-level log-settings (non-session / system-plane logs)
+# 4. Device-level log-settings (non-session / system-plane logs)  [Stage B]
 #    These use the shared log-settings path, not deviceconfig.
-# ---------------------------------------------------------------------------
-set shared log-settings system match-list sys-all filter "All Logs" send-syslog SSDF
-set shared log-settings config match-list cfg-all filter "All Logs" send-syslog SSDF
-set shared log-settings correlation match-list corr-all filter "All Logs" send-syslog SSDF  # verify
-set shared log-settings globalprotect match-list gp-all filter "All Logs" send-syslog SSDF  # verify
-set shared log-settings hipmatch match-list hip-all filter "All Logs" send-syslog SSDF       # verify
+#    AS-BUILT 2026-06-07: system + config applied & committed live (real SYSTEM
+#    logs across 9 subtypes + CONFIG set/commit logs confirmed in ssdf.events).
+#    correlation/globalprotect/hipmatch left UNAPPLIED — those features are not
+#    configured on this device, so they would generate no logs.
+#
+#    IMPORTANT (panos-mcp gotcha): apply Stage B via fmt=xml with an ABSOLUTE
+#    xpath beginning "/config/...". A relative xpath like "shared/log-settings"
+#    makes pan-os-python's xapi.set send a non-absolute xpath, which PAN-OS
+#    rejects as "Unauthorized request" (misleading — it is NOT an auth/permission
+#    problem; the mcp-api admin is superuser). Absolute xpath = success.
+#    Equivalent XML applied:
+#      xpath=/config/shared/log-settings
+#      element=<system><match-list><entry name="all-system">
+#                <send-syslog><member>SSDF</member></send-syslog>
+#                <filter>All Logs</filter></entry></match-list></system>
+#      element=<config><match-list><entry name="all-config">...</entry></match-list></config>
+set shared log-settings system match-list all-system filter "All Logs" send-syslog SSDF
+set shared log-settings config match-list all-config filter "All Logs" send-syslog SSDF
+# set shared log-settings correlation match-list corr-all filter "All Logs" send-syslog SSDF  # not applied (no correlation features)
+# set shared log-settings globalprotect match-list gp-all filter "All Logs" send-syslog SSDF  # not applied (no GP configured)
+# set shared log-settings hipmatch match-list hip-all filter "All Logs" send-syslog SSDF       # not applied (no HIP configured)
