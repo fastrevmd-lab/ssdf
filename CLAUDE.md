@@ -92,6 +92,14 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
 - Add to an agent via `.mcp.json`: `{"type":"http","url":"http://<ip>:30032/mcp",
   "headers":{"Authorization":"Bearer <token>"}}`.
 
+### M3 (PAN-OS ingest — Vector VRL/CSV → ClickHouse)
+- Run Vector unit tests (on ct102 where Vector is installed, not dev host): `ssh root@ct102 "cd /etc/vector && vector test /path/to/vector.toml"` or push the toml and run `vector test infra/vector/vector.toml` remotely.
+- Validate config locally (syntax only, no live sinks): `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`
+- PAN-OS source: Vector ct102 listens UDP **port 515** (SRX uses 514; PAN-OS is separate source to avoid collision).
+- Onboarding artifact: `onboarding/panos/log-forwarding.set` — apply to host `panosvm` (VMID 900) via panos-mcp. Preview first with `pan_config_diff`, then commit with `load_and_commit_pan_config`. SSDF never applies device config in its own data path.
+- Sample query: `clickhouse-client --host <ch-host> --query "SELECT event_action, count() FROM ssdf.events WHERE event_provider='paloalto' GROUP BY event_action"`
+- PAN-OS version pinned: **12.1.5**. Field positions in the `panos_ecs` VRL transform are tied to the PAN-OS 12.1 default CSV syslog format — re-validate the transform on any major PAN-OS upgrade before relying on parsed fields.
+
 ### M4 (topology graph — services/topo + topology MCP tools)
 - Unit tests: `cd services/topo && uv run pytest -m "not integration"`
 - Live integration: `cd services/topo && CH_HOST=<ip> CH_PASSWORD=<pw> JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… uv run pytest -m integration`
