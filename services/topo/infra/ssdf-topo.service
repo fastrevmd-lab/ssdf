@@ -1,0 +1,12 @@
+[Unit]
+Description=SSDF M4 topo collect+resolve (one-shot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/ssdf-topo/ENV.local
+ExecStartPre=/opt/ssdf-topo/bin/python -m ssdf_topo.collect_all
+ExecStart=/opt/ssdf-topo/bin/python -m ssdf_topo.resolve_main
+# A collector failure is logged+skipped in run_collectors; do not fail the whole unit on it.
+SuccessExitStatus=0

@@ -764,15 +764,6 @@ wheels = [
 ]
 
 [[package]]
-name = "networkx"
-version = "3.6.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6a/51/63fe664f3908c97be9d2e4f1158eb633317598cfa6e1fc14af5383f17512/networkx-3.6.1.tar.gz", hash = "sha256:26b7c357accc0c8cde558ad486283728b65b6a95d85ee1cd66bafab4c8168509", size = 2517025, upload-time = "2025-12-08T17:02:39.908Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl", hash = "sha256:d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762", size = 2068504, upload-time = "2025-12-08T17:02:38.159Z" },
-]
-
-[[package]]
 name = "openapi-pydantic"
 version = "0.5.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1345,23 +1336,12 @@ wheels = [
 ]
 
 [[package]]
-name = "sqlglot"
-version = "30.9.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/04/1d/b1380b3ee8fb63c50d7507e956a1228ddefff1a2601d79806c998ef6547b/sqlglot-30.9.0.tar.gz", hash = "sha256:20bed04b6482bf13560206cae517f451f46c321e04956ad71271ed1f12ce8802", size = 5885862, upload-time = "2026-06-04T15:33:52.268Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/13/4c/41b222c130950a077e1a0ba311df84a29b818db7c136ecc1aafbfad42e26/sqlglot-30.9.0-py3-none-any.whl", hash = "sha256:59b5f74f4d391e32e6980e8cd23cca8d47beac3c0140b711ead9ed05a824a8b5", size = 695762, upload-time = "2026-06-04T15:33:49.526Z" },
-]
-
-[[package]]
-name = "ssdf-mcp-query"
+name = "ssdf-topo"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "clickhouse-connect" },
     { name = "fastmcp" },
-    { name = "networkx" },
-    { name = "sqlglot" },
 ]
 
 [package.optional-dependencies]
@@ -1373,9 +1353,7 @@ dev = [
 requires-dist = [
     { name = "clickhouse-connect", specifier = ">=0.8" },
     { name = "fastmcp", specifier = ">=2.0" },
-    { name = "networkx", specifier = ">=3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "sqlglot", specifier = ">=25.0" },
 ]
 provides-extras = ["dev"]
 

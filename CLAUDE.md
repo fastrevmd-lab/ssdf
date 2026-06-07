@@ -100,6 +100,17 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
 - Sample query: `clickhouse-client --host <ch-host> --query "SELECT event_action, count() FROM ssdf.events WHERE event_provider='paloalto' GROUP BY event_action"`
 - PAN-OS version pinned: **12.1.5**. Field positions in the `panos_ecs` VRL transform are tied to the PAN-OS 12.1 default CSV syslog format — re-validate the transform on any major PAN-OS upgrade before relying on parsed fields.
 
+### M4 (topology graph — services/topo + topology MCP tools)
+- Unit tests: `cd services/topo && uv run pytest -m "not integration"`
+- Live integration: `cd services/topo && CH_HOST=<ip> CH_PASSWORD=<pw> JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… uv run pytest -m integration`
+- One collection cycle: `cd services/topo && uv run python -m ssdf_topo.collect_all`
+- One resolver pass: `cd services/topo && uv run python -m ssdf_topo.resolve_main`
+- Deployed: collectors+resolver on Proxmox LXC **ct109** (`ssdf-topo`, 198.51.100.153, no
+  Docker) on a 5-min systemd timer (`ssdf-topo.timer` → oneshot collect→resolve); writes CH
+  ct104 as `ssdf_topo`. Topology MCP tools (`get_entity`, `locate`, `neighbors`, `find_path`,
+  `enforcement_points`, `topology_snapshot`) live on the existing `ssdf-mcp-query` (ct106).
+  As-built coords in gitignored `services/topo/infra/ENV.local`.
+
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems
