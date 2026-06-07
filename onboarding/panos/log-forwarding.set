@@ -1,0 +1,55 @@
+# SSDF M3 — PAN-OS log-forwarding onboarding.
+# Applied to panosvm (PAN-OS 12.1.5, PA-VM) via panos-mcp (load_and_commit_pan_config).
+# Substitutions (as-built 2026-06-06, panosvm):
+#   <vector-host-ip> = 198.51.100.150  (ssdf-vector LXC ct102, UDP/515)
+#   <vector-port>    = 515             (SRX already uses 514; PAN-OS gets 515)
+#
+# Prerequisites:
+#   - The SSDF Vector collector (ct102) must already be listening on UDP:515
+#     (panos_syslog source live in infra/vector/vector.toml) before applying.
+#   - Apply via panos-mcp against host "panosvm" only.
+#   - Review diff with pan_config_diff before committing.
+
+# ---------------------------------------------------------------------------
+# 1. Shared syslog server profile
+# ---------------------------------------------------------------------------
+set shared log-settings syslog SSDF server ssdf-vector server 198.51.100.150
+set shared log-settings syslog SSDF server ssdf-vector transport UDP
+set shared log-settings syslog SSDF server ssdf-vector port 515
+set shared log-settings syslog SSDF server ssdf-vector format BSD
+
+# ---------------------------------------------------------------------------
+# 2. vsys1 log-forwarding profile — one match-list entry per log type
+# ---------------------------------------------------------------------------
+set vsys vsys1 log-settings profiles SSDF-LF match-list traffic-all log-type traffic filter "All Logs" send-syslog SSDF
+set vsys vsys1 log-settings profiles SSDF-LF match-list threat-all log-type threat filter "All Logs" send-syslog SSDF
+set vsys vsys1 log-settings profiles SSDF-LF match-list url-all log-type url filter "All Logs" send-syslog SSDF
+set vsys vsys1 log-settings profiles SSDF-LF match-list wildfire-all log-type wildfire filter "All Logs" send-syslog SSDF
+set vsys vsys1 log-settings profiles SSDF-LF match-list data-all log-type data filter "All Logs" send-syslog SSDF
+set vsys vsys1 log-settings profiles SSDF-LF match-list tunnel-all log-type tunnel filter "All Logs" send-syslog SSDF
+set vsys vsys1 log-settings profiles SSDF-LF match-list auth-all log-type auth filter "All Logs" send-syslog SSDF
+set vsys vsys1 log-settings profiles SSDF-LF match-list decryption-all log-type decryption filter "All Logs" send-syslog SSDF
+
+# ---------------------------------------------------------------------------
+# 3. Attach log-forwarding profile to each vsys1 security rule
+# ---------------------------------------------------------------------------
+set vsys vsys1 rulebase security rules drifttest1 log-setting SSDF-LF
+set vsys vsys1 rulebase security rules drifttest1 log-end yes
+set vsys vsys1 rulebase security rules allow-trust-to-dmz log-setting SSDF-LF
+set vsys vsys1 rulebase security rules allow-trust-to-dmz log-end yes
+set vsys vsys1 rulebase security rules allow-corp-to-internet log-setting SSDF-LF
+set vsys vsys1 rulebase security rules allow-corp-to-internet log-end yes
+set vsys vsys1 rulebase security rules allow-untrust-to-trust log-setting SSDF-LF
+set vsys vsys1 rulebase security rules allow-untrust-to-trust log-end yes
+set vsys vsys1 rulebase security rules allow-trust-to-untrust log-setting SSDF-LF
+set vsys vsys1 rulebase security rules allow-trust-to-untrust log-end yes
+
+# ---------------------------------------------------------------------------
+# 4. Device-level log-settings (non-session / system-plane logs)
+#    These use the shared log-settings path, not deviceconfig.
+# ---------------------------------------------------------------------------
+set shared log-settings system match-list sys-all filter "All Logs" send-syslog SSDF
+set shared log-settings config match-list cfg-all filter "All Logs" send-syslog SSDF
+set shared log-settings correlation match-list corr-all filter "All Logs" send-syslog SSDF  # verify
+set shared log-settings globalprotect match-list gp-all filter "All Logs" send-syslog SSDF  # verify
+set shared log-settings hipmatch match-list hip-all filter "All Logs" send-syslog SSDF       # verify
