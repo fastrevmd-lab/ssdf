@@ -92,6 +92,17 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
 - Add to an agent via `.mcp.json`: `{"type":"http","url":"http://<ip>:30032/mcp",
   "headers":{"Authorization":"Bearer <token>"}}`.
 
+### M4 (topology graph — services/topo + topology MCP tools)
+- Unit tests: `cd services/topo && uv run pytest -m "not integration"`
+- Live integration: `cd services/topo && CH_HOST=<ip> CH_PASSWORD=<pw> JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… uv run pytest -m integration`
+- One collection cycle: `cd services/topo && uv run python -m ssdf_topo.collect_all`
+- One resolver pass: `cd services/topo && uv run python -m ssdf_topo.resolve_main`
+- Deployed: collectors+resolver on Proxmox LXC **ct109** (`ssdf-topo`, 198.51.100.153, no
+  Docker) on a 5-min systemd timer (`ssdf-topo.timer` → oneshot collect→resolve); writes CH
+  ct104 as `ssdf_topo`. Topology MCP tools (`get_entity`, `locate`, `neighbors`, `find_path`,
+  `enforcement_points`, `topology_snapshot`) live on the existing `ssdf-mcp-query` (ct106).
+  As-built coords in gitignored `services/topo/infra/ENV.local`.
+
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems
