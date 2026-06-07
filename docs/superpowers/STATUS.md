@@ -22,6 +22,7 @@ boundary, AI-native, minimal.
 |---|---|---|---|---|
 | **M1** | SRX security logs → Vector (VRL/ECS-subset) → ClickHouse `ssdf.events`, SQL-queryable | ✅ Done | `infra/vector/`, `infra/clickhouse/`, `onboarding/srx/`; LXC ct102 (Vector, .150) + ct104 (ClickHouse, .151) | PR #1; real vSRX-test10 data |
 | **M2** | Read-only **MCP query layer** over `ssdf.events` (Python/FastMCP): `query_flows`, `describe_schema`, `top_talkers`, guarded `run_sql` | ✅ Done | `services/mcp-query/`; LXC ct106 (.152:30032), reads CH as read-only `ssdf_ro` | PR #2; 47 unit + 5 live integration tests; bearer-auth enforced |
+| **M3** | PAN-OS firewall logs → Vector (VRL/CSV) → ClickHouse `ssdf.events` (2nd vendor; `event_provider=paloalto`, vendor extras under `panw.panos.*`) | 🟡 Code complete; live onboarding gated | `infra/vector/vector.toml` (`panos_ecs` transform), `onboarding/panos/`; target device panosvm (VMID 900, PAN-OS 12.1.5); Vector ct102 UDP:515 | 9 vector unit tests; live validation pending |
 
 ## Numbering reconciliation (the drift)
 
@@ -41,9 +42,10 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
 
 ## Forward roadmap (proposed, renumbered from as-built — adjust as we go)
 
-- **M3 — second source: PAN-OS.** Onboard `panos-fw` (VMID 900) via the M1 Vector-VRL pattern
-  (Elastic `panw` map; Log Forwarding Profile applied through `panos-mcp`) into `ssdf.events`.
-  Proves the schema generalizes to a 2nd vendor; live device + MCP already available.
+- **M3 — second source: PAN-OS.** 🟡 Code complete (VRL/CSV parser + 9 unit tests); Log Forwarding
+  Profile onboarding artifact ready (`onboarding/panos/log-forwarding.set`). Live device push to
+  panosvm (VMID 900) via panos-mcp gated pending go-ahead. Once applied, proves the schema
+  generalizes to a 2nd vendor.
 - **M4 — entity/correlation layer.** Deterministic Asset/Identity resolution from ECS events
   behind a `GraphStore` seam (Postgres-as-graph first, Neo4j deferred). Build when
   ClickHouse-only correlation stops sufficing.
