@@ -63,9 +63,15 @@ Identifiers map carries `mac`, `ip`(s), `name` where known. `confidence` < 1.0 f
 ### Policy
 A firewall rule that governs traffic. Every Policy carries a **`source` discriminator**:
 
-- **`observed`** (M6a) — resolved from `rule.name` present in actual flow events. One Policy entity
-  per `(provider, firewall, rule_name)`. Rules with the same name on different firewalls/vendors
-  are **distinct** Policy entities (they are different controls).
+- **`observed`** (M6a) — resolved from `rule.name` present in actual flow events. **Keyed by
+  `(provider, rule_name)`**, because `ssdf.events` carries no reliable per-firewall observer
+  identity (only `event_provider`; SRX dumps SD fields into `ext` with no stable firewall key,
+  PAN-OS does not extract device name/serial). *Firewall* attribution is therefore **not** part of
+  the Policy entity — it is derived at tool time from the topology (M4 `enforcement_points`, which
+  infers the firewall device(s) from the L2 connected component). Rules with the same name on
+  different *vendors* are distinct Policy entities; same name across two firewalls of the *same*
+  vendor collapse to one entity in M6a — a known limitation lifted in M6b/M6c when per-device
+  identity (config snapshots / stitched path) is available.
 - **`configured`** (M6b) — resolved from firewall policy snapshots. Reserved in the model from day
   one; populated later. A configured Policy represents a rule that *would* apply, independent of
   whether traffic ever hit it.
@@ -102,11 +108,14 @@ is only considered if M6c needs it.
 - **Topology reader** — reads M4 `graph_nodes` (host nodes) through the existing `GraphStore` to
   enrich IP→MAC bindings so flow endpoints inherit MAC identity when M4 already knows it.
 - **Entity resolver** (`resolve_entities.py`) — deterministic pure function
-  `resolve_entities(events, topo_hosts, tenant) -> (assets, policies, edges)`. MAC-anchored Asset
-  fusion via a `unionfind.py` copied into the entity package (services deploy independently, so no
-  cross-service import from `services/topo`); IP-only singletons; one observed Policy per
-  `(provider, firewall, rule_name)`;
-  `communicated_with` + `governed_by` edges with flow stats. **No merge on IP alone.**
+  `resolve_entities(flow_aggregates, topo_hosts, tenant) -> (entities, edges)`. Asset identity is
+  **keyed**: a flow endpoint's Asset key is its MAC when the topology (`graph_nodes` host) already
+  binds that IP→MAC, else the IP itself. So two IPs sharing a MAC collapse to one Asset (MAC
+  anchors identity) while distinct IPs never merge (no merge on IP alone) — keying alone achieves
+  this; no union-find is needed in M6a (multi-token fusion, e.g. by hostname, is deferred). All
+  observed IPs of a MAC-keyed Asset are kept in `identifiers` (`ip`, `ip2`, …) so lookup by any of
+  them works via `has(mapValues(identifiers), …)`. One observed Policy per `(provider, rule_name)`;
+  `communicated_with` + `governed_by` edges with flow stats.
 - **Projector** — writes resolved entities/edges to the entity store via the `EntityStore` seam.
 - **Tool surface** — `explain_access` added to the existing `ssdf-mcp-query` server (ct106), bound
   to the entity store (§5).
@@ -147,7 +156,8 @@ ORDER BY (tenant_id, edge_id)
 TTL toDateTime(last_seen) + INTERVAL 30 DAY;
 ```
 
-DDL lives in `infra/clickhouse/003_entities.sql`. Engine/TTL choices match M4's graph tables
+DDL lives in `infra/clickhouse/004_entities.sql` (a least-privilege `ssdf_entity` user in
+`infra/clickhouse/005_entity_user.sql`). Engine/TTL choices match M4's graph tables
 (`ReplacingMergeTree(last_seen)`, 30-day TTL, `FINAL` on read for dedup).
 
 **Why separate tables** (not new kinds on M4's graph): it keeps the semantic entity layer cleanly
@@ -178,9 +188,11 @@ explain_access(client: str, server: str, since_hours: int = 24) -> dict
 1. Resolve `client` and `server` → Asset entities (`EntityStore.find_entity`). If either is
    unresolved → `{"error": "not_found", "detail": "..."}`.
 2. Find observed `communicated_with` edges between the two Assets in-window.
-3. For each, gather `governed_by` → observed Policy entities (firewall, rule).
+3. For each, gather `governed_by` → observed Policy entities (provider, rule).
 4. Attach the M4 topology path (`find_path`) and `enforcement_points` so the answer shows *where*
-   in the fabric traffic flows. This is M6a's stand-in for M6c's full stitched L3 path.
+   in the fabric traffic flows. `enforcement_points` also supplies the **firewall** attribution for
+   each control (inferred from topology, not the event stream). This is M6a's stand-in for M6c's
+   full stitched L3 path.
 
 **Return shape (M6a):**
 ```json
@@ -191,7 +203,7 @@ explain_access(client: str, server: str, since_hours: int = 24) -> dict
                      "providers": ["juniper", "paloalto"], "window_hours": 24},
   "controls": [
     {"firewall": "vSRX-test10", "vendor": "juniper", "rule": "trust-to-untrust",
-     "source": "observed", "sessions": 42}
+     "source": "observed", "sessions": 42, "firewall_basis": "topology"}
   ],
   "topology_path": {"found": true, "path_nodes": ["..."], "hops": 3},
   "coverage": {"observed": true, "configured": "pending_m6b"}
@@ -213,8 +225,9 @@ is surfaced as a finding (observed traffic with no resolved governing rule), nev
   `test_conflicting_ip_mac_over_time_not_merged`).
 - **Flow with empty `rule.name`** → `communicated_with` edge with no `governed_by`; surfaced as a
   finding, not dropped.
-- **Same rule name across vendors/firewalls** → distinct Policy entities keyed by
-  `(provider, firewall, rule_name)`; never collapsed.
+- **Same rule name across vendors** → distinct Policy entities keyed by `(provider, rule_name)`.
+  Same rule name across two firewalls of the *same vendor* collapses to one Policy entity in M6a
+  (no per-firewall identity in the event stream); a known limitation lifted in M6b/M6c.
 - **Endpoint not found** → structured `{"error":"not_found"}`, consistent with M4 tool conventions.
 - **TZ skew** (known M5 concern: PAN-OS stamps local EDT; ingest stores without conversion).
   `since_hours` windows inherit this caveat; documented, not fixed in M6a.
@@ -238,8 +251,9 @@ TDD, mirroring `services/topo`.
 ## 8. Phasing (Approach A)
 
 - **M6a (this plan)** — Asset resolution + observed Policy resolution; `EntityStore` seam +
-  `ClickHouseEntityStore`; `infra/clickhouse/003_entities.sql`; `explain_access` tool on ct106;
-  `services/entity/` resolver+projector (run on ct109). Fully answerable from today's data.
+  `ClickHouseEntityStore`; `infra/clickhouse/004_entities.sql` + `005_entity_user.sql`;
+  `explain_access` tool on ct106; `services/entity/` resolver+projector (run on ct109). Fully
+  answerable from today's data.
 - **M6b (later plan)** — configured-policy collector pulling firewall security-policy snapshots
   via the read-only vendor MCPs (rust-junosmcp `get_junos_config`, panos-mcp `get_pan_config`);
   versioned `configured` Policy entities, distinct from observed; tool reports configured vs
