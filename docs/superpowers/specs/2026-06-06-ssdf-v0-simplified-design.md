@@ -106,16 +106,18 @@ config + VRL + ClickHouse DDL + the SRX onboarding snippet** — little/no Rust 
 
 - **M2 — MCP read query layer.** One read-only FastMCP server over ClickHouse with guarded SQL,
   `query_flows`, `top_talkers`, and schema introspection. This is the first agent-facing SSDF API.
-- **M3 — dynamic connectivity graph.** Build an **observed connectivity graph** from existing
+- **M3 — completed current milestone.** Do not reuse this number for new design work; M4+ is
+  the forward roadmap.
+- **M4 — dynamic connectivity graph.** Build an **observed connectivity graph** from existing
   flow events as ClickHouse rollup edges first, then expose MCP tools for connectivity, rule
   usage, trends, new paths, and evidence-backed explanations. Spec:
-  `docs/superpowers/specs/2026-06-07-ssdf-m3-dynamic-connectivity-graph-design.md`.
-- **M4 — second NGFW source.** Add **PAN-OS** (Elastic `panw` map; Log Forwarding Profile via
-  `panos-mcp`) and prove the M3 edge model works across Junos/SRX + PAN-OS.
-- **M5 — entity layer / GraphStore seam.** Add deterministic Asset/Identity/Application/Policy
+  `docs/superpowers/specs/2026-06-07-ssdf-m4-dynamic-connectivity-graph-design.md`.
+- **M5 — second NGFW source.** Add **PAN-OS** (Elastic `panw` map; Log Forwarding Profile via
+  `panos-mcp`) and prove the M4 edge model works across Junos/SRX + PAN-OS.
+- **M6 — entity layer / GraphStore seam.** Add deterministic Asset/Identity/Application/Policy
   resolution and a swappable `GraphStore` projection. Start with Postgres-as-graph adjacency
   tables; defer Neo4j until path traversal becomes load-bearing.
-- **M6 — sovereignty split + audit hardening.** Split local/frontier MCP exposure when frontier
+- **M7 — sovereignty split + audit hardening.** Split local/frontier MCP exposure when frontier
   egress is wired; add policy-gated redaction and stronger audit.
 - **Later sources:** UniFi (CEF ≥ fw 9.3.43 + Suricata EVE for IPS; SIEM-server setting via
   `unifi-mcp`; plus an API-poller for DPI/client stats) and Proxmox (rsyslog host logs + PVE

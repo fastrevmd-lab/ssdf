@@ -1,8 +1,8 @@
-# SSDF M3 — Dynamic Connectivity Graph Design
+# SSDF M4 — Dynamic Connectivity Graph Design
 
 **Date:** 2026-06-07
 **Status:** Draft design
-**Milestone:** M3, following M1 SRX → Vector → ClickHouse and M2 read-only MCP query layer
+**Milestone:** M4, following M1 SRX → Vector → ClickHouse, M2 read-only MCP query layer, and the completed M3 milestone
 
 ## Goal
 
@@ -16,7 +16,7 @@ LLM agent can ask contextual questions such as:
 - "What is the trend in connections, bytes, denies, or unique peers for this rule/asset/zone?"
 - "What would a human need to know before changing or removing this rule?"
 
-M3 should turn the M1 event stream into compact, time-windowed **connectivity memory + metrics**
+M4 should turn the M1 event stream into compact, time-windowed **connectivity memory + metrics**
 without making SSDF a firewall manager, SIEM, XDR, SASE console, or NSPM workflow platform.
 
 ## Product boundary
@@ -30,7 +30,7 @@ In scope:
 - Read-only MCP tools that return graph-shaped, LLM-sized answers with provenance.
 - Evidence links back to ClickHouse event IDs/time windows.
 
-Out of scope for M3:
+Out of scope for M4:
 
 - Applying firewall/SASE/XDR changes.
 - Rule recertification workflow, approvals, or ticketing.
@@ -38,12 +38,12 @@ Out of scope for M3:
 - Neo4j or a dedicated graph database.
 - Every raw flow becoming a graph node.
 
-Design rule: M3 answers **"what was observed?"** and **"what changed over time?"**. It must not
+Design rule: M4 answers **"what was observed?"** and **"what changed over time?"**. It must not
 claim **"this can reach that"** unless that reachability was observed in telemetry.
 
 ## Architecture
 
-M3 deliberately stays close to the existing M1/M2 footprint:
+M4 deliberately stays close to the existing M1/M2 footprint:
 
 ```text
 SRX / later NGFW logs
@@ -64,7 +64,7 @@ LLM agents / security operators
 
 ### Why ClickHouse-first
 
-The simplified v0 spec intentionally deferred Neo4j and broader entity resolution. M3 should not
+The simplified v0 spec intentionally deferred Neo4j and broader entity resolution. M4 should not
 reverse that decision. A dynamic connectivity graph can be represented as aggregate **edges** in
 ClickHouse first:
 
@@ -119,7 +119,7 @@ The edge key is for query correlation only; it is not a permanent global ID yet.
 
 ## MCP tool additions
 
-M3 extends the existing `ssdf-mcp-query` server rather than adding a second server.
+M4 extends the existing `ssdf-mcp-query` server rather than adding a second server.
 
 ### 1. `get_connectivity_for_ip`
 
@@ -188,7 +188,7 @@ Returns an evidence-backed explanation:
 
 ## LLM response shape
 
-All M3 tools should return bounded JSON with:
+All M4 tools should return bounded JSON with:
 
 ```json
 {
@@ -216,7 +216,7 @@ that policy denies the path.
 
 ## Acceptance criteria
 
-M3 is done when an LLM agent can answer these with real data via MCP:
+M4 is done when an LLM agent can answer these with real data via MCP:
 
 1. "Show what 10.64.0.5 talked to in the last 24 hours."
 2. "Show usage and last hit for rule `trust-to-untrust-default` in the last 7 days."
@@ -230,13 +230,13 @@ All tools must remain read-only and must enforce the same limit/time-window disc
 
 - Unit tests for SQL builders: grouping, filters, time bounds, limits, and no string interpolation.
 - Unit tests for edge-key generation and response shaping.
-- Guard tests ensuring M3 queries only read `ssdf.connectivity_edges_hourly` and `ssdf.events`.
+- Guard tests ensuring M4 queries only read `ssdf.connectivity_edges_hourly` and `ssdf.events`.
 - Integration tests against live ClickHouse when `CH_HOST`/credentials are provided.
 - A fixture test that inserts small synthetic events into a temporary table or test database and verifies rollup output.
 
-## Future phases unlocked by M3
+## Future phases unlocked by M4
 
-M3 is the observed-connectivity foundation. Later phases can add:
+M4 is the observed-connectivity foundation. Later phases can add:
 
 - **Configured connectivity graph** from firewall config snapshots and policy objects.
 - **Policy-vs-observed comparison**: configured access that is never used, observed traffic with unknown rule, broad rules with narrow actual use.
@@ -247,5 +247,5 @@ M3 is the observed-connectivity foundation. Later phases can add:
 ## Positioning note
 
 This is the SSDF wedge against the market: not a full NSPM suite, not XDR, not SASE DEM, and not
-a new UI. M3 provides **sovereign, MCP-native connectivity memory and metrics** so agents and
+a new UI. M4 provides **sovereign, MCP-native connectivity memory and metrics** so agents and
 operators can reason from evidence before a separate vendor MCP performs any authorized action.

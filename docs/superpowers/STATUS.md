@@ -1,6 +1,6 @@
 # SSDF — Build Status & Milestone Ledger
 
-**Last updated:** 2026-06-06
+**Last updated:** 2026-06-07
 **Purpose:** Single source of truth for *what is actually built* vs. what the design docs
 planned. Read this first; the dated specs/plans are historical and have drifted from reality.
 
@@ -41,13 +41,18 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
 
 ## Forward roadmap (proposed, renumbered from as-built — adjust as we go)
 
-- **M3 — second source: PAN-OS.** Onboard `panos-fw` (VMID 900) via the M1 Vector-VRL pattern
+- **M3 — completed current milestone.** Do not assign new design work to M3.
+- **M4 — dynamic connectivity graph.** Observed connectivity rollups from `ssdf.events` into
+  `ssdf.connectivity_edges_hourly`, plus MCP tools for connectivity, rule usage, trends, new
+  paths, and evidence-backed explanations. Spec:
+  `docs/superpowers/specs/2026-06-07-ssdf-m4-dynamic-connectivity-graph-design.md`.
+- **M5 — second source: PAN-OS.** Onboard `panos-fw` (VMID 900) via the M1 Vector-VRL pattern
   (Elastic `panw` map; Log Forwarding Profile applied through `panos-mcp`) into `ssdf.events`.
   Proves the schema generalizes to a 2nd vendor; live device + MCP already available.
-- **M4 — entity/correlation layer.** Deterministic Asset/Identity resolution from ECS events
+- **M6 — entity/correlation layer.** Deterministic Asset/Identity resolution from ECS events
   behind a `GraphStore` seam (Postgres-as-graph first, Neo4j deferred). Build when
   ClickHouse-only correlation stops sufficing.
-- **M5 — sovereignty + MCP split.** Scope-gating, sovereignty policy + audit on the read MCP;
+- **M7 — sovereignty + MCP split.** Scope-gating, sovereignty policy + audit on the read MCP;
   split local/frontier MCP when frontier egress is wired.
 - **Later sources:** UniFi (CEF + Suricata EVE via `unifi-mcp`), Proxmox (rsyslog + PVE API
   poller), Okta/Wazuh (same connector pattern).
