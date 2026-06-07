@@ -38,6 +38,38 @@ def test_lldp_unions_device_and_builds_physical_link():
     assert any(e["edge_type"] == "physical_link" for e in edges)
     assert any(n["kind"] == DEVICE for n in nodes)
 
+def test_cross_collector_device_merge_by_shared_mac():
+    """A switch seen by junos LLDP (name + chassis MAC) and by UniFi inventory
+    (different name + same MAC) must collapse to ONE device node."""
+    obs = [
+        _obs(observation_type="lldp_neighbor", subj_kind="interface",
+             subj_id="if:sw1:ge-0/0/0", obj_kind="interface", obj_id="if:fw1:eth1",
+             attrs={"local_port": "ge-0/0/0", "remote_port": "eth1",
+                    "remote_system": "fw1", "remote_chassis": "aa:bb:cc:dd:ee:ff"}),
+        _obs(collector="unifi", observation_type="device_inventory", subj_kind="device",
+             subj_id="dev:firewall-1", obj_kind="", obj_id="",
+             attrs={"name": "firewall-1", "mac": "AA:BB:CC:DD:EE:FF", "role": "firewall"}),
+    ]
+    nodes, edges = resolve_graph(obs, flow_edges=[], tenant="t_main")
+    devices = [n for n in nodes if n["kind"] == DEVICE]
+    # sw1 + the merged fw1/firewall-1 == 2 devices, not 3
+    assert len(devices) == 2
+    merged = next(n for n in devices if n["identifiers"].get("mac") == "aa:bb:cc:dd:ee:ff")
+    assert merged["attrs"].get("role") == "firewall"
+
+
+def test_distinct_devices_not_merged():
+    """Devices with no shared identity token stay separate."""
+    obs = [
+        _obs(collector="unifi", observation_type="device_inventory", subj_kind="device",
+             subj_id="dev:a", attrs={"name": "switch-a", "mac": "aa:aa:aa:aa:aa:aa"}),
+        _obs(collector="unifi", observation_type="device_inventory", subj_kind="device",
+             subj_id="dev:b", attrs={"name": "switch-b", "mac": "bb:bb:bb:bb:bb:bb"}),
+    ]
+    nodes, _ = resolve_graph(obs, flow_edges=[], tenant="t_main")
+    assert len([n for n in nodes if n["kind"] == DEVICE]) == 2
+
+
 def test_conflicting_ip_mac_over_time_not_merged():
     obs = [
         _obs(observation_type="arp_entry", layer="l3", subj_id="ip:10.64.0.5",

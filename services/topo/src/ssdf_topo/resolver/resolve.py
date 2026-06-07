@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 from ..models import (
@@ -10,10 +11,83 @@ from ..models import (
     DEVICE, HOST, INTERFACE,
     PHYSICAL_LINK, ATTACHES_TO, HAS_ADDRESS, HOSTS,
 )
+from .unionfind import UnionFind
+
+_MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", re.IGNORECASE)
 
 
-def _device_canonical_key(token: str) -> str:
-    return token.split(":", 1)[1] if ":" in token else token
+def _device_identity_tokens(node: dict) -> list[str]:
+    """Identity tokens that should fuse two device nodes into one entity:
+    a shared management MAC, name, or management IP."""
+    ids = node["identifiers"]
+    tokens = []
+    if ids.get("mac"):
+        tokens.append(f"mac:{ids['mac'].lower()}")
+    if ids.get("name"):
+        tokens.append(f"name:{ids['name']}")
+    if ids.get("mgmt_ip"):
+        tokens.append(f"mgmt_ip:{ids['mgmt_ip']}")
+    return tokens
+
+
+def _merge_devices(nodes: dict, edges: dict, edge_evidence: dict, tenant: str) -> None:
+    """Fuse device nodes that share an identity token (cross-collector dedup),
+    then remap and re-dedupe every edge onto the canonical device ids.
+
+    MAC anchors identity; name/mgmt_ip union too. Hosts and interfaces are never
+    merged here. Mutates nodes/edges/edge_evidence in place.
+    """
+    device_ids = [nid for nid, n in nodes.items() if n["kind"] == DEVICE]
+    union = UnionFind()
+    token_owner: dict[str, str] = {}
+    for nid in device_ids:
+        union.add(nid)
+        for token in _device_identity_tokens(nodes[nid]):
+            owner = token_owner.setdefault(token, nid)
+            if owner != nid:
+                union.union(owner, nid)
+
+    canonical = {nid: union.find(nid) for nid in device_ids}
+    if all(root == nid for nid, root in canonical.items()):
+        return  # nothing fused
+
+    for nid in device_ids:
+        root = canonical[nid]
+        if root == nid:
+            continue
+        src, dst = nodes[nid], nodes[root]
+        dst["first_seen"] = min(dst["first_seen"], src["first_seen"])
+        dst["last_seen"] = max(dst["last_seen"], src["last_seen"])
+        if src["name"] and not dst["name"]:
+            dst["name"] = src["name"]
+        for key, value in src["identifiers"].items():
+            dst["identifiers"].setdefault(key, value)
+        for key, value in src["attrs"].items():
+            dst["attrs"].setdefault(key, value)
+        del nodes[nid]
+
+    new_edges: dict[str, dict] = {}
+    new_evidence: dict[str, set[str]] = defaultdict(set)
+    for old_eid, edge in edges.items():
+        edge["src_id"] = canonical.get(edge["src_id"], edge["src_id"])
+        edge["dst_id"] = canonical.get(edge["dst_id"], edge["dst_id"])
+        if edge["src_id"] == edge["dst_id"]:
+            continue  # drop self-loops created by the merge
+        new_eid = edge_id(tenant, edge["src_id"], edge["dst_id"],
+                          edge["edge_type"], edge["layer"])
+        edge["edge_id"] = new_eid
+        existing = new_edges.get(new_eid)
+        if existing is None:
+            new_edges[new_eid] = edge
+        else:
+            existing["first_seen"] = min(existing["first_seen"], edge["first_seen"])
+            existing["last_seen"] = max(existing["last_seen"], edge["last_seen"])
+            existing["attrs"].update(edge["attrs"])
+        new_evidence[new_eid] |= edge_evidence.get(old_eid, set())
+    edges.clear()
+    edges.update(new_edges)
+    edge_evidence.clear()
+    edge_evidence.update(new_evidence)
 
 
 def resolve_graph(observations: list[Observation], flow_edges: list[dict],
@@ -105,6 +179,9 @@ def resolve_graph(observations: list[Observation], flow_edges: list[dict],
             remote_sys = o.attrs.get("remote_system", "") or o.obj_id.split("if:", 1)[-1].split(":", 1)[0]
             dev_a = device_node(local_sys, at)
             dev_b = device_node(remote_sys, at)
+            remote_chassis = o.attrs.get("remote_chassis", "")
+            if _MAC_RE.match(remote_chassis):
+                dev_b["identifiers"]["mac"] = remote_chassis.lower()
             if_a = touch_node(node_id(tenant, INTERFACE, o.subj_id), INTERFACE,
                               o.attrs.get("local_port", ""), at)
             if_b = touch_node(node_id(tenant, INTERFACE, o.obj_id), INTERFACE,
@@ -117,13 +194,15 @@ def resolve_graph(observations: list[Observation], flow_edges: list[dict],
                       "device_a": local_sys, "device_b": remote_sys,
                       "evidence": o.collector}, evidence=f"{o.collector}:{local_sys}")
         elif ot == "device_inventory":
-            mac = o.attrs.get("mac", "")
+            mac = o.attrs.get("mac", "").lower()
             dev = device_node(o.attrs.get("name", "") or f"dev:{mac}", at)
             dev["attrs"]["role"] = o.attrs.get("role", "device")
             if mac:
                 dev["identifiers"]["mac"] = mac
             if o.attrs.get("ip"):
                 dev["identifiers"]["mgmt_ip"] = o.attrs["ip"]
+
+    _merge_devices(nodes, edges, edge_evidence, tenant)
 
     for eid, e in edges.items():
         if len(edge_evidence[eid]) >= 2:
