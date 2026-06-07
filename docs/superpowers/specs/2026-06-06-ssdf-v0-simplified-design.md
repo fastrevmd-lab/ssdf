@@ -100,12 +100,23 @@ config + VRL + ClickHouse DDL + the SRX onboarding snippet** — little/no Rust 
 
 ## 5. Roadmap after M1 (each phase adds one seam)
 
-- **M2 — entity layer.** Thin Rust normalizer/resolver → **Postgres-as-graph** (adjacency
-  tables) behind a `GraphStore` trait. Deterministic Asset/Identity resolution from ECS events.
-- **M3 — second source + query seam.** Add **PAN-OS** (Elastic `panw` map; Log Forwarding
-  Profile via `panos-mcp`). Introduce a query/service interface (still single binary).
-- **M4 — MCP read server + sovereignty.** One read MCP server with scope-gating; sovereignty
-  policy + audit; split local/frontier MCP when frontier egress is wired.
+> Roadmap note (2026-06-07): M2 was implemented as the MCP query layer first, because exposing
+> the existing ClickHouse event store to agents was the smallest AI-native step after M1. The
+> entity/graph ambitions remain, but return only where a concrete operator question pulls them in.
+
+- **M2 — MCP read query layer.** One read-only FastMCP server over ClickHouse with guarded SQL,
+  `query_flows`, `top_talkers`, and schema introspection. This is the first agent-facing SSDF API.
+- **M3 — dynamic connectivity graph.** Build an **observed connectivity graph** from existing
+  flow events as ClickHouse rollup edges first, then expose MCP tools for connectivity, rule
+  usage, trends, new paths, and evidence-backed explanations. Spec:
+  `docs/superpowers/specs/2026-06-07-ssdf-m3-dynamic-connectivity-graph-design.md`.
+- **M4 — second NGFW source.** Add **PAN-OS** (Elastic `panw` map; Log Forwarding Profile via
+  `panos-mcp`) and prove the M3 edge model works across Junos/SRX + PAN-OS.
+- **M5 — entity layer / GraphStore seam.** Add deterministic Asset/Identity/Application/Policy
+  resolution and a swappable `GraphStore` projection. Start with Postgres-as-graph adjacency
+  tables; defer Neo4j until path traversal becomes load-bearing.
+- **M6 — sovereignty split + audit hardening.** Split local/frontier MCP exposure when frontier
+  egress is wired; add policy-gated redaction and stronger audit.
 - **Later sources:** UniFi (CEF ≥ fw 9.3.43 + Suricata EVE for IPS; SIEM-server setting via
   `unifi-mcp`; plus an API-poller for DPI/client stats) and Proxmox (rsyslog host logs + PVE
   API poller for tasks/inventory — pull, not push).
@@ -113,13 +124,15 @@ config + VRL + ClickHouse DDL + the SRX onboarding snippet** — little/no Rust 
 ## 6. Parked components (return only on concrete need, behind a seam)
 
 Redpanda (bus) · custom Rust Normalizer service · Neo4j · gRPC service mesh + API gateway ·
-second/third MCP servers · MinIO cold tier · Python workspace · Okta/Wazuh connectors ·
-high-throughput syslog tuning · hash-chained audit.
+second/third MCP servers · MinIO cold tier · Okta/Wazuh connectors · high-throughput syslog
+tuning · hash-chained audit · full configured-reachability simulation · firewall change workflow.
 
 ## 7. Open questions / future
 
-- When does ClickHouse-only stop sufficing and the graph store become load-bearing? (Drives M2
-  vs later.)
+- When does ClickHouse rollup-as-graph stop sufficing and a dedicated GraphStore become
+  load-bearing?
+- How should configured connectivity from firewall config snapshots be represented separately
+  from observed telemetry so SSDF does not overclaim reachability?
 - ECS version pin + how vendor extras (`*.ext`) evolve without breaking the typed columns.
 - API-poller connector shape for pull-only data (Proxmox tasks/inventory, UniFi DPI) — Rust or
   Python.
