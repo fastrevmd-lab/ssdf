@@ -131,6 +131,8 @@ class ProxmoxCollector:
         vms_text = client.call_tool("get_vms", {})
         vms = _vms_from_text(vms_text)
         for vm in vms:
+            if not vm.get("node"):
+                continue
             if "config" in vm:
                 continue
             try:

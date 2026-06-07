@@ -66,7 +66,7 @@ def parse_lldp_neighbors(text: str, source_device: str, now: str) -> list[Observ
             continue
         local = tokens[0]
         # token[1] is parent interface (often "-")
-        chassis = tokens[2]  # noqa: F841 — captured but not emitted
+        chassis = tokens[2]
         # Remaining tokens: port info + system name
         remaining = tokens[3:]
         remote_system = remaining[-1]
@@ -80,11 +80,12 @@ def parse_lldp_neighbors(text: str, source_device: str, now: str) -> list[Observ
             subj_kind="interface",
             subj_id=f"if:{source_device}:{local}",
             obj_kind="interface",
-            obj_id=f"if:{remote_system}:{remote_port}",
+            obj_id=f"if:{remote_system}:{remote_port or 'unknown'}",
             attrs={
                 "local_port": local,
                 "remote_port": remote_port,
                 "remote_system": remote_system,
+                "remote_chassis": chassis,
             },
             raw=line,
         ))

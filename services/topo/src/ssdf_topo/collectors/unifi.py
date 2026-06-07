@@ -41,6 +41,7 @@ def parse_clients(text: str, source_device: str, now: str) -> list[Observation]:
         ap_mac = str(row.get("ap_mac") or "").strip().lower()
         vlan_raw = row.get("vlan")
         vlan = str(vlan_raw) if vlan_raw is not None else ""
+        sw_port = str(row.get("sw_port", "") or "")
         connected_device = sw_mac or ap_mac or source_device
 
         obs_type = "mac_entry" if is_wired else "wlan_assoc"
@@ -54,7 +55,7 @@ def parse_clients(text: str, source_device: str, now: str) -> list[Observation]:
             subj_id=f"mac:{mac}",
             obj_kind="device",
             obj_id=f"device:{connected_device}",
-            attrs={"vlan": vlan, "port": "", "wired": str(is_wired)},
+            attrs={"vlan": vlan, "port": sw_port, "wired": str(is_wired)},
             raw=json.dumps(row),
         ))
 

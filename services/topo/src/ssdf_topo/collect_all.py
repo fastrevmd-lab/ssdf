@@ -8,7 +8,7 @@ import logging
 import os
 
 from .chwriter import ClickHouseWriter
-from .collectors import junos, panos, proxmox, unifi  # noqa: F401 — force registration
+from . import collectors  # noqa: F401 — importing the package triggers __init__, which registers all collectors
 from .collectors.base import REGISTRY
 from .config import load_config
 from .mcp_client import McpToolClient
@@ -28,6 +28,8 @@ def _build_collector(name: str):
         raw = os.environ.get("JUNOS_DEVICES", "")
         devices = [d.strip() for d in raw.split(",") if d.strip()]
         return cls(devices=devices)
+    if name == "panos":
+        return cls(device=os.environ.get("PANOS_DEVICE", "panosvm"))
     return cls()
 
 
