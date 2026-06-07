@@ -7,6 +7,13 @@ mode = "udp"
 address = "0.0.0.0:514"
 max_length = 102400
 
+# PAN-OS 12.1 default syslog (positional CSV payload) on a separate UDP port.
+[sources.panos_syslog]
+type = "socket"
+mode = "udp"
+address = "0.0.0.0:515"
+max_length = 102400
+
 [transforms.srx_ecs]
 type = "remap"
 inputs = ["srx_syslog"]
@@ -94,9 +101,227 @@ if err != null {
 }
 '''
 
+# PAN-OS 12.1 default syslog is positional CSV (not key=value). After
+# parse_syslog the CSV payload is parsed.message; we split on "," and branch on
+# field 4 (index 3) = log Type. VRL has no closures, so CSV access is guarded
+# inline with `if length(f) > N` + `string(f[N]) ?? ""`.
+[transforms.panos_ecs]
+type = "remap"
+inputs = ["panos_syslog"]
+source = '''
+raw = string(.message) ?? ""
+parsed, perr = parse_syslog(raw)
+ts_fallback = now()
+if perr == null && exists(parsed.timestamp) {
+    ts_fallback = parsed.timestamp
+}
+
+# PAN-OS default syslog is "<pri>BSD-timestamp host <CSV>" where the CSV's first
+# field (FUTURE_USE) is empty, so the payload begins with a leading comma.
+# parse_syslog mis-tags the leading ",date" token as the appname and corrupts
+# the CSV boundary, so we slice the CSV ourselves: strip the comma-free header
+# prefix and keep from the first comma onward (re-including the empty field 1).
+csv = raw
+cm, cerr = parse_regex(raw, r'^[^,]*(?P<csv>,.*)$')
+if cerr == null { csv = string(cm.csv) ?? raw }
+f = split(csv, ",")
+
+# --- common header fields (1-indexed in docs => 0-indexed here) ---
+log_type = ""
+if length(f) > 3 { log_type = upcase(string(f[3]) ?? "") }
+subtype = ""
+if length(f) > 4 { subtype = string(f[4]) ?? "" }
+
+# field 7 (index 6) = GeneratedTime, device-local US/Eastern. v0: parse as-is
+# without TZ conversion (caveat: stored timestamp is wall-clock, not true UTC).
+gen_time = ""
+if length(f) > 6 { gen_time = string(f[6]) ?? "" }
+event_ts = ts_fallback
+ts, tserr = parse_timestamp(gen_time, "%Y/%m/%d %H:%M:%S")
+if tserr == null { event_ts = ts }
+
+src_addr = ""
+if length(f) > 7 { src_addr = string(f[7]) ?? "" }
+dst_addr = ""
+if length(f) > 8 { dst_addr = string(f[8]) ?? "" }
+nat_src_ip = ""
+if length(f) > 9 { nat_src_ip = string(f[9]) ?? "" }
+nat_dst_ip = ""
+if length(f) > 10 { nat_dst_ip = string(f[10]) ?? "" }
+rule_name = ""
+if length(f) > 11 { rule_name = string(f[11]) ?? "" }
+src_user = ""
+if length(f) > 12 { src_user = string(f[12]) ?? "" }
+app = ""
+if length(f) > 14 { app = string(f[14]) ?? "" }
+src_zone = ""
+if length(f) > 16 { src_zone = string(f[16]) ?? "" }
+dst_zone = ""
+if length(f) > 17 { dst_zone = string(f[17]) ?? "" }
+session_id = ""
+if length(f) > 22 { session_id = string(f[22]) ?? "" }
+src_port_s = ""
+if length(f) > 24 { src_port_s = string(f[24]) ?? "" }
+dst_port_s = ""
+if length(f) > 25 { dst_port_s = string(f[25]) ?? "" }
+protocol = ""
+if length(f) > 29 { protocol = string(f[29]) ?? "" }
+action = ""
+if length(f) > 30 { action = downcase(string(f[30]) ?? "") }
+
+# normalize user: "" if empty or N/A
+user = src_user
+if user == "N/A" { user = "" }
+
+# Action -> outcome mapping (shared by TRAFFIC & THREAT)
+outcome = "unknown"
+if action == "allow" {
+    outcome = "success"
+} else if action == "deny" || action == "drop" || action == "reset-both" || action == "reset-client" || action == "reset-server" {
+    outcome = "failure"
+}
+
+# network_transport
+transport = downcase(protocol)
+if transport == "" { transport = "unknown" }
+
+# --- base event; only safe defaults, branch fills the rest ---
+ev = {}
+ev = set!(ev, ["timestamp"], event_ts)
+ev.event_id = uuid_v4()
+ev.tenant_id = "t_main"
+ev.event_kind = "event"
+ev.event_category = ["network"]
+ev.event_action = "unknown"
+ev.event_outcome = "unknown"
+ev.event_provider = "paloalto"
+ev.rule_name = ""
+ev.observer_ingress_zone = ""
+ev.observer_egress_zone = ""
+ev.user_name = ""
+ev.raw = raw
+
+# shared ext entries (skip empties)
+ext = {}
+if subtype != "" { ext = set!(ext, ["panw.panos.subtype"], subtype) }
+if app != "" { ext = set!(ext, ["panw.panos.application"], app) }
+if session_id != "" { ext = set!(ext, ["panw.panos.session_id"], session_id) }
+if nat_src_ip != "" && nat_src_ip != "0.0.0.0" { ext = set!(ext, ["panw.panos.nat_source_ip"], nat_src_ip) }
+if nat_dst_ip != "" && nat_dst_ip != "0.0.0.0" { ext = set!(ext, ["panw.panos.nat_destination_ip"], nat_dst_ip) }
+
+if log_type == "TRAFFIC" {
+    ev.event_category = ["network"]
+    ev.event_action = "flow_" + downcase(subtype)
+    ev.event_outcome = outcome
+    ev.network_transport = transport
+    ev.rule_name = rule_name
+    ev.observer_ingress_zone = src_zone
+    ev.observer_egress_zone = dst_zone
+    ev.user_name = user
+
+    # IPv4 guard for source/destination addresses
+    _sm, _se = parse_regex(src_addr, r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+    if _se == null { ev.source_ip = src_addr }
+    _dm, _de = parse_regex(dst_addr, r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+    if _de == null { ev.destination_ip = dst_addr }
+
+    if src_port_s != "" { ev.source_port = to_int(src_port_s) ?? null }
+    if dst_port_s != "" { ev.destination_port = to_int(dst_port_s) ?? null }
+
+    # TRAFFIC byte fields: 32 Bytes(total), 33 BytesSent, 34 BytesReceived
+    if length(f) > 31 { ev.network_bytes = to_int(string(f[31]) ?? "") ?? null }
+    if length(f) > 32 { ev.source_bytes = to_int(string(f[32]) ?? "") ?? null }
+    if length(f) > 33 { ev.destination_bytes = to_int(string(f[33]) ?? "") ?? null }
+
+    # TRAFFIC: SessionEndReason at index 46
+    if length(f) > 46 {
+        ser = string(f[46]) ?? ""
+        if ser != "" { ext = set!(ext, ["panw.panos.session_end_reason"], ser) }
+    }
+} else if log_type == "THREAT" {
+    ev.event_category = ["network", "intrusion_detection"]
+    ev.event_action = "threat_" + downcase(subtype)
+    ev.event_outcome = outcome
+    ev.network_transport = transport
+    ev.rule_name = rule_name
+    ev.observer_ingress_zone = src_zone
+    ev.observer_egress_zone = dst_zone
+    ev.user_name = user
+
+    _sm, _se = parse_regex(src_addr, r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+    if _se == null { ev.source_ip = src_addr }
+    _dm, _de = parse_regex(dst_addr, r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+    if _de == null { ev.destination_ip = dst_addr }
+
+    if src_port_s != "" { ev.source_port = to_int(src_port_s) ?? null }
+    if dst_port_s != "" { ev.destination_port = to_int(dst_port_s) ?? null }
+
+    # THREAT 32+: 33 ThreatID/Name, 34 Category, 35 Severity, 36 Direction
+    if length(f) > 32 {
+        tid = string(f[32]) ?? ""
+        if tid != "" { ext = set!(ext, ["panw.panos.threat_id"], tid) }
+    }
+    if length(f) > 33 {
+        cat = string(f[33]) ?? ""
+        if cat != "" { ext = set!(ext, ["panw.panos.category"], cat) }
+    }
+    if length(f) > 34 {
+        sev = string(f[34]) ?? ""
+        if sev != "" { ext = set!(ext, ["panw.panos.severity"], sev) }
+    }
+    if length(f) > 35 {
+        dir = string(f[35]) ?? ""
+        if dir != "" { ext = set!(ext, ["panw.panos.direction"], dir) }
+    }
+} else if log_type == "SYSTEM" {
+    # SYSTEM (short): 9 EventID, 13 Module, 14 Severity, 15 Description
+    ev.event_category = ["host"]
+    ev.event_action = "system_" + downcase(subtype)
+    if length(f) > 8 {
+        sysev = string(f[8]) ?? ""
+        if sysev != "" { ext = set!(ext, ["panw.panos.event_id_str"], sysev) }
+    }
+    if length(f) > 12 {
+        modv = string(f[12]) ?? ""
+        if modv != "" { ext = set!(ext, ["panw.panos.module"], modv) }
+    }
+    if length(f) > 13 {
+        sysseverity = string(f[13]) ?? ""
+        if sysseverity != "" { ext = set!(ext, ["panw.panos.severity"], sysseverity) }
+    }
+} else if log_type == "CONFIG" {
+    # CONFIG (short): 10 Command, 11 Admin, 12 Client, 13 Result
+    ev.event_category = ["configuration"]
+    ev.event_action = "config_" + downcase(subtype)
+    if length(f) > 10 {
+        adminv = string(f[10]) ?? ""
+        if adminv != "N/A" { ev.user_name = adminv }
+    }
+    if length(f) > 9 {
+        cmdv = string(f[9]) ?? ""
+        if cmdv != "" { ext = set!(ext, ["panw.panos.command"], cmdv) }
+    }
+    if length(f) > 11 {
+        clientv = string(f[11]) ?? ""
+        if clientv != "" { ext = set!(ext, ["panw.panos.client"], clientv) }
+    }
+    if length(f) > 12 {
+        resultv = string(f[12]) ?? ""
+        if resultv != "" { ext = set!(ext, ["panw.panos.result"], resultv) }
+    }
+} else {
+    # Unknown / short / malformed: nothing typed, keep everything in raw + ext.
+    ev.event_action = "unknown"
+    if log_type != "" { ext = set!(ext, ["panw.panos.type"], log_type) }
+}
+
+ev.ext = ext
+. = ev
+'''
+
 [sinks.clickhouse]
 type = "clickhouse"
-inputs = ["srx_ecs"]
+inputs = ["srx_ecs", "panos_ecs"]
 endpoint = "http://${CH_HOST}:8123"
 database = "ssdf"
 table = "events"
@@ -179,4 +404,137 @@ assert_eq!(.source_ip, "10.73.9.9")
 assert_eq!(.destination_port, 3389)
 assert_eq!(.rule_name, "default-deny")
 assert_eq!(.user_name, "")
+'''
+
+# ---------------- PAN-OS unit tests ----------------
+
+[[tests]]
+name = "panos_traffic_end_allow_maps_to_ecs"
+[[tests.inputs]]
+insert_at = "panos_ecs"
+type = "raw"
+value = '<14>Jun 06 23:20:00 panosvm.example.com ,2026/06/06 23:20:00,007054000270810,TRAFFIC,end,,2026/06/06 23:20:00,10.74.11.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40001,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:19:30,30,any,,1001,0x0,10.74.11.0-10.74.11.255,US,,22,18,tcp-fin'
+[[tests.outputs]]
+extract_from = "panos_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "flow_end")
+assert_eq!(.event_kind, "event")
+assert_eq!(.event_category, ["network"])
+assert_eq!(.event_outcome, "success")
+assert_eq!(.event_provider, "paloalto")
+assert_eq!(.tenant_id, "t_main")
+assert_eq!(.source_ip, "10.74.11.50")
+assert_eq!(.destination_ip, "198.51.100.20")
+assert_eq!(.source_port, 52344)
+assert_eq!(.destination_port, 443)
+assert_eq!(.network_transport, "tcp")
+assert_eq!(.source_bytes, 3000)
+assert_eq!(.destination_bytes, 5000)
+assert_eq!(.network_bytes, 8000)
+assert_eq!(.rule_name, "allow-trust-to-untrust")
+assert_eq!(.observer_ingress_zone, "trust")
+assert_eq!(.observer_egress_zone, "untrust")
+assert_eq!(.ext."panw.panos.session_id", "40001")
+assert_eq!(.ext."panw.panos.session_end_reason", "tcp-fin")
+assert_eq!(.ext."panw.panos.subtype", "end")
+assert_eq!(.ext."panw.panos.application", "ssl")
+'''
+
+[[tests]]
+name = "panos_traffic_deny_maps_to_ecs"
+[[tests.inputs]]
+insert_at = "panos_ecs"
+type = "raw"
+value = '<14>Jun 06 23:21:00 panosvm.example.com ,2026/06/06 23:21:00,007054000270810,TRAFFIC,deny,,2026/06/06 23:21:00,198.51.100.99,10.74.11.5,0.0.0.0,0.0.0.0,default-deny,,,incomplete,vsys1,untrust,trust,ethernet1/1,ethernet1/2,,,40002,1,51000,3389,0,0,0x0,tcp,deny,200,200,0,2,2026/06/06 23:20:30,0,any,,1002,0x0,198.51.100.0-198.51.100.255,US,,2,0,policy-deny'
+[[tests.outputs]]
+extract_from = "panos_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "flow_deny")
+assert_eq!(.event_outcome, "failure")
+assert_eq!(.source_ip, "198.51.100.99")
+assert_eq!(.destination_ip, "10.74.11.5")
+assert_eq!(.destination_port, 3389)
+assert_eq!(.rule_name, "default-deny")
+assert_eq!(.network_transport, "tcp")
+assert_eq!(.ext."panw.panos.session_end_reason", "policy-deny")
+'''
+
+[[tests]]
+name = "panos_threat_vulnerability_maps_to_ecs"
+[[tests.inputs]]
+insert_at = "panos_ecs"
+type = "raw"
+value = '<14>Jun 06 23:22:00 panosvm.example.com ,2026/06/06 23:22:00,007054000270810,THREAT,vulnerability,,2026/06/06 23:22:00,198.51.100.77,10.74.11.8,0.0.0.0,0.0.0.0,allow-untrust-to-trust,,,web-browsing,vsys1,untrust,trust,ethernet1/1,ethernet1/2,,,40003,1,44012,80,0,0,0x0,tcp,reset-both,exploit.example/path,30001,code-execution,critical,client-to-server,1003,0x0,US,US'
+[[tests.outputs]]
+extract_from = "panos_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "threat_vulnerability")
+assert_eq!(.event_category, ["network", "intrusion_detection"])
+assert_eq!(.event_outcome, "failure")
+assert_eq!(.source_ip, "198.51.100.77")
+assert_eq!(.destination_ip, "10.74.11.8")
+assert_eq!(.destination_port, 80)
+assert_eq!(.ext."panw.panos.severity", "critical")
+assert_eq!(.ext."panw.panos.threat_id", "30001")
+assert_eq!(.ext."panw.panos.category", "code-execution")
+assert_eq!(.ext."panw.panos.direction", "client-to-server")
+assert!(!exists(.source_bytes))
+'''
+
+[[tests]]
+name = "panos_system_maps_to_ecs"
+[[tests.inputs]]
+insert_at = "panos_ecs"
+type = "raw"
+value = '<14>Jun 06 23:23:00 panosvm.example.com ,2026/06/06 23:23:00,007054000270810,SYSTEM,general,,2026/06/06 23:23:00,vsys1,general,,,,general,informational,System started successfully'
+[[tests.outputs]]
+extract_from = "panos_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert!(starts_with(string!(.event_action), "system_"))
+assert_eq!(.event_action, "system_general")
+assert_eq!(.event_category, ["host"])
+assert_eq!(.event_provider, "paloalto")
+assert_eq!(.ext."panw.panos.severity", "informational")
+assert!(!exists(.source_ip))
+'''
+
+[[tests]]
+name = "panos_traffic_ipv6_source_left_null"
+[[tests.inputs]]
+insert_at = "panos_ecs"
+type = "raw"
+value = '<14>Jun 06 23:24:00 panosvm.example.com ,2026/06/06 23:24:00,007054000270810,TRAFFIC,end,,2026/06/06 23:24:00,2001:db8::1,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40004,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:23:30,30,any,,1004,0x0,::-::,US,,22,18,tcp-fin'
+[[tests.outputs]]
+extract_from = "panos_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "flow_end")
+assert!(!exists(.source_ip))
+assert_eq!(.destination_ip, "198.51.100.20")
+assert!(contains(string!(.raw), "2001:db8::1"))
+'''
+
+[[tests]]
+name = "panos_malformed_line_is_unknown"
+[[tests.inputs]]
+insert_at = "panos_ecs"
+type = "raw"
+value = '<14>Jun 06 23:25:00 panosvm.example.com garbage-not-a-panos-line'
+[[tests.outputs]]
+extract_from = "panos_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "unknown")
+assert_eq!(.event_provider, "paloalto")
+assert!(!exists(.source_ip))
 '''
