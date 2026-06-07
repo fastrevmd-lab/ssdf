@@ -9,12 +9,16 @@ from fastmcp.server.auth import StaticTokenVerifier
 from .config import load_config
 from .clickhouse import ClickHouseClient
 from .tools import Tools
+from .graphstore import ClickHouseGraphStore
+from .topo_tools import TopoTools
 
 
 def build_app() -> FastMCP:
     config = load_config()
     client = ClickHouseClient(config)
     tools = Tools(client)
+    graph_store = ClickHouseGraphStore(client, tenant="t_main")
+    topo = TopoTools(graph_store)
     auth = StaticTokenVerifier(
         tokens={config.auth_token: {"sub": "agent", "client_id": "ssdf"}}
     )
@@ -50,6 +54,37 @@ def build_app() -> FastMCP:
     def run_sql(query: str) -> dict:
         """Run a guarded read-only SELECT against ssdf.* (single statement, enforced LIMIT)."""
         return tools.run_sql(query)
+
+    @mcp.tool
+    def get_entity(identifier: str) -> dict:
+        """Resolve a canonical entity (host/device/identity) from any alias: ip, mac, hostname, or name."""
+        return topo.get_entity(identifier)
+
+    @mcp.tool
+    def locate(identifier: str) -> dict:
+        """Where does an entity attach? Returns switch/AP (or hypervisor bridge), port, and VLAN."""
+        return topo.locate(identifier)
+
+    @mcp.tool
+    def neighbors(identifier: str, layer: str | None = None, depth: int = 1,
+                  since_hours: int | None = None) -> dict:
+        """Adjacent nodes/edges around an entity, optionally filtered by layer (l2|l3|flow|virt)."""
+        return topo.neighbors(identifier, layer=layer, depth=depth, since_hours=since_hours)
+
+    @mcp.tool
+    def find_path(src: str, dst: str, layer: str = "any") -> dict:
+        """Shortest path between two entities. layer: 'physical' (l1/l2), 'flow' (l3/flow), or 'any'."""
+        return topo.find_path(src, dst, layer=layer)
+
+    @mcp.tool
+    def enforcement_points(src: str, dst: str) -> dict:
+        """Read-only: firewall device(s), zone(s), and rule(s) governing traffic between two entities."""
+        return topo.enforcement_points(src, dst)
+
+    @mcp.tool
+    def topology_snapshot(layer: str | None = None, since_hours: int | None = None) -> dict:
+        """Bounded nodes+edges subgraph for visualization/LLM context; reports truncation."""
+        return topo.topology_snapshot(layer=layer, since_hours=since_hours)
 
     return mcp
 

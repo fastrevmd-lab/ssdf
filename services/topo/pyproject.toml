@@ -1,13 +1,11 @@
 [project]
-name = "ssdf-mcp-query"
+name = "ssdf-topo"
 version = "0.1.0"
-description = "SSDF M2 read-only MCP query layer over ssdf.events (ClickHouse)"
+description = "SSDF M4 topology collectors + resolver (ClickHouse-derived connectivity graph)"
 requires-python = ">=3.11"
 dependencies = [
-    "fastmcp>=2.0",
     "clickhouse-connect>=0.8",
-    "sqlglot>=25.0",
-    "networkx>=3.0",
+    "fastmcp>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -18,8 +16,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ssdf_mcp_query"]
+packages = ["src/ssdf_topo"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["integration: requires a live ClickHouse (deselect with -m 'not integration')"]
+markers = ["integration: requires live ClickHouse and/or live MCP servers (deselect with -m 'not integration')"]

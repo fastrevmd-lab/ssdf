@@ -1,0 +1,17 @@
+[vm] vSRX-test10 (ID: 210)
+  - Status: RUNNING
+  - Node: pve3
+  - CPU Cores: 2
+  - Memory: 4.02 GB / 4.00 GB (100.4%)
+
+[vm] panos-fw (ID: 900)
+  - Status: RUNNING
+  - Node: pve3
+  - CPU Cores: 2
+  - Memory: 6.50 GB / 6.50 GB (100.0%)
+
+[vm] BotAutomatic2k (ID: 500)
+  - Status: RUNNING
+  - Node: pve1
+  - CPU Cores: 4
+  - Memory: 8.00 GB / 8.00 GB (100.0%)

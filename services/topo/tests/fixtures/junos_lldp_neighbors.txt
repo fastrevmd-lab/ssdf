@@ -1,0 +1,5 @@
+
+Local Interface    Parent Interface    Chassis Id          Port info          System Name
+ge-0/0/1.0         -                   02:08:01:d6:f7:6d   ge-0/0/5           USP-RPS
+ge-0/0/2.0         -                   02:07:01:a2:70:32   Port 8             USW-Pro-XG-8
+xe-0/0/0.0         ae0                 02:02:01:4e:f1:39   xe-1               USW-Flex

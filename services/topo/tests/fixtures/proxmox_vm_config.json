@@ -1,0 +1,1 @@
+{"boot":"order=virtio0","cores":2,"cpu":"host","memory":"4096","name":"vSRX-test10","net0":"virtio=02:01:01:C7:5F:A5,bridge=vmbr0","net1":"virtio=02:01:01:12:3A:80,bridge=vmbr0","net2":"virtio=02:01:01:CD:E5:CA,bridge=vmbr1,tag=102","net3":"virtio=02:01:01:4A:F7:E7,bridge=vmbr2","scsihw":"virtio-scsi-pci","smbios1":"uuid=11111111-1111-1111-1111-111111111111","vmid":"210"}

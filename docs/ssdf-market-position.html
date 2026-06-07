@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SSDF Market Position and Direction</title>
+<style>
+  @page { size: Letter; margin: 0.38in; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #111827;
+    font-size: 9.45pt;
+    line-height: 1.22;
+  }
+  h1 {
+    margin: 0 0 3px 0;
+    font-size: 19pt;
+    line-height: 1.0;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+  }
+  .subtitle {
+    font-size: 9.1pt;
+    color: #475569;
+    margin-bottom: 7px;
+    border-bottom: 2px solid #0f766e;
+    padding-bottom: 5px;
+  }
+  h2 {
+    margin: 7px 0 3px 0;
+    font-size: 10.8pt;
+    color: #0f766e;
+  }
+  p { margin: 0 0 4px 0; }
+  ul { margin: 2px 0 4px 15px; padding: 0; }
+  li { margin: 1px 0; }
+  .callout {
+    background: #ecfeff;
+    border-left: 4px solid #0f766e;
+    padding: 5px 7px;
+    margin: 5px 0;
+    font-size: 9.5pt;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+    margin-top: 3px;
+  }
+  .box {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 5px 7px;
+    min-height: 58px;
+  }
+  .box h3 {
+    margin: 0 0 3px 0;
+    font-size: 9.8pt;
+    color: #0f172a;
+  }
+  .box p, .box li { font-size: 8.9pt; }
+  .footer {
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px solid #cbd5e1;
+    font-size: 8.7pt;
+    color: #475569;
+  }
+  strong { color: #0f172a; }
+</style>
+</head>
+<body>
+  <h1>SSDF Market Position and Direction</h1>
+  <div class="subtitle">Sovereign Security Data Fabric · MCP-native security context for autonomous agents · 2026-06-07</div>
+
+  <div class="callout">
+    <strong>Positioning:</strong> SSDF should be positioned as a minimal, self-hosted, MCP-native security data fabric — not a SIEM, not an XDR, and not a full-stack cybersecurity vendor platform. Its job is to normalize, store, correlate, and safely expose security context to LLM agents under the operator’s control.
+  </div>
+
+  <h2>Market context</h2>
+  <p>
+    The market is moving toward AI-native security operations, but the dominant approaches create a gap. Elastic provides a mature search/SIEM/XDR platform with rich UI, integrations, detections, and optional AI assistants. Cylake is publicly positioning around a much broader sovereign, vertically integrated cyber platform for regulated institutions, including hardware/software and agentic protection. Both validate the same macro thesis: security is becoming a data-and-AI problem, and sovereignty matters.
+  </p>
+  <p>
+    SSDF’s opportunity is the narrower but sharper wedge between them: an open, operator-owned data substrate purpose-built for autonomous agents and MCP tools. It can sit beside existing firewalls, SIEMs, and vendor products without trying to replace them immediately.
+  </p>
+
+  <div class="grid">
+    <div class="box">
+      <h3>Against Elastic</h3>
+      <p>Elastic is mature and broad: search, dashboards, SIEM, XDR, endpoint, cases, detections, and cloud/self-managed deployments. SSDF should not compete on UI or feature breadth. It should compete on sovereignty-by-construction, minimal footprint, ClickHouse-first analytics, and MCP as the primary API.</p>
+    </div>
+    <div class="box">
+      <h3>Against Cylake</h3>
+      <p>Cylake is aiming at a complete sovereign cybersecurity platform. SSDF should remain composable: read-only data fabric, swappable components, and separate vendor MCPs for enforcement. This keeps scope tight and makes SSDF useful before it becomes a platform.</p>
+    </div>
+  </div>
+
+  <h2>Current wedge</h2>
+  <ul>
+    <li><strong>Concrete first use case:</strong> SRX security logs → Vector ECS normalization → ClickHouse → read-only MCP query server.</li>
+    <li><strong>Primary buyer/user:</strong> technical security operator, lab builder, regulated operator, or MSP that wants AI-agent workflows without sending raw telemetry to SaaS.</li>
+    <li><strong>Core promise:</strong> “Ask agents grounded questions about your security data, locally, safely, and with provenance.”</li>
+    <li><strong>Hard boundary:</strong> SSDF does not manage devices. Action is delegated to separate vendor MCPs such as Junos/PAN-OS tooling, preserving a clean data-plane/control-plane separation.</li>
+  </ul>
+
+  <h2>Direction</h2>
+  <ul>
+    <li><strong>Near term:</strong> harden M1/M2: reliable ingest, schema discipline, read-only ClickHouse access, guarded SQL, and agent-friendly query tools.</li>
+    <li><strong>Next sources:</strong> add PAN-OS and other real operator-owned systems using ECS-compatible mappings; prove multi-vendor correlation before expanding feature scope.</li>
+    <li><strong>Entity layer:</strong> add lightweight asset/identity/application resolution behind a graph seam only when event queries stop being enough.</li>
+    <li><strong>Sovereignty tiering:</strong> split local/full-detail agent tools from frontier/redacted tools; enforce least-data responses, audit, and provenance.</li>
+    <li><strong>Longer term:</strong> become the agentic security context plane that existing SIEMs, firewalls, and vendor MCPs can consume — not another monolithic console.</li>
+  </ul>
+
+  <div class="footer">
+    Recommended tagline: <strong>“A sovereign, MCP-native security data fabric for autonomous agents.”</strong><br>
+    Strategic discipline: stay small, read-only, composable, and agent-first until real operator workflows pull in additional platform features.
+  </div>
+</body>
+</html>
