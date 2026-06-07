@@ -22,7 +22,8 @@ boundary, AI-native, minimal.
 |---|---|---|---|---|
 | **M1** | SRX security logs → Vector (VRL/ECS-subset) → ClickHouse `ssdf.events`, SQL-queryable | ✅ Done | `infra/vector/`, `infra/clickhouse/`, `onboarding/srx/`; LXC ct102 (Vector, .150) + ct104 (ClickHouse, .151) | PR #1; real vSRX-test10 data |
 | **M2** | Read-only **MCP query layer** over `ssdf.events` (Python/FastMCP): `query_flows`, `describe_schema`, `top_talkers`, guarded `run_sql` | ✅ Done | `services/mcp-query/`; LXC ct106 (.152:30032), reads CH as read-only `ssdf_ro` | PR #2; 47 unit + 5 live integration tests; bearer-auth enforced |
-| **M3** | PAN-OS firewall logs → Vector (VRL/CSV) → ClickHouse `ssdf.events` (2nd vendor; `event_provider=paloalto`, vendor extras under `panw.panos.*`) | ✅ Done (Stage A+B live; real-wire validated) | `infra/vector/vector.toml` (`panos_ecs` transform), `onboarding/panos/`; live device panosvm (VMID 900, PAN-OS 12.1.5, 198.51.100.225); Vector ct102 UDP:515 (live); reads via M2 MCP ct106 | 10 vector unit tests; real-wire validated: SYSTEM (9 subtypes) + CONFIG logs → `ssdf.events`; TRAFFIC via synthetic line → `query_flows(provider="paloalto")`; both vendors coexist |
+| **M4** | Dynamic topology/connectivity graph: collectors (junos/unifi/panos/proxmox) → `ssdf.topo_observations`; resolver fuses with L3 flow rollups into `ssdf.graph_nodes`/`graph_edges` (MAC-anchored identity); 6 read-only topology MCP tools | ✅ Done | `services/topo/`, `infra/clickhouse/002_topology.sql`; topo tools in `services/mcp-query/`; LXC ct109 (.153, 5-min timer) + tools on ct106 | PR #4; first cycle 197 obs → 209 nodes / 205 edges |
+| **M5** | PAN-OS firewall logs → Vector (VRL/CSV) → ClickHouse `ssdf.events` (2nd vendor; `event_provider=paloalto`, vendor extras under `panw.panos.*`) | ✅ Done (Stage A+B live; real-wire validated) | `infra/vector/vector.toml` (`panos_ecs` transform), `onboarding/panos/`; live device panosvm (VMID 900, PAN-OS 12.1.5, 198.51.100.225); Vector ct102 UDP:515 (live); reads via M2 MCP ct106 | PR #3; 10 vector unit tests; real-wire validated: SYSTEM (9 subtypes) + CONFIG logs → `ssdf.events`; TRAFFIC via synthetic line → `query_flows(provider="paloalto")`; both vendors coexist |
 
 ## Numbering reconciliation (the drift)
 
@@ -33,7 +34,7 @@ The simplified-design doc used a *different* milestone numbering than what got b
 |---|---|
 | M1 = SRX→Vector→ClickHouse | **M1** (same) ✅ |
 | M2 = entity/resolver → Postgres-graph | *not built* — deferred (see forward roadmap) |
-| M3 = PAN-OS + query seam | *not built* — PAN-OS deferred |
+| M3 = PAN-OS + query seam | PAN-OS **built as M5** ✅; query seam = M2 |
 | M4 = MCP read server + sovereignty | **M2** (MCP read server, pulled forward; sovereignty/scope-gating not yet built) ✅(partial) |
 
 **Why the reorder:** the AI-native query surface (the product thesis) was prioritized over the
@@ -42,7 +43,8 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
 
 ## Forward roadmap (proposed, renumbered from as-built — adjust as we go)
 
-- **M3 — completed current milestone.** Do not assign new design work to M3.
+- **M3 — retired placeholder slot.** Used transitionally during the M4 build; no standalone
+  artifact. Canonical built milestones are M1, M2, M4, M5. Do not reuse the M3 number.
 - **M4 — dynamic connectivity / topology graph.** ✅ Built 2026-06-07. Collectors (junos,
   unifi, panos, proxmox) reuse the deployed read-only MCPs to gather LLDP/MAC/ARP/interface +
   VM-NIC facts into `ssdf.topo_observations`; a resolver fuses them with L3 flow rollups into
