@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS ssdf.graph_nodes
     attrs       Map(String, String)
 )
 ENGINE = ReplacingMergeTree(last_seen)
-ORDER BY (tenant_id, node_id);
+ORDER BY (tenant_id, node_id)
+TTL toDateTime(last_seen) + INTERVAL 30 DAY;
 
 CREATE TABLE IF NOT EXISTS ssdf.graph_edges
 (
@@ -49,4 +50,5 @@ CREATE TABLE IF NOT EXISTS ssdf.graph_edges
     attrs      Map(String, String)
 )
 ENGINE = ReplacingMergeTree(last_seen)
-ORDER BY (tenant_id, edge_id);
+ORDER BY (tenant_id, edge_id)
+TTL toDateTime(last_seen) + INTERVAL 30 DAY;
