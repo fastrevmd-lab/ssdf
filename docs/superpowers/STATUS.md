@@ -22,7 +22,7 @@ boundary, AI-native, minimal.
 |---|---|---|---|---|
 | **M1** | SRX security logs → Vector (VRL/ECS-subset) → ClickHouse `ssdf.events`, SQL-queryable | ✅ Done | `infra/vector/`, `infra/clickhouse/`, `onboarding/srx/`; LXC ct102 (Vector, .150) + ct104 (ClickHouse, .151) | PR #1; real vSRX-test10 data |
 | **M2** | Read-only **MCP query layer** over `ssdf.events` (Python/FastMCP): `query_flows`, `describe_schema`, `top_talkers`, guarded `run_sql` | ✅ Done | `services/mcp-query/`; LXC ct106 (.152:30032), reads CH as read-only `ssdf_ro` | PR #2; 47 unit + 5 live integration tests; bearer-auth enforced |
-| **M3** | PAN-OS firewall logs → Vector (VRL/CSV) → ClickHouse `ssdf.events` (2nd vendor; `event_provider=paloalto`, vendor extras under `panw.panos.*`) | 🟡 Code complete; live onboarding gated | `infra/vector/vector.toml` (`panos_ecs` transform), `onboarding/panos/`; target device panosvm (VMID 900, PAN-OS 12.1.5); Vector ct102 UDP:515 | 9 vector unit tests; live validation pending |
+| **M3** | PAN-OS firewall logs → Vector (VRL/CSV) → ClickHouse `ssdf.events` (2nd vendor; `event_provider=paloalto`, vendor extras under `panw.panos.*`) | ✅ Done (Stage A live; pipeline validated) | `infra/vector/vector.toml` (`panos_ecs` transform), `onboarding/panos/`; live device panosvm (VMID 900, PAN-OS 12.1.5, 198.51.100.225); Vector ct102 UDP:515 (live); reads via M2 MCP ct106 | 10 vector unit tests; end-to-end validated: line → ct102:515 → `ssdf.events` → `query_flows(provider="paloalto")` returns row; `juniper:13, paloalto:1` coexist |
 
 ## Numbering reconciliation (the drift)
 
@@ -42,10 +42,22 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
 
 ## Forward roadmap (proposed, renumbered from as-built — adjust as we go)
 
-- **M3 — second source: PAN-OS.** 🟡 Code complete (VRL/CSV parser + 9 unit tests); Log Forwarding
-  Profile onboarding artifact ready (`onboarding/panos/log-forwarding.set`). Live device push to
-  panosvm (VMID 900) via panos-mcp gated pending go-ahead. Once applied, proves the schema
-  generalizes to a 2nd vendor.
+- **M3 — second source: PAN-OS.** ✅ Done. VRL/CSV parser (`panos_ecs`) + 10 unit tests; live
+  Vector config on ct102 listening UDP:515. **Stage A onboarding live on panosvm** (VMID 900,
+  PAN-OS 12.1.5, 198.51.100.225): syslog server profile `SSDF` → 198.51.100.150:515 BSD, log-
+  forwarding profile `SSDF-LF` (applied via XML), attached `log-setting SSDF-LF` to all 5 security
+  rules (via XML — the panos-mcp set-CLI mangles quoted `filter "All Logs"`). Pipeline validated
+  end-to-end: a PAN-OS 12.1 TRAFFIC CSV line → ct102:515 → `ssdf.events` with `event_provider=
+  paloalto`, IPv4 src/dst, ports, bytes, `rule_name`, `panw.panos.*` extras; returned by the M2
+  MCP `query_flows(provider="paloalto")`; both vendors coexist (`juniper:13, paloalto:1`). Proves
+  the ECS-subset schema generalizes to a 2nd vendor.
+  - **Carve-outs (follow-ups, not blockers):** (1) panosvm currently has **no transit traffic**
+    (empty session table), so the end-to-end proof used a synthetic-but-positionally-exact line;
+    real-wire TRAFFIC validation will self-confirm the first time traffic hits a logged rule
+    (PAN-OS transit-only-logging trap, same as SRX). (2) **Stage B device-plane log-settings**
+    (system/config self-generated logs, which would give real-wire validation without transit
+    traffic) is **not applied** — the panos-mcp config-write path began returning "Unauthorized
+    request" (read ops still work), a credential issue to resolve on the panos-mcp side.
 - **M4 — entity/correlation layer.** Deterministic Asset/Identity resolution from ECS events
   behind a `GraphStore` seam (Postgres-as-graph first, Neo4j deferred). Build when
   ClickHouse-only correlation stops sufficing.
