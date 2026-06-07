@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SSDF Market Brief: NGFW/XDR/SASE Memory + Metrics</title>
+<style>
+  @page { size: Letter; margin: 0.36in; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #172033; font-size: 8.95pt; line-height: 1.18; margin: 0; }
+  h1 { font-size: 17.8pt; margin: 0 0 4px; letter-spacing: -0.02em; color: #0b1220; }
+  .subtitle { font-size: 9.2pt; color: #465368; margin: 0 0 8px; }
+  h2 { font-size: 10.6pt; color: #0f3b63; margin: 7px 0 3px; text-transform: uppercase; letter-spacing: .045em; }
+  p { margin: 2px 0 5px; }
+  ul { margin: 2px 0 4px 15px; padding: 0; }
+  li { margin: 1.5px 0; }
+  .thesis { border-left: 4px solid #1d6cdf; background: #f2f7ff; padding: 6px 8px; margin: 5px 0 7px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .box { border: 1px solid #d8e0ea; border-radius: 7px; padding: 6px 7px; background: #fbfcfe; }
+  .box h3 { margin: 0 0 3px; font-size: 9.7pt; color: #111827; }
+  .tag { display:inline-block; font-size:7.4pt; padding:1px 4px; border-radius: 4px; background:#eaf1fb; color:#17446f; margin-left: 3px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 3px; }
+  th, td { border: 1px solid #d6dee8; padding: 3.2px 4px; vertical-align: top; }
+  th { background: #eef4fb; color: #13283f; font-size: 8.2pt; text-align: left; }
+  td { font-size: 7.9pt; }
+  .small { font-size: 7.2pt; color: #536174; line-height: 1.13; }
+  .recommend { background: #fff8e8; border: 1px solid #efd28e; border-radius: 7px; padding: 6px 8px; margin-top: 6px; }
+  .footer { margin-top: 5px; border-top: 1px solid #dbe3ee; padding-top: 4px; }
+</style>
+</head>
+<body>
+  <h1>Market Brief: Who Else Is Chasing NGFW/XDR/SASE “Memory + Metrics”?</h1>
+  <div class="subtitle">For SSDF · 2026-06-07 · Focus: rule/config memory, traffic trends, agent context, and security-ops metrics across NGFW, XDR, and SASE.</div>
+
+  <div class="thesis">
+    <b>Bottom line:</b> the market is definitely converging on this problem, but in fragments. NGFW/SASE/XDR incumbents are adding copilots, telemetry, AIOps, and unified SOC context. Network Security Policy Management vendors are closest to “firewall memory” with rule cleanup, change history, audit, and connectivity graphs. The open lane for SSDF is narrower and cleaner: a neutral, self-hosted, read-only MCP context plane that gives agents trustworthy history + metrics across products without becoming the SIEM, XDR, or policy-change system.
+  </div>
+
+  <h2>Competitive / adjacent clusters</h2>
+  <div class="grid">
+    <div class="box">
+      <h3>1) Platform incumbents <span class="tag">AI + telemetry</span></h3>
+      <ul>
+        <li><b>Palo Alto</b>: Strata AIOps uses PAN-OS device telemetry and configuration/best-practice analysis for NGFW health/security posture; Cortex XSIAM emphasizes unified data, enriched firewall logs, ML models, full attack story, and root cause.</li>
+        <li><b>Cisco / Splunk</b>: Cisco XDR markets network visibility, open integrations, agentic AI, forensics, and correlated telemetry; Splunk ES positions unified TDIR with agentic AI, SOAR, UEBA, SIEM, broad data visibility.</li>
+        <li><b>Microsoft Security Copilot</b>: natural-language security analysis across Defender XDR/Sentinel/Intune/Entra; explicitly includes incident context, KQL generation, posture, and policy summarization/conflict management.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>2) SASE / DEM vendors <span class="tag">experience metrics</span></h3>
+      <ul>
+        <li><b>Zscaler ZDX</b>: end-to-end visibility from device to app, AI-powered root-cause analysis, deep telemetry from device health, network path, synthetic and real user journeys.</li>
+        <li><b>Netskope One DEM</b>: granular telemetry across the whole path, device health/risk profile/network/SSE/application performance, proactive SASE-migration monitoring.</li>
+        <li>These vendors validate the “metrics” side strongly, especially latency, path, device, app, and user-experience baselines. They are less focused on neutral firewall-rule memory.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>3) NSPM / firewall-policy vendors <span class="tag">closest to memory</span></h3>
+      <ul>
+        <li><b>TufinAI</b>: vendor-agnostic network security AI built on a dynamic connectivity graph; focuses on reachability, exposure, policy recertification, unnecessary-access cleanup, real-time executive metrics.</li>
+        <li><b>FireMon</b>: real-time policy analysis, continuous compliance, change tracking, unused/stale rule detection, shadowing analysis, historical “what changed, when, by whom” root-cause support.</li>
+        <li><b>AlgoSec</b>: policy impact on traffic, what-if traffic queries, plain-English AlgoBot, app-to-rule mapping, unused/duplicate/expired/overly permissive rule cleanup, audit-ready reports.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>4) What appears underserved <span class="tag">SSDF lane</span></h3>
+      <ul>
+        <li>Vendor-neutral “memory + metrics” exposed as MCP tools for arbitrary LLM agents.</li>
+        <li>Self-hosted, operator-owned context store rather than mandatory SaaS cloud console.</li>
+        <li>Read-only evidence layer that can pair with separate vendor MCPs for gated action.</li>
+        <li>Small composable data fabric: normalized events, policy snapshots, rule metadata, hit counts, flow/time-series summaries, and change/audit context.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Signal map</h2>
+  <table>
+    <tr><th>Buyer ask</th><th>Vendors already signaling it</th><th>SSDF interpretation</th></tr>
+    <tr><td>“What changed on this rule and why?”</td><td>Tufin, FireMon, AlgoSec; Microsoft policy summarization</td><td>Store config snapshots, commits, rule owner/intent, nearby alerts/tickets.</td></tr>
+    <tr><td>“Is this rule still used?”</td><td>FireMon unused rule detection; AlgoSec rule cleanup; Palo Alto rule/activity insights</td><td>Expose rule-hit, last-seen, trend, top-talkers, allow/deny metrics by rule.</td></tr>
+    <tr><td>“Why is the app/user slow?”</td><td>Zscaler ZDX, Netskope DEM</td><td>Ingest SASE/DEM metrics later; start with network path and firewall counters.</td></tr>
+    <tr><td>“Give my analyst/agent context fast.”</td><td>XSIAM, Cisco XDR, Splunk ES, Microsoft Copilot</td><td>Answer through bounded MCP queries, not a new SOC console.</td></tr>
+  </table>
+
+  <div class="recommend">
+    <b>Recommended SSDF wedge:</b> ship “Firewall Memory + Metrics MCP” before broad XDR/SASE scope. Minimum data products: rule inventory, config/change timeline, rule hit/flow trends, device health counters, top entities, and explainable natural-language query templates. Position against incumbents as: <b>neutral, sovereign, MCP-native context for agents</b> — not a replacement for Palo Alto/Fortinet/Cisco consoles, SASE DEM, XDR, or NSPM suites.
+  </div>
+
+  <div class="footer small">
+    Sources reviewed: Palo Alto Strata AIOps and Cortex XSIAM pages; Cisco XDR; Splunk Enterprise Security; Microsoft Security Copilot docs; Zscaler ZDX; Netskope One DEM; TufinAI/Tufin security agents; FireMon Policy Manager/use cases; AlgoSec Firewall Analyzer. Public vendor claims are treated as positioning, not verified implementation.
+  </div>
+</body>
+</html>

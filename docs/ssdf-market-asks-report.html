@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SSDF Market Report: Key Asks</title>
+<style>
+  @page { size: Letter; margin: 0.36in; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Arial, Helvetica, sans-serif; color:#111827; font-size:8.9pt; line-height:1.18; }
+  h1 { margin:0 0 2px 0; font-size:18pt; line-height:1; color:#0f172a; letter-spacing:-.02em; }
+  .sub { color:#475569; font-size:8.4pt; padding-bottom:5px; border-bottom:2px solid #0f766e; margin-bottom:6px; }
+  h2 { margin:6px 0 3px 0; color:#0f766e; font-size:10.2pt; }
+  p { margin:0 0 4px 0; }
+  ul { margin:2px 0 4px 15px; padding:0; }
+  li { margin:1px 0; }
+  .callout { background:#ecfeff; border-left:4px solid #0f766e; padding:5px 7px; margin:5px 0; font-size:8.9pt; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:6px; }
+  .box { border:1px solid #cbd5e1; border-radius:6px; padding:5px 6px; }
+  .box h3 { margin:0 0 2px 0; font-size:9.3pt; color:#0f172a; }
+  .ask { font-weight:bold; color:#0f172a; }
+  .rank { color:#0f766e; font-weight:bold; }
+  .foot { border-top:1px solid #cbd5e1; margin-top:5px; padding-top:4px; color:#475569; font-size:7.2pt; line-height:1.14; }
+</style>
+</head>
+<body>
+  <h1>SSDF Market Report: What Buyers Are Asking For</h1>
+  <div class="sub">Sovereign Security Data Fabric · AI/MCP-native SOC and firewall operations · 2026-06-07</div>
+
+  <div class="callout">
+    <strong>Market signal:</strong> vendors are converging on “ask natural-language questions over security data,” but the unmet wedge is trusted, local, cross-vendor memory: agents that know rule history, traffic trends, topology, change context, and investigation provenance without exporting raw telemetry to SaaS.
+  </div>
+
+  <h2>Highest-value asks SSDF should target</h2>
+  <div class="grid">
+    <div class="box">
+      <h3><span class="rank">1.</span> Explain rule and policy history</h3>
+      <p><span class="ask">“Why does this rule exist, who changed it, what broke after, and is it still used?”</span> Azure Firewall change tracking, PAN rule usage, and policy-management vendors all point to audit trails, rule usage, and change impact as recurring operational needs.</p>
+    </div>
+    <div class="box">
+      <h3><span class="rank">2.</span> Trend traffic and capacity by rule/device</h3>
+      <p><span class="ask">“Show connections/sec, denies, bytes, top apps, and anomalies for this firewall/rule/zone over time.”</span> Palo Alto markets natural-language network questions; operators need this grounded in telemetry, not dashboard spelunking.</p>
+    </div>
+    <div class="box">
+      <h3><span class="rank">3.</span> Find unused, risky, shadowed access</h3>
+      <p><span class="ask">“Which rules are unused, overly broad, shadowed, redundant, expired, or still allowing threats?”</span> PAN documents hit-count-driven cleanup; Cisco highlights shadowed/redundant rules; FireMon/AlgoSec/Tufin sell policy cleanup and risk reduction.</p>
+    </div>
+    <div class="box">
+      <h3><span class="rank">4.</span> Compress investigation context</h3>
+      <p><span class="ask">“Summarize this incident, the entities involved, prior related events, and next queries.”</span> Microsoft Security Copilot and Elastic AI Assistant both center alert investigation, incident response, query generation, and contextual summaries.</p>
+    </div>
+    <div class="box">
+      <h3><span class="rank">5.</span> Turn natural language into safe queries</h3>
+      <p><span class="ask">“Build the KQL/SQL/filter for denied RDP from untrusted zones last week.”</span> Microsoft cites query/script generation; Elastic cites query generation. SSDF’s differentiator is bounded, read-only MCP tools plus guarded SQL.</p>
+    </div>
+    <div class="box">
+      <h3><span class="rank">6.</span> Preserve operational knowledge</h3>
+      <p><span class="ask">“I wish the LLM knew the tribal knowledge: ticket links, exceptions, app owners, maintenance windows, and past decisions.”</span> SOC analysts report too much manual work; Tines found 64% spend over half their time on tedious work and 66% believe much can be automated.</p>
+    </div>
+  </div>
+
+  <h2>What this means for SSDF direction</h2>
+  <ul>
+    <li><strong>Lead with firewall/SASE operations, not generic SIEM:</strong> rule history + traffic trends + unused/risky access is a sharper wedge than “chat with logs.”</li>
+    <li><strong>Make time-series questions first-class:</strong> per rule/device/zone cps, denies, bytes, hit counts, top talkers, deltas before/after change, and anomaly flags.</li>
+    <li><strong>Add provenance memory:</strong> connect telemetry to config snapshots, commits, tickets, comments, owners, and MCP actions so agents can answer “why” not just “what.”</li>
+    <li><strong>Stay read-only but action-adjacent:</strong> SSDF should recommend and hand off to vendor MCPs; keep its own boundary as sovereign evidence/context fabric.</li>
+    <li><strong>Split local vs frontier outputs:</strong> local agents get raw/detail; frontier agents get redacted summaries and aggregates. This maps directly to market sovereignty concerns.</li>
+  </ul>
+
+  <h2>Recommended near-term product package</h2>
+  <p><strong>“Firewall Memory + Metrics MCP.”</strong> Tools: <code>explain_rule(rule)</code>, <code>rule_traffic_trend(rule, window)</code>, <code>unused_rules()</code>, <code>change_impact(change_id)</code>, <code>top_policy_risks()</code>, <code>incident_context(entity/window)</code>. This package converts SSDF from a log query layer into the agentic memory layer operators are implicitly asking vendors to build.</p>
+
+  <div class="foot">
+    Research basis: Elastic Security SIEM/AI Assistant pages (investigation, incident response, query generation, context-aware agents); Microsoft Security Copilot docs (natural-language security analysis, investigation/remediation, KQL/script generation, policy/report help); Palo Alto Strata Copilot docs/blogs (natural-language network security questions, top threats, policies/rules allowing threats, performance/config guidance); PAN rule usage docs (hit counts, unused rules, rule-change validation); Cisco Policy Analyzer docs (shadowed/redundant/overlapping rules); Azure Firewall change tracking docs (history, compliance, troubleshoot, trend analysis); Tines Voice of the SOC Analyst (manual work, burnout, automation demand).
+  </div>
+</body>
+</html>
