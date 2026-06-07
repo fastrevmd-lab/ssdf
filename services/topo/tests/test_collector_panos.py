@@ -1,0 +1,40 @@
+# tests/test_collector_panos.py
+"""Tests for the PAN-OS topology collector (ARP + LLDP, XML-in-JSON envelope)."""
+
+import pathlib
+
+from ssdf_topo.collectors.panos import parse_arp_xml, parse_lldp_xml
+
+FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+NOW = "2026-06-07T00:00:00+00:00"
+SOURCE = "panosvm"
+
+_INLINE_LLDP = (
+    '{"result":"<response status=\\"success\\"><result>'
+    '<entry><local-port>ethernet1/1</local-port>'
+    '<system-name>sw1</system-name>'
+    '<port-id>ge-0/0/1</port-id></entry>'
+    '</result></response>"}'
+)
+
+
+def _load(name: str) -> str:
+    return (FIXTURES / name).read_text()
+
+
+def test_parse_arp_xml():
+    obs = parse_arp_xml(_load("panos_arp.json"), SOURCE, NOW)
+    assert len(obs) == 3, f"expected 3 arp entries, got {len(obs)}"
+    first = obs[0]
+    assert first.observation_type == "arp_entry"
+    assert first.subj_id.startswith("ip:")
+    assert first.obj_id.startswith("mac:")
+    assert "interface" in first.attrs
+
+
+def test_parse_lldp_xml():
+    obs = parse_lldp_xml(_INLINE_LLDP, SOURCE, NOW)
+    assert len(obs) > 0
+    first = obs[0]
+    assert first.observation_type == "lldp_neighbor"
+    assert "local_port" in first.attrs
