@@ -82,6 +82,16 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
 - Infra runs on Proxmox LXC (no Docker): ClickHouse=ct104, Vector=ct102 on pve3.example.com.
 - SRX onboarding applied via rust-junosmcp using onboarding/srx/stream-config.set.
 
+### M2 (MCP query layer — ssdf-mcp-query)
+- Unit tests: `cd services/mcp-query && uv run pytest -m "not integration"`
+- Integration tests (live CH): `CH_HOST=<ip> CH_USER=ssdf_ro CH_PASSWORD=<pw> uv run pytest -m integration`
+- Run locally: `uv run python -m ssdf_mcp_query.server`
+- Deployed: streamable-HTTP MCP on its own Proxmox LXC (ct106, no Docker), bearer-token auth,
+  reading ClickHouse ct104 as the read-only `ssdf_ro` user. As-built coords in gitignored
+  `services/mcp-query/infra/ENV.local`.
+- Add to an agent via `.mcp.json`: `{"type":"http","url":"http://<ip>:30032/mcp",
+  "headers":{"Authorization":"Bearer <token>"}}`.
+
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems

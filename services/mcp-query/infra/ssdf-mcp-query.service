@@ -1,0 +1,21 @@
+[Unit]
+Description=SSDF M2 MCP query server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=CH_HOST=198.51.100.151
+Environment=CH_PORT=8123
+Environment=CH_USER=ssdf_ro
+Environment=CH_DATABASE=ssdf
+Environment=MCP_BIND=0.0.0.0
+Environment=MCP_PORT=30032
+Environment=MCP_TOKEN_FILE=/etc/ssdf-mcp/token
+EnvironmentFile=/etc/ssdf-mcp/secrets.env
+ExecStart=/opt/ssdf-mcp/bin/python -m ssdf_mcp_query.server
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
