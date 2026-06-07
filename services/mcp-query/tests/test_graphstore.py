@@ -32,3 +32,15 @@ def test_find_node_returns_match():
     store = ClickHouseGraphStore(FakeCH(), tenant="t_main")
     node = store.find_node("10.64.0.5")
     assert node["node_id"] == "n1" and node["identifiers"]["ip"] == "10.64.0.5"
+
+
+def test_node_match_sql_lowercases_mac_shaped_value():
+    """MACs are stored lowercase; an uppercase MAC-shaped lookup must match."""
+    _, params = build_node_match_sql("AA:BB:CC:DD:EE:FF", tenant="t_main")
+    assert params["val"] == "aa:bb:cc:dd:ee:ff"
+
+
+def test_node_match_sql_preserves_non_mac_case():
+    """Names/IPs are not MAC-shaped and must pass through verbatim."""
+    _, params = build_node_match_sql("Switch-A", tenant="t_main")
+    assert params["val"] == "Switch-A"

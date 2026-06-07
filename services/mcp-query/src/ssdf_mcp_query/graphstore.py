@@ -3,7 +3,16 @@
 
 from __future__ import annotations
 
+import re
 from typing import Protocol
+
+_MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", re.IGNORECASE)
+
+
+def _normalize_identifier(value: str) -> str:
+    """Lowercase MAC-shaped lookups since MACs are stored lowercase; pass
+    everything else (names, IPs, node_ids) through unchanged."""
+    return value.lower() if _MAC_RE.match(value) else value
 
 
 def build_node_match_sql(value: str, tenant: str) -> tuple[str, dict]:
@@ -14,7 +23,7 @@ def build_node_match_sql(value: str, tenant: str) -> tuple[str, dict]:
         "node_id = {val:String} OR has(mapValues(identifiers), {val:String})) "
         "ORDER BY last_seen DESC LIMIT 1"
     )
-    return sql, {"tenant": tenant, "val": value}
+    return sql, {"tenant": tenant, "val": _normalize_identifier(value)}
 
 
 def build_subgraph_sql(since_iso: str, tenant: str, limit: int = 5000) -> tuple[str, dict]:
