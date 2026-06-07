@@ -538,3 +538,24 @@ assert_eq!(.event_action, "unknown")
 assert_eq!(.event_provider, "paloalto")
 assert!(!exists(.source_ip))
 '''
+
+[[tests]]
+name = "panos_config_maps_admin_and_command"
+[[tests.inputs]]
+insert_at = "panos_ecs"
+type = "raw"
+value = '<14>Jun 06 23:26:00 panosvm.example.com ,2026/06/06 23:26:00,007054000270810,CONFIG,set,,2026/06/06 23:26:00,198.51.100.225,vsys1,set,admin,198.51.100.199,Succeeded,vsys vsys1 rulebase security'
+[[tests.outputs]]
+extract_from = "panos_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "config_set")
+assert_eq!(.event_category, ["configuration"])
+assert_eq!(.event_provider, "paloalto")
+assert_eq!(.user_name, "admin")
+assert_eq!(.ext."panw.panos.command", "set")
+assert_eq!(.ext."panw.panos.client", "198.51.100.199")
+assert_eq!(.ext."panw.panos.result", "Succeeded")
+assert!(!exists(.source_ip))
+'''
