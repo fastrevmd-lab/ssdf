@@ -9,5 +9,11 @@ GRANT INSERT, SELECT ON ssdf.entities TO ssdf_entity;
 GRANT INSERT, SELECT ON ssdf.entity_edges TO ssdf_entity;
 GRANT SELECT ON ssdf.events TO ssdf_entity;
 GRANT SELECT ON ssdf.graph_nodes TO ssdf_entity;
+-- M6a-fix (segment-scoped identity): the resolver reads ARP bindings from
+-- topo_observations, and reconcile_assets prunes stale ip_only twins via
+-- ALTER TABLE ... DELETE (mutations) on the entity tables.
+GRANT SELECT ON ssdf.topo_observations TO ssdf_entity;
+GRANT ALTER DELETE ON ssdf.entities TO ssdf_entity;
+GRANT ALTER DELETE ON ssdf.entity_edges TO ssdf_entity;
 GRANT SELECT ON ssdf.entities TO ssdf_ro;
 GRANT SELECT ON ssdf.entity_edges TO ssdf_ro;

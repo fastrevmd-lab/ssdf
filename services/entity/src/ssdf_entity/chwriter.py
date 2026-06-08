@@ -50,6 +50,10 @@ def build_binding_sql(lookback_hours: int, tenant: str) -> tuple[str, dict]:
     graph_nodes) over a lookback window so a transient single-pass binding drop
     does not orphan a host. subj_id is 'ip:<ip>', obj_id is 'mac:<mac>'.
     """
+    # `topo_observations.observed_at` is qualified per the toString-alias trap:
+    # the `toString(observed_at) AS observed_at` SELECT alias shadows the real
+    # DateTime column, so an unqualified `observed_at >= now() - INTERVAL ...`
+    # compares String to DateTime (NO_COMMON_TYPE) and the read fails outright.
     sql = (
         "SELECT source_device, "
         "replaceOne(subj_id, 'ip:', '') AS ip, "
@@ -58,7 +62,7 @@ def build_binding_sql(lookback_hours: int, tenant: str) -> tuple[str, dict]:
         "FROM ssdf.topo_observations "
         "WHERE tenant_id = {tenant:String} "
         "AND observation_type = 'arp_entry' "
-        "AND observed_at >= now() - INTERVAL {lookback_hours:UInt32} HOUR"
+        "AND topo_observations.observed_at >= now() - INTERVAL {lookback_hours:UInt32} HOUR"
     )
     return sql, {"tenant": tenant, "lookback_hours": lookback_hours}
 
