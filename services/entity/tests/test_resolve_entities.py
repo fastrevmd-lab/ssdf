@@ -113,6 +113,21 @@ def test_two_ips_sharing_a_mac_collapse_to_one_asset():
     assert ips == {"10.64.0.5", "10.64.0.6"}
 
 
+def test_collapsed_mac_endpoints_share_one_comm_edge():
+    # two IPs collapse to one MAC asset; both talk to the same peer => the
+    # COMMUNICATED_WITH edge is keyed on entity ids, so it merges (not fragments
+    # on raw IPs) and accumulates stats. Locks in the entity-id edge keying.
+    bindings = [_binding("10.64.0.5", "aa:aa:aa:aa:aa:aa"),
+                _binding("10.64.0.6", "aa:aa:aa:aa:aa:aa")]
+    flows = [_flow(src_ip="10.64.0.5", flows=3, bytes=1000),
+             _flow(src_ip="10.64.0.6", flows=2, bytes=500)]
+    _, edges = resolve_entities(flows, bindings=bindings, tenant="t_main")
+    comm = [e for e in edges if e["edge_type"] == COMMUNICATED_WITH]
+    assert len(comm) == 1
+    assert comm[0]["attrs"]["sessions"] == "5"
+    assert comm[0]["attrs"]["bytes"] == "1500"
+
+
 def test_distinct_ips_never_merge():
     flows = [_flow(src_ip="10.64.0.5"), _flow(src_ip="10.64.0.6")]
     entities, _ = resolve_entities(flows, bindings=[], tenant="t_main")

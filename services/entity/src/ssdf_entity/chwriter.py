@@ -1,4 +1,4 @@
-"""ClickHouse I/O for the entity layer: read flow-agg + topo hosts, write entities/edges."""
+"""ClickHouse I/O for the entity layer: read flow-agg + ARP bindings, write entities/edges."""
 
 from __future__ import annotations
 
