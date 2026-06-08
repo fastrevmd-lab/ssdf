@@ -50,6 +50,29 @@ class AccessTools:
         firewalls = enforcement.get("firewalls", [])
         attributed_fw = firewalls[0] if len(firewalls) == 1 else None
 
+        # M6b: configured rules on the firewalls topology places on the path. We list rules
+        # present on those firewalls — no match-scoring, no drift verdicts (honesty contract).
+        configured_controls: list[dict] = []
+        configured_basis = "topology"
+        if not firewalls:
+            configured_basis = "no_path_firewall"
+        else:
+            for item in self._store.configured_policies_for_firewalls(firewalls):
+                policy = item["policy"]
+                attrs = policy.get("attrs", {})
+                configured_controls.append({
+                    "firewall": item["firewall"],
+                    "rule": policy.get("name", ""),
+                    "action": attrs.get("action", ""),
+                    "from_zone": attrs.get("from_zone", ""),
+                    "to_zone": attrs.get("to_zone", ""),
+                    "position": attrs.get("position", ""),
+                    "enabled": attrs.get("enabled", "") == "true",
+                    "source": "configured",
+                })
+            if not configured_controls:
+                configured_basis = "firewall_name_unmatched"
+
         controls = []
         if comm_edges:
             for item in self._store.governed_policies([e["edge_id"] for e in comm_edges]):
@@ -73,7 +96,9 @@ class AccessTools:
                                "ports": sorted(int(p) for p in ports),
                                "providers": sorted(providers), "window_hours": window},
             "controls": controls,
+            "configured_controls": configured_controls,
+            "configured_basis": configured_basis,
             "firewalls": firewalls,
             "topology_path": self._topo.find_path(client, server),
-            "coverage": {"observed": sessions > 0, "configured": "pending_m6b"},
+            "coverage": {"observed": sessions > 0, "configured": len(configured_controls)},
         }
