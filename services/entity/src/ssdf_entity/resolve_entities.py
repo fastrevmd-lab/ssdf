@@ -119,8 +119,7 @@ def resolve_entities(flow_aggregates: list[dict], bindings: list[dict],
         src = asset_for(row["src_ip"], segment, first_seen, last_seen)
         dst = asset_for(row["dst_ip"], segment, first_seen, last_seen)
 
-        src_ip, dst_ip = row["src_ip"], row["dst_ip"]
-        comm_eid = edge_id(tenant, f"ip:{src_ip}", f"ip:{dst_ip}",
+        comm_eid = edge_id(tenant, src["entity_id"], dst["entity_id"],
                            COMMUNICATED_WITH, OBSERVED)
         comm = edges.get(comm_eid)
         if comm is None:

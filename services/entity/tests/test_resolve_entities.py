@@ -186,11 +186,14 @@ def test_observer_hosts_recorded_on_comm_edge():
 
 
 def test_observer_hosts_union_across_rows():
+    # two raw observer names that normalize to the SAME segment => same assets,
+    # one comm edge, observer_hosts unions the raw vantage names
     flows = [_flow(observer_hostname="vSRX-test10", first_seen=NOW1, last_seen=NOW1),
-             _flow(observer_hostname="panosvm", first_seen=NOW2, last_seen=NOW2)]
+             _flow(observer_hostname="vSRX-test10.lab", first_seen=NOW2, last_seen=NOW2)]
     _, edges = resolve_entities(flows, bindings=[], tenant="t_main")
-    comm = next(e for e in edges if e["edge_type"] == COMMUNICATED_WITH)
-    assert set(comm["attrs"]["observer_hosts"].split(",")) == {"panosvm", "vSRX-test10"}
+    comm = [e for e in edges if e["edge_type"] == COMMUNICATED_WITH]
+    assert len(comm) == 1
+    assert set(comm[0]["attrs"]["observer_hosts"].split(",")) == {"vSRX-test10", "vSRX-test10.lab"}
 
 
 def test_observer_hosts_absent_defaults_empty():
