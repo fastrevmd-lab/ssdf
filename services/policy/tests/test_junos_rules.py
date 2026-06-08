@@ -48,6 +48,24 @@ def test_parses_global_policy_fixture():
     assert "pre-id-default-policy" not in by_name
 
 
+GLOBAL_NO_ZONES = """
+set security policies global policy baseline-deny match source-address any
+set security policies global policy baseline-deny match destination-address any
+set security policies global policy baseline-deny match application any
+set security policies global policy baseline-deny then deny
+""".strip()
+
+
+def test_global_policy_zones_default_to_any_when_unspecified():
+    rules = parse_security_policies(GLOBAL_NO_ZONES, "vSRX-test10", "2026-06-08T00:00:00")
+    assert len(rules) == 1
+    rule = rules[0]
+    assert rule["rule_name"] == "baseline-deny"
+    assert rule["from_zone"] == ["any"]
+    assert rule["to_zone"] == ["any"]
+    assert rule["action"] == "deny"
+
+
 def test_parses_zonepair_fixture_actions():
     rules = parse_security_policies(ZONEPAIR_FIXTURE.read_text(), "vSRX-test11", "2026-06-08T00:00:00")
     by_name = {r["rule_name"]: r for r in rules}

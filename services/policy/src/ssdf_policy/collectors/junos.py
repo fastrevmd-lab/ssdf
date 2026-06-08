@@ -80,6 +80,12 @@ def parse_security_policies(text: str, device_name: str, now: str) -> list[dict]
             mapped = _ACTION_MAP.get(tokens[1])
             if mapped:
                 rule["action"] = mapped
+    for key, rule in rules.items():
+        if key[0] == "global":
+            if not rule["from_zone"]:
+                rule["from_zone"] = ["any"]
+            if not rule["to_zone"]:
+                rule["to_zone"] = ["any"]
     return list(rules.values())
 
 
