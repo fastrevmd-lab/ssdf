@@ -94,6 +94,7 @@ if err != null {
         "rule_name": string(fields."policy-name") ?? "",
         "observer_ingress_zone": string(fields."source-zone-name") ?? "",
         "observer_egress_zone": string(fields."destination-zone-name") ?? "",
+        "observer_hostname": string(parsed.hostname) ?? "",
         "user_name": user,
         "ext": map_values(fields) -> |v| { string(v) },
         "raw": raw
@@ -404,6 +405,21 @@ assert_eq!(.source_ip, "10.73.9.9")
 assert_eq!(.destination_port, 3389)
 assert_eq!(.rule_name, "default-deny")
 assert_eq!(.user_name, "")
+'''
+
+[[tests]]
+name = "srx_observer_hostname_from_syslog_host"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-06-08T12:00:00.000Z vSRX-test10 RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.observer_hostname, "vSRX-test10")
+assert_eq!(.rule_name, "baseline-permit(global)")
 '''
 
 # ---------------- PAN-OS unit tests ----------------
