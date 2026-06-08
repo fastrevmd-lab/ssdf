@@ -97,3 +97,24 @@ def test_flow_stats_accumulate_across_rows_for_same_pair():
     assert comm["attrs"]["bytes"] == "1500"
     assert set(comm["attrs"]["ports"].split(",")) == {"80", "443"}
     assert comm["first_seen"] == NOW1 and comm["last_seen"] == NOW2
+
+
+def test_observer_hosts_recorded_on_comm_edge():
+    entities, edges = resolve_entities([_flow(observer_hosts=["vSRX-test10"])],
+                                       topo_hosts=[], tenant="t_main")
+    comm = next(e for e in edges if e["edge_type"] == COMMUNICATED_WITH)
+    assert comm["attrs"]["observer_hosts"] == "vSRX-test10"
+
+
+def test_observer_hosts_union_across_rows():
+    flows = [_flow(observer_hosts=["vSRX-test10"], first_seen=NOW1, last_seen=NOW1),
+             _flow(observer_hosts=["panosvm"], first_seen=NOW2, last_seen=NOW2)]
+    _, edges = resolve_entities(flows, topo_hosts=[], tenant="t_main")
+    comm = next(e for e in edges if e["edge_type"] == COMMUNICATED_WITH)
+    assert set(comm["attrs"]["observer_hosts"].split(",")) == {"panosvm", "vSRX-test10"}
+
+
+def test_observer_hosts_absent_defaults_empty():
+    _, edges = resolve_entities([_flow()], topo_hosts=[], tenant="t_main")
+    comm = next(e for e in edges if e["edge_type"] == COMMUNICATED_WITH)
+    assert comm["attrs"]["observer_hosts"] == ""
