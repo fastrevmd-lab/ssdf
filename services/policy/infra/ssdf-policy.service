@@ -1,0 +1,11 @@
+# services/policy/infra/ssdf-policy.service
+[Unit]
+Description=SSDF M6b configured-policy collector + resolver (one-shot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/ssdf-policy/ENV.local
+ExecStart=/opt/ssdf-policy/bin/python -m ssdf_policy.collect_resolve
+SuccessExitStatus=0
