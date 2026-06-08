@@ -1,0 +1,25 @@
+<configuration-information>
+<configuration-output>
+set security policies from-zone trust to-zone untrust policy allow-web match source-address any
+set security policies from-zone trust to-zone untrust policy allow-web match destination-address any
+set security policies from-zone trust to-zone untrust policy allow-web match application junos-https
+set security policies from-zone trust to-zone untrust policy allow-web then permit
+set security policies from-zone trust to-zone untrust policy allow-web then log session-close
+set security policies from-zone trust to-zone untrust policy deny-telnet match source-address any
+set security policies from-zone trust to-zone untrust policy deny-telnet match destination-address any
+set security policies from-zone trust to-zone untrust policy deny-telnet match application junos-telnet
+set security policies from-zone trust to-zone untrust policy deny-telnet then deny
+set security policies from-zone untrust to-zone trust policy allow-https-in match source-address any
+set security policies from-zone untrust to-zone trust policy allow-https-in match destination-address web-server
+set security policies from-zone untrust to-zone trust policy allow-https-in match application junos-https
+set security policies from-zone untrust to-zone trust policy allow-https-in then permit
+set security policies from-zone untrust to-zone trust policy block-all match source-address any
+set security policies from-zone untrust to-zone trust policy block-all match destination-address any
+set security policies from-zone untrust to-zone trust policy block-all match application any
+set security policies from-zone untrust to-zone trust policy block-all then reject
+set security policies global policy baseline-permit match source-address any
+set security policies global policy baseline-permit match destination-address any
+set security policies global policy baseline-permit match application any
+set security policies global policy baseline-permit then permit
+</configuration-output>
+</configuration-information>
