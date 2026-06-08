@@ -43,7 +43,9 @@ def _rule_entries(root: ET.Element) -> list[ET.Element]:
         if root.tag == "rules":
             rules_el = root
         else:
-            rules_el = root.find(".//security/rules") or root.find(".//rules")
+            rules_el = root.find(".//security/rules")
+            if rules_el is None:
+                rules_el = root.find(".//rules")
     return rules_el.findall("entry") if rules_el is not None else []
 
 
