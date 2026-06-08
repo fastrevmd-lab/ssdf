@@ -13,6 +13,11 @@ def test_flow_agg_sql_is_parameterized_and_groups_by_pair():
     assert params == {"tenant": "t_main", "window_hours": 24}
 
 
+def test_flow_agg_sql_selects_observer_hosts():
+    sql, _ = build_flow_agg_sql(window_hours=24, tenant="t_main")
+    assert "groupUniqArray(observer_hostname) AS observer_hosts" in sql
+
+
 def test_topo_hosts_sql_filters_to_host_kind():
     sql, params = build_topo_hosts_sql(tenant="t_main")
     assert "ssdf.graph_nodes FINAL" in sql

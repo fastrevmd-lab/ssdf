@@ -26,6 +26,8 @@ boundary, AI-native, minimal.
 | **M5** | PAN-OS firewall logs → Vector (VRL/CSV) → ClickHouse `ssdf.events` (2nd vendor; `event_provider=paloalto`, vendor extras under `panw.panos.*`) | ✅ Done (Stage A+B live; real-wire validated) | `infra/vector/vector.toml` (`panos_ecs` transform), `onboarding/panos/`; live device panosvm (VMID 900, PAN-OS 12.1.5, 198.51.100.225); Vector ct102 UDP:515 (live); reads via M2 MCP ct106 | PR #3; 10 vector unit tests; real-wire validated: SYSTEM (9 subtypes) + CONFIG logs → `ssdf.events`; TRAFFIC via synthetic line → `query_flows(provider="paloalto")`; both vendors coexist |
 | **M6a** | Semantic **entity/correlation layer**: deterministic Asset (MAC-anchored, IP-never-merges-alone) + observed Policy resolution from `ssdf.events` + M4 hosts → `ssdf.entities`/`ssdf.entity_edges` behind a swappable `EntityStore` seam; `explain_access(client, server)` MCP tool fuses observed flows + observed controls + M4 topology firewall attribution | ✅ Done (live-validated) | `services/entity/` (resolver), `infra/clickhouse/004_entities.sql`+`005_entity_user.sql`, `entitystore.py`/`access_tools.py` in `services/mcp-query/`; resolver on LXC ct109 (5-min timer, writes CH as `ssdf_entity`), `explain_access` tool on ct106 | 9+4+5+4 unit tests + live integration; first live cycle 6 entities / 4 edges; `explain_access` returns sessions>0, controls `source:observed`, `coverage.configured:pending_m6b` |
 | **M6b** | **Configured-policy layer**: read each firewall's *configured* security ruleset (PAN-OS `get_pan_config` + vSRX `display set`) → `source='configured'` Policy entities keyed `provider:device:rule_name` (per-firewall identity, fixes M6a same-name collapse) + Firewall entities + `Firewall──GOVERNED_BY(configured)──►Policy` edges into shared `ssdf.entities`/`ssdf.entity_edges` (no schema change); `explain_access` gains `configured_controls` + integer `coverage.configured` | ✅ Done (deployed; configured-side live-proven) | `services/policy/` (collectors+resolver+writer), `entitystore.py`/`access_tools.py` in `services/mcp-query/`; collector+resolver on LXC ct109 (hourly `ssdf-policy.timer`, writes CH as `ssdf_entity`), updated `explain_access` on ct106 | 22 policy unit + 2 live integration; first live pass 8 entities / 6 edges (2 firewalls: panosvm=5 rules paloalto, vSRX-test10=1 rule juniper; 6 configured policies; 6 governed_by edges); `configured_policies_for_firewalls` returns all 6 live. **Live `explain_access` coverage.configured=0** — M4↔M6b bridge gap (issue #6; see below). PR #5 (merged) |
+| **M6c-A** | **Firewall-node tagging**: M4 junos/panos collectors self-emit `device_inventory(role=firewall)` so `panosvm`/`vSRX-test10` resolve as `kind=device, attrs.role=firewall` graph nodes, giving `enforcement_points` real firewalls to return — the topology-side half of the issue #6 bridge gap (and the fallback that M6c-B's provenance attribution degrades to). Also fixes latent collector MCP arg-name bugs (`router_name`, `host`). | ✅ Done | `services/topo/collectors/base.py` (`firewall_inventory` helper)+`junos.py`+`panos.py`; LXC ct109 | PR #7 (merged); collect cycle 197→223 obs / 204→218 nodes; CH confirms both firewalls `role=firewall` |
+| **M6c-B** | **Provenance-based firewall attribution**: normalize the logging device (ECS `observer.hostname`) at ingest as a typed column, thread it to the `COMMUNICATED_WITH` edge as `observer_hosts`, and have `explain_access` attribute the on-path firewall from flow provenance (the firewall that *logged* the flow is by definition on its path) — `firewall_basis:provenance` primary, the M4 L2-topology heuristic (powered by M6c-A's firewall-role nodes) only as fallback. Closes the issue #6 `coverage.configured>0` gap as the primary, transit-robust path. New response field `firewall_basis`. | ✅ Done (deployed; mechanism live-proven) | `infra/clickhouse/006_observer_hostname.sql`, `infra/vector/vector.toml` (`srx_ecs`+`panos_ecs` emit `observer_hostname`), `chwriter.py`/`resolve_entities.py` in `services/entity/`, `access_tools.py` in `services/mcp-query/`; deployed ct104 (schema) + ct102 (Vector) + ct109 (resolver) + ct106 (tool) | 12 vector + 23 entity + 81 mcp-query unit tests. **Live proof:** `explain_access(<asset owning the flow>, 203.0.113.1)` → `firewall_basis:provenance`, `firewalls:[vSRX-test10]`, `coverage.configured:1` (rule `baseline-permit`). Caveat below. branch `m6c-scopeb-provenance` |
 
 ## Numbering reconciliation (the drift)
 
@@ -129,14 +131,17 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
     gap is purely topology→firewall attribution; closing it requires M4 to emit firewall-role device
     nodes (tracked as the M6b→M4 dependency in **issue #6**). This was recorded honestly rather than fabricating M4
     nodes to make the number non-zero.
-    - **Scope A closed by M6c (2026-06-08).** M4's junos/panos collectors now self-emit a
-      `device_inventory(role=firewall)` observation per device, so `panosvm` and `vSRX-test10`
-      resolve as `kind=device, attrs.role=firewall` in `ssdf.graph_nodes` (verified live on ct104).
-      `enforcement_points` now returns them when they sit in a path's L1/L2 component. **Scope B**
-      (host↔firewall L2/L3 connectivity so a real transit pair yields `coverage.configured>0`
-      end-to-end) remains open under issue #6 / M6c.
-- **M6c — firewall-node tagging (issue #6, scope A).** ✅ Built 2026-06-08. Closes the M6b→M4
-  bridge gap's *node-tagging* half. New `firewall_inventory()` helper in `collectors/base.py`;
+    - **Scope A closed by M6c scope A (2026-06-08, PR #7).** M4's junos/panos collectors now
+      self-emit a `device_inventory(role=firewall)` observation per device, so `panosvm` and
+      `vSRX-test10` resolve as `kind=device, attrs.role=firewall` in `ssdf.graph_nodes` (verified
+      live on ct104). `enforcement_points` now returns them when they sit in a path's L1/L2
+      component — this powers the **topology fallback** of the provenance attribution in scope B.
+    - **Scope B closed by M6c scope B (2026-06-08, PR #8).** Provenance attribution names the
+      firewall that *logged* the flow, which is robust to transit firewalls the L2 heuristic cannot
+      see; issue #6's `coverage.configured>0` is met end-to-end. See the M6c scope B milestone below.
+- **M6c scope A — firewall-node tagging (issue #6).** ✅ Built 2026-06-08 (PR #7, merged). Closes
+  the M6b→M4 bridge gap's *node-tagging* half and supplies the firewall-role nodes that scope B's
+  topology fallback consumes. New `firewall_inventory()` helper in `collectors/base.py`;
   junos + panos collectors each append one `device_inventory(role=firewall, name=<device>)`
   observation, merged by the resolver onto the same name-keyed device node. Also fixed a latent
   M4 collector bug surfaced when the collectors first ran live on ct109: `execute_junos_command`
@@ -146,10 +151,39 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   Live proof: collect cycle 197→223 obs, 204→218 nodes; CH query returns `panosvm` and
   `vSRX-test10` both `kind=device, role=firewall`. Spec:
   `specs/2026-06-08-m4-firewall-node-tagging-design.md`; plan:
-  `plans/2026-06-08-m4-firewall-node-tagging.md`. **Scope B still open** under issue #6.
+  `plans/2026-06-08-m4-firewall-node-tagging.md`.
+- **M6c scope B — provenance-based firewall attribution.** ✅ Built 2026-06-08 (PR #8). The M4
+  L1/L2 connected-component heuristic (`enforcement_points`) is structurally incapable of naming a
+  *transit* firewall, which is why live M6b returned `coverage.configured:0`. Scope B makes
+  **provenance the primary** attribution — the firewall that *logged* a flow is by definition on
+  the flow's path — and keeps scope A's topology heuristic as the **fallback**. Ingest now
+  normalizes the syslog source device into a typed `observer_hostname` column (ECS
+  `observer.hostname`, migration `006`); the `srx_ecs` and `panos_ecs` Vector transforms emit it;
+  the entity resolver collects it per pair (`groupUniqArray(observer_hostname)`) and threads it
+  onto the `COMMUNICATED_WITH` edge as a comma-set `observer_hosts`; `explain_access` attributes
+  firewalls from `observer_hosts` first (`firewall_basis:provenance`) and only falls back to M4
+  topology (powered by scope A's firewall-role nodes) when provenance is absent
+  (`firewall_basis:topology`/`no_path_firewall`). **Live-proven mechanism:** for the asset that
+  owns the flow, `explain_access(...,"203.0.113.1")` returns `firewall_basis:provenance`,
+  `firewalls:[vSRX-test10]`, `coverage.configured:1` (configured rule `baseline-permit`).
+  Spec: `specs/2026-06-08-m6c-scopeb-provenance-firewall-attribution-design.md`; plan:
+  `plans/2026-06-08-m6c-scopeb-provenance-firewall-attribution.md`.
+  - **Proof caveat — pre-existing M6a asset duplication, not a scope-B defect.** The IP
+    `198.51.100.150` resolves to two Asset entities: a MAC-anchored one (`d3bb…`, whose edge carries
+    `observer_hosts=vSRX-test10`) and a stale ip-only one (`540b…`, newer `last_seen`, edge predates
+    the provenance backfill). `find_entity` orders `last_seen DESC LIMIT 1`, so a *by-IP* lookup
+    returns the ip-only asset and yields `no_path_firewall`. Resolving by an identifier that lands on
+    the flow-owning asset (e.g. the MAC) gives the full provenance result. The duplication is the
+    known M6a IP-vs-MAC identity split (see M6a notes), independent of scope B; reconciling it is
+    deferred (M6c scope C / identity-merge work).
+  - **PAN-OS provenance carve-out.** PAN-OS stamps `observer.hostname` as `panosvm.example.com` but
+    the M6b Firewall entity is named `panosvm` (domain-suffix mismatch), so PAN-OS provenance would
+    not yet bridge to its configured policies. PAN-OS transit was already "unproven live" (no transit
+    traffic, M5 carve-out); SRX/vSRX-test10 is the live-proven path. Normalizing the device-name
+    suffix is follow-up work.
 - **M6d — multi-hop L3 stitching + Postgres-as-graph.** Relocate the entity store off ClickHouse
   to Postgres-as-graph (Neo4j still deferred); stitch multi-hop paths. Deferred. (Renumbered from
-  M6c, which is now the firewall-node tagging milestone above.)
+  M6c, which is now the firewall attribution milestone above.)
 - **M7 — sovereignty + MCP split.** Scope-gating, sovereignty policy + audit on the read MCP;
   split local/frontier MCP when frontier egress is wired.
 - **Later sources:** UniFi (CEF + Suricata EVE via `unifi-mcp`), Proxmox (rsyslog + PVE API

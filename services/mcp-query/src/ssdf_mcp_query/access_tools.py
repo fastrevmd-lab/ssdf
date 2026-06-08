@@ -45,9 +45,18 @@ class AccessTools:
             ports.update(_csv_list(attrs.get("ports", "")))
             providers.update(_csv_list(attrs.get("providers", "")))
 
-        # Firewall attribution comes from topology, NOT the event stream (see spec §3).
-        enforcement = self._topo.enforcement_points(client, server)
-        firewalls = enforcement.get("firewalls", [])
+        # Provenance-primary firewall attribution (spec §4.4): the firewall that LOGGED
+        # the flow is, by definition, on its path. Fall back to the L2-topology heuristic
+        # only when no provenance is present (it cannot attribute transit firewalls).
+        observer_hosts: set[str] = set()
+        for edge in comm_edges:
+            observer_hosts.update(_csv_list(edge.get("attrs", {}).get("observer_hosts", "")))
+        if observer_hosts:
+            firewalls = sorted(observer_hosts)
+            firewall_basis = "provenance"
+        else:
+            firewalls = self._topo.enforcement_points(client, server).get("firewalls", [])
+            firewall_basis = "topology" if firewalls else "no_path_firewall"
         attributed_fw = firewalls[0] if len(firewalls) == 1 else None
 
         # M6b: configured rules on the firewalls topology places on the path. We list rules
@@ -82,7 +91,7 @@ class AccessTools:
                     "vendor": policy["identifiers"].get("provider", ""),
                     "rule": policy.get("name", ""),
                     "source": policy.get("source", "observed"),
-                    "firewall_basis": "topology",
+                    "firewall_basis": firewall_basis,
                 })
 
         return {
@@ -99,6 +108,7 @@ class AccessTools:
             "configured_controls": configured_controls,
             "configured_basis": configured_basis,
             "firewalls": firewalls,
+            "firewall_basis": firewall_basis,
             "topology_path": self._topo.find_path(client, server),
             "coverage": {"observed": sessions > 0, "configured": len(configured_controls)},
         }

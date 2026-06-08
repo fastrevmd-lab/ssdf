@@ -102,7 +102,7 @@ def resolve_entities(flow_aggregates: list[dict], topo_hosts: list[dict],
                 "src_id": src["entity_id"], "dst_id": dst["entity_id"],
                 "edge_type": COMMUNICATED_WITH, "source": OBSERVED, "confidence": 1.0,
                 "attrs": {"sessions": "0", "bytes": "0", "ports": "", "providers": "",
-                          "transports": ""},
+                          "transports": "", "observer_hosts": ""},
                 "first_seen": "", "last_seen": "",
             }
             edges[comm_eid] = comm
@@ -111,6 +111,7 @@ def resolve_entities(flow_aggregates: list[dict], topo_hosts: list[dict],
         _merge_set_attr(comm["attrs"], "ports", row.get("ports") or [])
         _merge_set_attr(comm["attrs"], "providers", [row.get("provider", "")])
         _merge_set_attr(comm["attrs"], "transports", [row.get("transport", "")])
+        _merge_set_attr(comm["attrs"], "observer_hosts", row.get("observer_hosts") or [])
         _bump_window(comm, first_seen, last_seen)
 
         rule = (row.get("rule_name") or "").strip()
