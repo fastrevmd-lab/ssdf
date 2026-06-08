@@ -52,3 +52,19 @@ def test_parse_mac_table_emits_attaches_to():
     assert first.subj_id.startswith("mac:")
     assert "vlan" in first.attrs
     assert "port" in first.attrs
+
+
+def test_collect_emits_firewall_inventory_per_device():
+    from ssdf_topo.collectors.junos import JunosCollector
+
+    class _EmptyClient:
+        def call_tool(self, name, args=None):
+            return ""  # parsers yield no rows on empty text
+
+    obs = JunosCollector(["vSRX-test10", "vSRX-test11"]).collect(_EmptyClient(), NOW)
+
+    inv = [o for o in obs if o.observation_type == "device_inventory"]
+    assert {o.source_device for o in inv} == {"vSRX-test10", "vSRX-test11"}
+    assert all(o.attrs["role"] == "firewall" for o in inv)
+    assert all(o.collector == "junos" for o in inv)
+    assert len(inv) == 2

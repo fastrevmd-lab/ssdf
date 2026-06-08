@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 
 from ..models import Observation
-from .base import register
+from .base import firewall_inventory, register
 
 _MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", re.IGNORECASE)
 
@@ -157,4 +157,5 @@ class JunosCollector:
                 {"router": dev, "command": "show arp no-resolve"},
             )
             observations.extend(parse_arp(arp_text, dev, now))
+            observations.append(firewall_inventory("junos", dev, now))
         return observations
