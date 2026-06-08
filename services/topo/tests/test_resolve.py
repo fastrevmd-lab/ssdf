@@ -83,3 +83,29 @@ def test_conflicting_ip_mac_over_time_not_merged():
     assert host_macs == {"aa:aa", "bb:bb"}
     addr_edges = [e for e in edges if e["edge_type"] == "has_address"]
     assert len(addr_edges) == 2
+
+
+def test_device_inventory_role_merges_onto_named_device_node():
+    from ssdf_topo.models import Observation
+    from ssdf_topo.resolver.resolve import resolve_graph
+
+    now = "2026-06-08T00:00:00+00:00"
+    mac_obs = Observation(
+        observed_at=now, collector="junos", source_device="vSRX-test10",
+        layer="l2", observation_type="mac_entry",
+        subj_kind="host", subj_id="mac:aa:bb:cc:dd:ee:01",
+        obj_kind="device", obj_id="device:vSRX-test10",
+        attrs={"vlan": "10", "port": "ge-0/0/0"},
+    )
+    inv_obs = Observation(
+        observed_at=now, collector="junos", source_device="vSRX-test10",
+        layer="l2", observation_type="device_inventory",
+        subj_kind="device", subj_id="device:vSRX-test10",
+        attrs={"role": "firewall", "name": "vSRX-test10"},
+    )
+
+    nodes, _edges = resolve_graph([mac_obs, inv_obs], [], "t_main")
+
+    fw = [n for n in nodes if n["kind"] == "device" and n["name"] == "vSRX-test10"]
+    assert len(fw) == 1, "device_inventory must merge onto the named device node, not duplicate it"
+    assert fw[0]["attrs"]["role"] == "firewall"
