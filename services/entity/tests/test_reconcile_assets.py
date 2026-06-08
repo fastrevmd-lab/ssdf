@@ -84,3 +84,30 @@ def test_twin_governed_by_edges_are_deleted():
         comm_edges=[twin_edge], gov_edges=[gov],
         binding_map=binding_map, tenant=TENANT)
     assert gov["edge_id"] in plan["delete_edge_ids"]
+
+
+def test_twin_to_twin_edge_remaps_both_endpoints():
+    # both endpoints of a flow are ip_only twins that collapse to MAC assets;
+    # the merged edge must connect the two MAC assets, not dangle on a deleted id
+    MAC_B = "bb:bb:bb:bb:bb:bb"
+    MACB_ID = entity_id(TENANT, ASSET, f"mac:{MAC_B}")
+    TWINB_ID = entity_id(TENANT, ASSET, "ip:10.64.0.9")
+    binding_map = {("fw1", "198.51.100.150"): MAC, ("fw1", "10.64.0.9"): MAC_B}
+    mac_a = _asset(MAC_ID, "mac", {"mac": MAC, "ip": "198.51.100.150"})
+    mac_b = _asset(MACB_ID, "mac", {"mac": MAC_B, "ip": "10.64.0.9"})
+    twin_a = _asset(TWIN_ID, "ip_only", {"ip": "198.51.100.150"})
+    twin_b = _asset(TWINB_ID, "ip_only", {"ip": "10.64.0.9"})
+    twin_edge = _comm_edge(TWIN_ID, TWINB_ID, sessions=4, bytes=400)
+    plan = plan_reconciliation(
+        ip_only_assets=[twin_a, twin_b], mac_assets=[mac_a, mac_b],
+        comm_edges=[twin_edge], gov_edges=[], binding_map=binding_map, tenant=TENANT)
+    assert TWIN_ID in plan["delete_entity_ids"]
+    assert TWINB_ID in plan["delete_entity_ids"]
+    assert twin_edge["edge_id"] in plan["delete_edge_ids"]
+    expected_id = edge_id(TENANT, MAC_ID, MACB_ID, COMMUNICATED_WITH, "observed")
+    merged = next(e for e in plan["merged_edges"] if e["edge_id"] == expected_id)
+    assert merged["src_id"] == MAC_ID and merged["dst_id"] == MACB_ID
+    assert merged["attrs"]["sessions"] == "4"
+    # the merged edge must not reference any deleted twin id
+    assert merged["src_id"] not in plan["delete_entity_ids"]
+    assert merged["dst_id"] not in plan["delete_entity_ids"]

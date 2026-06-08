@@ -4,7 +4,9 @@ A twin is an ip_only Asset whose IP resolves, via the segment-scoped binding map
 to exactly one MAC for which a MAC-anchored Asset already exists (IP and MAC agree).
 Twins whose IP is unbound, or bound to multiple MACs (cross-segment reuse / conflict),
 are left untouched. Confirmed twins have their COMMUNICATED_WITH edges merged into the
-MAC asset's corresponding edge, then the twin and its edges are deleted.
+MAC asset's corresponding edge, then the twin and its edges are deleted. GOVERNED_BY
+edges off the twin's comm edge are deleted (not re-pointed): the next resolver pass
+re-derives GOVERNED_BY on the MAC-anchored comm edge within one cycle.
 """
 
 from __future__ import annotations
@@ -45,31 +47,35 @@ def plan_reconciliation(ip_only_assets: list[dict], mac_assets: list[dict],
                         if a["identifiers"].get("mac")}
     comm_by_id = {e["edge_id"]: e for e in comm_edges}
 
-    merged_edges: dict[str, dict] = {}
-    delete_entity_ids: list[str] = []
-    delete_edge_ids: list[str] = []
-
+    # Resolve every confirmed twin to its MAC asset's entity id up front, so an
+    # edge whose *peer* is itself a twin has BOTH endpoints rewritten — no dangling
+    # reference to a deleted entity, and twin-to-twin stats are not lost.
+    twin_to_mac_id: dict[str, str] = {}
     for twin in ip_only_assets:
-        target_mac = None
         for ip in _ips_of(twin):
             mac = ip_to_mac.get(ip)
             if mac and mac in mac_asset_by_mac:
-                target_mac = mac
+                twin_to_mac_id[twin["entity_id"]] = mac_asset_by_mac[mac]["entity_id"]
                 break
-        if target_mac is None:
-            continue
-        mac_id = mac_asset_by_mac[target_mac]["entity_id"]
-        twin_id = twin["entity_id"]
-        delete_entity_ids.append(twin_id)
 
-        twin_comm = [e for e in comm_edges if twin_id in (e["src_id"], e["dst_id"])]
-        for edge in twin_comm:
-            delete_edge_ids.append(edge["edge_id"])
-            new_src = mac_id if edge["src_id"] == twin_id else edge["src_id"]
-            new_dst = mac_id if edge["dst_id"] == twin_id else edge["dst_id"]
-            new_id = edge_id(tenant, new_src, new_dst, COMMUNICATED_WITH, OBSERVED)
-            target = merged_edges.get(new_id) or dict(comm_by_id.get(new_id) or {})
-            if not target:
+    delete_entity_ids: list[str] = list(twin_to_mac_id)
+    merged_edges: dict[str, dict] = {}
+    delete_edge_ids: list[str] = []
+
+    for edge in comm_edges:
+        if edge["src_id"] not in twin_to_mac_id and edge["dst_id"] not in twin_to_mac_id:
+            continue
+        delete_edge_ids.append(edge["edge_id"])
+        new_src = twin_to_mac_id.get(edge["src_id"], edge["src_id"])
+        new_dst = twin_to_mac_id.get(edge["dst_id"], edge["dst_id"])
+        new_id = edge_id(tenant, new_src, new_dst, COMMUNICATED_WITH, OBSERVED)
+        target = merged_edges.get(new_id)
+        if target is None:
+            seed = comm_by_id.get(new_id)
+            if seed is not None:
+                target = dict(seed)
+                target["attrs"] = dict(seed["attrs"])
+            else:
                 target = {
                     "edge_id": new_id, "tenant_id": tenant, "src_id": new_src,
                     "dst_id": new_dst, "edge_type": COMMUNICATED_WITH,
@@ -78,25 +84,24 @@ def plan_reconciliation(ip_only_assets: list[dict], mac_assets: list[dict],
                               "providers": "", "transports": "", "observer_hosts": ""},
                     "first_seen": edge["first_seen"], "last_seen": edge["last_seen"],
                 }
-            else:
-                target = dict(target)
-                target["attrs"] = dict(target["attrs"])
-            attrs, src_attrs = target["attrs"], edge["attrs"]
-            attrs["sessions"] = str(int(attrs.get("sessions", "0") or "0")
-                                    + int(src_attrs.get("sessions", "0") or "0"))
-            attrs["bytes"] = str(int(attrs.get("bytes", "0") or "0")
-                                 + int(src_attrs.get("bytes", "0") or "0"))
-            for key in ("ports", "providers", "transports", "observer_hosts"):
-                _merge_set_attr(attrs, key,
-                                filter(None, (src_attrs.get(key, "") or "").split(",")))
-            target["first_seen"] = min(target["first_seen"], edge["first_seen"])
-            target["last_seen"] = max(target["last_seen"], edge["last_seen"])
             merged_edges[new_id] = target
+        attrs, src_attrs = target["attrs"], edge["attrs"]
+        attrs["sessions"] = str(int(attrs.get("sessions", "0") or "0")
+                                + int(src_attrs.get("sessions", "0") or "0"))
+        attrs["bytes"] = str(int(attrs.get("bytes", "0") or "0")
+                             + int(src_attrs.get("bytes", "0") or "0"))
+        for key in ("ports", "providers", "transports", "observer_hosts"):
+            _merge_set_attr(attrs, key,
+                            filter(None, (src_attrs.get(key, "") or "").split(",")))
+        target["first_seen"] = min(target["first_seen"], edge["first_seen"])
+        target["last_seen"] = max(target["last_seen"], edge["last_seen"])
 
-            # delete governed_by edges hanging off the twin's comm edge
-            for gov in gov_edges:
-                if gov["src_id"] == edge["edge_id"]:
-                    delete_edge_ids.append(gov["edge_id"])
+        # GOVERNED_BY edges hang off the twin's comm edge id; delete them. The next
+        # resolver pass re-derives GOVERNED_BY on the MAC-anchored comm edge (it keys
+        # comm edges on entity ids), so policy linkage is restored within one cycle.
+        for gov in gov_edges:
+            if gov["src_id"] == edge["edge_id"]:
+                delete_edge_ids.append(gov["edge_id"])
 
     return {
         "merged_edges": list(merged_edges.values()),
