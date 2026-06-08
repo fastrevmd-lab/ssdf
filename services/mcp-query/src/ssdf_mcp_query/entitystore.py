@@ -63,10 +63,29 @@ def build_entities_by_id_sql(entity_ids: list[str], tenant: str) -> tuple[str, d
     return sql, {"tenant": tenant, "ids": entity_ids}
 
 
+def build_firewall_match_sql(device_names: list[str], tenant: str) -> tuple[str, dict]:
+    sql = (
+        f"SELECT {_ENTITY_COLS} FROM ssdf.entities FINAL "
+        "WHERE tenant_id = {tenant:String} AND kind = 'firewall' "
+        "AND identifiers['device_name'] IN {names:Array(String)}"
+    )
+    return sql, {"tenant": tenant, "names": device_names}
+
+
+def build_configured_governed_sql(firewall_ids: list[str], tenant: str) -> tuple[str, dict]:
+    sql = (
+        f"SELECT {_EDGE_COLS} FROM ssdf.entity_edges FINAL "
+        "WHERE tenant_id = {tenant:String} AND edge_type = 'governed_by' "
+        "AND source = 'configured' AND src_id IN {ids:Array(String)}"
+    )
+    return sql, {"tenant": tenant, "ids": firewall_ids}
+
+
 class EntityStore(Protocol):
     def find_entity(self, identifier: str) -> dict | None: ...
     def communicated_edges(self, a_id: str, b_id: str, since_iso: str) -> list[dict]: ...
     def governed_policies(self, comm_edge_ids: list[str]) -> list[dict]: ...
+    def configured_policies_for_firewalls(self, firewall_names: list[str]) -> list[dict]: ...
 
 
 class ClickHouseEntityStore:
@@ -101,4 +120,30 @@ class ClickHouseEntityStore:
             policy = policies.get(edge["dst_id"])
             if policy:
                 result.append({"policy": policy, "edge_attrs": edge["attrs"]})
+        return result
+
+    def configured_policies_for_firewalls(self, firewall_names: list[str]) -> list[dict]:
+        """Return [{firewall: <device_name>, policy: <entity>}] for configured rules on the
+        named firewalls (matched to Firewall entities by identifiers['device_name'])."""
+        if not firewall_names:
+            return []
+        fw_sql, fw_params = build_firewall_match_sql(firewall_names, self._tenant)
+        firewalls = self._ch.run(fw_sql, fw_params)["rows"]
+        fw_by_id = {f["entity_id"]: f for f in firewalls}
+        if not fw_by_id:
+            return []
+        gov_sql, gov_params = build_configured_governed_sql(list(fw_by_id), self._tenant)
+        gov_edges = self._ch.run(gov_sql, gov_params)["rows"]
+        policy_ids = sorted({e["dst_id"] for e in gov_edges})
+        if not policy_ids:
+            return []
+        pol_sql, pol_params = build_entities_by_id_sql(policy_ids, self._tenant)
+        policies = {p["entity_id"]: p for p in self._ch.run(pol_sql, pol_params)["rows"]}
+        result = []
+        for edge in gov_edges:
+            fw = fw_by_id.get(edge["src_id"])
+            policy = policies.get(edge["dst_id"])
+            if fw and policy:
+                name = fw["identifiers"].get("device_name") or fw.get("name", "")
+                result.append({"firewall": name, "policy": policy})
         return result
