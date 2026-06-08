@@ -6,6 +6,11 @@ from typing import Protocol
 
 from .graphstore import _normalize_identifier  # reuse MAC-aware lowercasing
 
+# NOTE: these column lists alias `toString(...) AS first_seen/last_seen`. An
+# unqualified `first_seen`/`last_seen` in a WHERE or ORDER BY binds to that String
+# alias, not the real DateTime64 column, turning datetime comparisons/sorts into
+# lexical string compares. ALWAYS qualify the column (e.g. `entities.last_seen`)
+# in any filter or ordering built against these SELECTs.
 _ENTITY_COLS = (
     "entity_id, kind, name, identifiers, source, identity_basis, confidence, "
     "toString(first_seen) AS first_seen, toString(last_seen) AS last_seen, attrs"
@@ -21,18 +26,16 @@ def build_entity_match_sql(value: str, tenant: str) -> tuple[str, dict]:
         f"SELECT {_ENTITY_COLS} FROM ssdf.entities FINAL "
         "WHERE tenant_id = {tenant:String} AND ("
         "entity_id = {val:String} OR has(mapValues(identifiers), {val:String})) "
-        "ORDER BY last_seen DESC LIMIT 1"
+        "ORDER BY entities.last_seen DESC LIMIT 1"
     )
     return sql, {"tenant": tenant, "val": _normalize_identifier(value)}
 
 
 def build_comm_edges_sql(a_id: str, b_id: str, since_iso: str,
                          tenant: str) -> tuple[str, dict]:
-    # `entity_edges.last_seen` is qualified on purpose: `_EDGE_COLS` aliases
-    # `toString(last_seen) AS last_seen`, and an unqualified `last_seen` in WHERE
-    # binds to that String alias — making this a lexical compare against the
-    # ISO `since` value (space < 'T') that silently drops every row. Qualifying
-    # forces the real DateTime64 column so ClickHouse parses `since` as a datetime.
+    # `entity_edges.last_seen` is qualified per the alias-shadowing note above:
+    # an unqualified `last_seen` here binds to the String alias and lexically
+    # drops every row (space < 'T' vs the ISO `since` value).
     sql = (
         f"SELECT {_EDGE_COLS} FROM ssdf.entity_edges FINAL "
         "WHERE tenant_id = {tenant:String} AND edge_type = 'communicated_with' "

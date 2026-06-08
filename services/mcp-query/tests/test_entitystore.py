@@ -17,6 +17,13 @@ def test_entity_match_sql_preserves_non_mac():
     assert params["val"] == "10.64.0.5"
 
 
+def test_entity_match_sql_orders_by_qualified_column():
+    # Must qualify so the toString(last_seen) alias doesn't make "most recent"
+    # a lexical string sort instead of a real DateTime64 sort.
+    sql, _ = build_entity_match_sql("10.64.0.5", tenant="t_main")
+    assert "ORDER BY entities.last_seen DESC" in sql
+
+
 def test_comm_edges_sql_is_bidirectional_and_windowed():
     sql, params = build_comm_edges_sql("A", "B", "2026-06-07T00:00:00", tenant="t_main")
     assert "edge_type = 'communicated_with'" in sql
