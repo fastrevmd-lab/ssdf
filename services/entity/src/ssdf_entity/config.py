@@ -19,6 +19,7 @@ class Config:
     ch_database: str
     tenant_id: str
     window_hours: int
+    binding_lookback_hours: int
 
 
 def load_config() -> Config:
@@ -33,4 +34,5 @@ def load_config() -> Config:
         ch_database=os.environ.get("CH_DATABASE", "ssdf"),
         tenant_id=os.environ.get("ENTITY_TENANT", "t_main"),
         window_hours=int(os.environ.get("ENTITY_WINDOW_HOURS", "24")),
+        binding_lookback_hours=int(os.environ.get("TOPO_BINDING_LOOKBACK_HOURS", "168")),
     )
