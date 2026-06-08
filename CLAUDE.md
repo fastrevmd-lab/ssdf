@@ -120,6 +120,16 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
 - Deployed: resolver on Proxmox LXC **ct109** (shares host with M4 topo; venv `/opt/ssdf-entity`, env `/etc/ssdf-entity/ENV.local` mode 600) on a 5-min systemd timer (`ssdf-entity.timer` → oneshot `ssdf-entity.service`); writes CH ct104 as `ssdf_entity` into `ssdf.entities`/`ssdf.entity_edges`. The `explain_access(client, server)` MCP tool lives on `ssdf-mcp-query` (ct106), reading as `ssdf_ro`. As-built coords in gitignored `services/entity/infra/ENV.local`.
 - **ClickHouse `toString(col) AS col` alias trap:** aliasing a `toString(...)` back to the source column name shadows the real typed column in WHERE/ORDER BY, turning datetime comparisons into lexical string compares. Qualify the column (e.g. `entity_edges.last_seen`) in filters. (Bug found in M6a live validation; see STATUS.md.)
 
+### M6b (configured policy — services/policy + explain_access configured_controls)
+- Policy unit tests: `cd services/policy && uv run pytest -m "not integration"`
+- Live integration (needs CH + vendor MCPs): `cd services/policy && CH_PASSWORD=<pw> PANOS_MCP_URL=… PANOS_MCP_TOKEN=… JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… JUNOS_DEVICES=vSRX-test10 uv run pytest -m integration`
+- One pass: `cd services/policy && uv run python -m ssdf_policy.collect_resolve`
+- Deployed: collector+resolver on ct109 (third role alongside topo+entity; venv `/opt/ssdf-policy`, env `/etc/ssdf-policy/ENV.local` mode 600) on an HOURLY systemd timer (`ssdf-policy.timer` → oneshot `ssdf-policy.service`); writes CH ct104 as `ssdf_entity` into the shared `ssdf.entities`/`ssdf.entity_edges` (kind='firewall'|'policy', source='configured'). `explain_access` (ct106) gains `configured_controls` + integer `coverage.configured`. As-built coords in gitignored `services/policy/infra/ENV.local`.
+- Configured Policy is keyed `provider:device_name:rule_name` (per-firewall identity — fixes M6a's same-name collapse where two firewalls' identically-named rules merged); Firewall entities keyed `device:<name>` linked by `Firewall──GOVERNED_BY(configured)──►Policy` edges.
+- Device names in `JUNOS_DEVICES`/`PANOS_DEVICE` MUST match M4 `source_device` names so explain_access can bridge topology firewalls → Firewall entities by name.
+- Junos rules read via `execute_junos_command "show configuration security policies | display set"`; PAN-OS via `get_pan_config` (vsys1 security rulebase, pinned to 12.1 config shape).
+- **M4↔M6b name-bridge gap (live finding):** `explain_access` attaches configured rules to a path via M4 `enforcement_points`, which only returns graph nodes with `kind=="device"` AND `attrs.role=="firewall"`. M4 currently models **0** such nodes, so live `explain_access` on real transit pairs returns `configured_basis:no_path_firewall` and `coverage.configured:0` even though the configured side is correct (direct `configured_policies_for_firewalls(["panosvm","vSRX-test10"])` returns all 6 policies). Closing this needs M4 to emit firewall-role device nodes; tracked as the M6b→M4 dependency.
+
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems
