@@ -1,0 +1,12 @@
+# services/policy/infra/ssdf-policy.timer
+[Unit]
+Description=Run SSDF M6b configured-policy resolver hourly
+
+[Timer]
+OnBootSec=8min
+OnUnitActiveSec=1h
+AccuracySec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

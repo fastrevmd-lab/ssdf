@@ -1,0 +1,81 @@
+"""ClickHouse I/O for the entity layer: read flow-agg + topo hosts, write entities/edges."""
+
+from __future__ import annotations
+
+from typing import Any, Iterable
+
+import clickhouse_connect
+
+from .config import Config
+
+ENTITY_COLUMNS = [
+    "entity_id", "tenant_id", "kind", "name", "identifiers", "source",
+    "identity_basis", "confidence", "attrs", "first_seen", "last_seen",
+]
+ENTITY_EDGE_COLUMNS = [
+    "edge_id", "tenant_id", "src_id", "dst_id", "edge_type", "source",
+    "confidence", "attrs", "first_seen", "last_seen",
+]
+
+
+def build_flow_agg_sql(window_hours: int, tenant: str) -> tuple[str, dict]:
+    """Aggregate ssdf.events into per-(src_ip,dst_ip) flow rows for the resolver."""
+    sql = (
+        "SELECT toString(source_ip) AS src_ip, toString(destination_ip) AS dst_ip, "
+        "sum(network_bytes) AS bytes, count() AS flows, "
+        "groupUniqArray(destination_port) AS ports, "
+        "any(rule_name) AS rule_name, any(event_provider) AS provider, "
+        "any(network_transport) AS transport, "
+        "toString(min(timestamp)) AS first_seen, toString(max(timestamp)) AS last_seen "
+        "FROM ssdf.events "
+        "WHERE tenant_id = {tenant:String} "
+        "AND timestamp >= now() - INTERVAL {window_hours:UInt32} HOUR "
+        "AND source_ip IS NOT NULL AND destination_ip IS NOT NULL "
+        "GROUP BY src_ip, dst_ip"
+    )
+    return sql, {"tenant": tenant, "window_hours": window_hours}
+
+
+def build_topo_hosts_sql(tenant: str) -> tuple[str, dict]:
+    """Read M4 host nodes to enrich IP->MAC bindings."""
+    sql = (
+        "SELECT identifiers FROM ssdf.graph_nodes FINAL "
+        "WHERE tenant_id = {tenant:String} AND kind = 'host'"
+    )
+    return sql, {"tenant": tenant}
+
+
+def entity_rows(entities: Iterable[dict]) -> list[list[Any]]:
+    return [[e[c] for c in ENTITY_COLUMNS] for e in entities]
+
+
+def edge_rows(edges: Iterable[dict]) -> list[list[Any]]:
+    return [[e[c] for c in ENTITY_EDGE_COLUMNS] for e in edges]
+
+
+class ClickHouseEntityWriter:
+    """Read the resolver input window and upsert entities/edges."""
+
+    def __init__(self, config: Config):
+        self._config = config
+        self._client = clickhouse_connect.get_client(
+            host=config.ch_host, port=config.ch_port, username=config.ch_user,
+            password=config.ch_password, database=config.ch_database,
+        )
+
+    def query(self, sql: str, params: dict | None = None) -> list[dict]:
+        result = self._client.query(sql, parameters=params or {})
+        cols = list(result.column_names)
+        return [dict(zip(cols, row)) for row in result.result_rows]
+
+    def replace_entities(self, entities: list[dict]) -> int:
+        if not entities:
+            return 0
+        self._client.insert("entities", entity_rows(entities), column_names=ENTITY_COLUMNS)
+        return len(entities)
+
+    def replace_edges(self, edges: list[dict]) -> int:
+        if not edges:
+            return 0
+        self._client.insert("entity_edges", edge_rows(edges), column_names=ENTITY_EDGE_COLUMNS)
+        return len(edges)

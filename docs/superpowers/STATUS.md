@@ -1,6 +1,6 @@
 # SSDF — Build Status & Milestone Ledger
 
-**Last updated:** 2026-06-07
+**Last updated:** 2026-06-08
 **Purpose:** Single source of truth for *what is actually built* vs. what the design docs
 planned. Read this first; the dated specs/plans are historical and have drifted from reality.
 
@@ -24,6 +24,8 @@ boundary, AI-native, minimal.
 | **M2** | Read-only **MCP query layer** over `ssdf.events` (Python/FastMCP): `query_flows`, `describe_schema`, `top_talkers`, guarded `run_sql` | ✅ Done | `services/mcp-query/`; LXC ct106 (.152:30032), reads CH as read-only `ssdf_ro` | PR #2; 47 unit + 5 live integration tests; bearer-auth enforced |
 | **M4** | Dynamic topology/connectivity graph: collectors (junos/unifi/panos/proxmox) → `ssdf.topo_observations`; resolver fuses with L3 flow rollups into `ssdf.graph_nodes`/`graph_edges` (MAC-anchored identity); 6 read-only topology MCP tools | ✅ Done | `services/topo/`, `infra/clickhouse/002_topology.sql`; topo tools in `services/mcp-query/`; LXC ct109 (.153, 5-min timer) + tools on ct106 | PR #4; first cycle 197 obs → 209 nodes / 205 edges |
 | **M5** | PAN-OS firewall logs → Vector (VRL/CSV) → ClickHouse `ssdf.events` (2nd vendor; `event_provider=paloalto`, vendor extras under `panw.panos.*`) | ✅ Done (Stage A+B live; real-wire validated) | `infra/vector/vector.toml` (`panos_ecs` transform), `onboarding/panos/`; live device panosvm (VMID 900, PAN-OS 12.1.5, 198.51.100.225); Vector ct102 UDP:515 (live); reads via M2 MCP ct106 | PR #3; 10 vector unit tests; real-wire validated: SYSTEM (9 subtypes) + CONFIG logs → `ssdf.events`; TRAFFIC via synthetic line → `query_flows(provider="paloalto")`; both vendors coexist |
+| **M6a** | Semantic **entity/correlation layer**: deterministic Asset (MAC-anchored, IP-never-merges-alone) + observed Policy resolution from `ssdf.events` + M4 hosts → `ssdf.entities`/`ssdf.entity_edges` behind a swappable `EntityStore` seam; `explain_access(client, server)` MCP tool fuses observed flows + observed controls + M4 topology firewall attribution | ✅ Done (live-validated) | `services/entity/` (resolver), `infra/clickhouse/004_entities.sql`+`005_entity_user.sql`, `entitystore.py`/`access_tools.py` in `services/mcp-query/`; resolver on LXC ct109 (5-min timer, writes CH as `ssdf_entity`), `explain_access` tool on ct106 | 9+4+5+4 unit tests + live integration; first live cycle 6 entities / 4 edges; `explain_access` returns sessions>0, controls `source:observed`, `coverage.configured:pending_m6b` |
+| **M6b** | **Configured-policy layer**: read each firewall's *configured* security ruleset (PAN-OS `get_pan_config` + vSRX `display set`) → `source='configured'` Policy entities keyed `provider:device:rule_name` (per-firewall identity, fixes M6a same-name collapse) + Firewall entities + `Firewall──GOVERNED_BY(configured)──►Policy` edges into shared `ssdf.entities`/`ssdf.entity_edges` (no schema change); `explain_access` gains `configured_controls` + integer `coverage.configured` | ✅ Done (deployed; configured-side live-proven) | `services/policy/` (collectors+resolver+writer), `entitystore.py`/`access_tools.py` in `services/mcp-query/`; collector+resolver on LXC ct109 (hourly `ssdf-policy.timer`, writes CH as `ssdf_entity`), updated `explain_access` on ct106 | 22 policy unit + 2 live integration; first live pass 8 entities / 6 edges (2 firewalls: panosvm=5 rules paloalto, vSRX-test10=1 rule juniper; 6 configured policies; 6 governed_by edges); `configured_policies_for_firewalls` returns all 6 live. **Live `explain_access` coverage.configured=0** — M4↔M6b bridge gap (issue #6; see below) |
 
 ## Numbering reconciliation (the drift)
 
@@ -82,9 +84,53 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   - **Observation (pre-existing M1 concern, not M5):** PAN-OS stamps receive-time in local EDT
     (`-04:00`); ingest stores it without TZ conversion, so event `timestamp` sits ~4h behind
     ClickHouse `now()` (UTC). Affects relative-time `WHERE` filters across all sources.
-- **M6 — entity/correlation layer.** Deterministic Asset/Identity resolution from ECS events
-  behind a `GraphStore` seam (Postgres-as-graph first, Neo4j deferred). Build when
-  ClickHouse-only correlation stops sufficing.
+- **M6a — entity/correlation layer (Asset + observed Policy).** ✅ Built 2026-06-07. Deterministic
+  resolution from `ssdf.events` flow-aggregates + M4 `graph_nodes` hosts into `ssdf.entities`/
+  `ssdf.entity_edges` (`ReplacingMergeTree(last_seen)`, 30-day TTL), separate from M4's
+  graph_nodes so M6c can relocate just the entity store to Postgres. Asset identity is
+  MAC-anchored (IP-only assets are low-confidence 0.5 singletons, never merged on IP alone);
+  Policy is keyed `(provider, rule_name)` and stamped `source:observed`. New `EntityStore`
+  Protocol + `ClickHouseEntityStore` seam; one MCP tool `explain_access(client, server)` answers
+  "show me end-to-end flow + security controls for this client→server" — fusing observed flows,
+  observed controls, and M4 topology firewall attribution (firewall named only when topology
+  yields exactly one; `firewall_basis:topology`). Honesty contract: `coverage.configured ==
+  "pending_m6b"`. Resolver on LXC ct109 (5-min `ssdf-entity.timer`, writes CH as `ssdf_entity`).
+  Spec: `specs/2026-06-07-ssdf-m6-entity-correlation-design.md`; plan:
+  `plans/2026-06-07-ssdf-m6a-entity-correlation.md`.
+  - **Known limitation — `first_seen` collapses to the current window.** Each resolver pass
+    recomputes `first_seen` from the active window only, and `ReplacingMergeTree(last_seen)`
+    keeps the latest row, so `first_seen` does not track the true earliest sighting across passes.
+    This is the **same trade-off M4's topology resolver already makes**; accepted for M6a rather
+    than deviating mid-build. Revisit if/when historical first-seen becomes load-bearing.
+  - **Live-validation bug fixed:** the comm-edge window filter compared the `toString(last_seen)`
+    SELECT alias (a String) instead of the real DateTime64 column, silently dropping every edge
+    (lexical compare: space < 'T'). Fixed by qualifying `entity_edges.last_seen` in the WHERE.
+- **M6b — configured policy.** ✅ Built 2026-06-08. Pull device-configured rules (not just observed)
+  so `explain_access` exposes configured controls alongside observed traffic. New `services/policy/`
+  service: per-vendor collectors (PAN-OS via `get_pan_config`, vSRX via `show configuration security
+  policies | display set`) → normalized rule dicts → resolver emits `source='configured'` Policy
+  entities keyed `provider:device:rule_name` (per-firewall identity — **fixes M6a's same-name
+  collapse** where two firewalls' identically-named rules merged into one entity), Firewall entities
+  keyed `device:<name>`, and `Firewall──GOVERNED_BY(configured)──►Policy` edges, written to the shared
+  `ssdf.entities`/`ssdf.entity_edges` (no schema change, reuses the `ssdf_entity` CH user). `explain_
+  access` (ct106) gains `configured_controls` + an integer `coverage.configured`. Deployed as ct109's
+  **third** role (venv `/opt/ssdf-policy`, env `/etc/ssdf-policy/ENV.local` mode 600) on an HOURLY
+  `ssdf-policy.timer` → oneshot `ssdf-policy.service`, installed without disturbing the two existing
+  5-min M4/M6a timers. First live pass: 8 entities / 6 edges upserted (2 firewalls: panosvm=5 rules
+  paloalto, vSRX-test10=1 rule juniper; 6 configured policies; 6 governed_by edges). Spec:
+  `specs/2026-06-08-ssdf-m6b-configured-policy-design.md`; plan:
+  `plans/2026-06-08-ssdf-m6b-configured-policy.md`.
+  - **M4↔M6b name-bridge gap (live finding, blocks `coverage.configured>0`).** `explain_access`
+    discovers a path's firewalls via M4 `enforcement_points`, which only returns graph nodes with
+    `kind=="device"` AND `attrs.role=="firewall"`. M4 currently models **0** such nodes (confirmed by
+    CH query), so live `explain_access` on real transit pairs returns `configured_basis:no_path_
+    firewall` and `coverage.configured:0`. **The configured side is proven correct independently:** a
+    direct `configured_policies_for_firewalls(["panosvm","vSRX-test10"])` returns all 6 policies. The
+    gap is purely topology→firewall attribution; closing it requires M4 to emit firewall-role device
+    nodes (tracked as the M6b→M4 dependency in **issue #6**). This was recorded honestly rather than fabricating M4
+    nodes to make the number non-zero.
+- **M6c — multi-hop L3 stitching + Postgres-as-graph.** Relocate the entity store off ClickHouse
+  to Postgres-as-graph (Neo4j still deferred); stitch multi-hop paths. Deferred.
 - **M7 — sovereignty + MCP split.** Scope-gating, sovereignty policy + audit on the read MCP;
   split local/frontier MCP when frontier egress is wired.
 - **Later sources:** UniFi (CEF + Suricata EVE via `unifi-mcp`), Proxmox (rsyslog + PVE API
@@ -102,5 +148,6 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
 ## Protected lab infra (do not reclaim)
 
 SSDF LXCs on Proxmox pve3.example.com: **ct102** (Vector), **ct104** (ClickHouse), **ct106**
-(MCP query server), **ct109** (topo collectors+resolver). Plus the cluster-wide protected
-VMIDs in `~/.claude/CLAUDE.md`.
+(MCP query server + topology/`explain_access` tools), **ct109** (topo collectors+resolver **and**
+the M6a entity resolver — two independent 5-min timers on the same host). Plus the cluster-wide
+protected VMIDs in `~/.claude/CLAUDE.md`.

@@ -1,0 +1,20 @@
+import pytest
+from ssdf_entity.config import load_config, ConfigError
+
+
+def test_load_config_requires_password(monkeypatch):
+    monkeypatch.delenv("CH_PASSWORD", raising=False)
+    with pytest.raises(ConfigError):
+        load_config()
+
+
+def test_load_config_defaults(monkeypatch):
+    monkeypatch.setenv("CH_PASSWORD", "secret")
+    monkeypatch.delenv("CH_HOST", raising=False)
+    monkeypatch.delenv("CH_USER", raising=False)
+    monkeypatch.delenv("ENTITY_WINDOW_HOURS", raising=False)
+    config = load_config()
+    assert config.ch_host == "127.0.0.1"
+    assert config.ch_user == "ssdf_entity"
+    assert config.tenant_id == "t_main"
+    assert config.window_hours == 24
