@@ -107,11 +107,11 @@ class PanosCollector:
         """Pull LLDP neighbors and ARP table from PAN-OS via the MCP client."""
         lldp_text = client.call_tool(
             "execute_pan_op",
-            {"cmd": "<show><lldp><neighbors>all</neighbors></lldp></show>"},
+            {"host": self.device, "cmd": "<show><lldp><neighbors>all</neighbors></lldp></show>"},
         )
         arp_text = client.call_tool(
             "execute_pan_op",
-            {"cmd": "<show><arp><entry name='all'/></arp></show>"},
+            {"host": self.device, "cmd": "<show><arp><entry name='all'/></arp></show>"},
         )
         return (
             parse_lldp_xml(lldp_text, self.device, now)

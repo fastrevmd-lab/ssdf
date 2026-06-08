@@ -142,19 +142,19 @@ class JunosCollector:
         for dev in self.devices:
             lldp_text = client.call_tool(
                 "execute_junos_command",
-                {"router": dev, "command": "show lldp neighbors"},
+                {"router_name": dev, "command": "show lldp neighbors"},
             )
             observations.extend(parse_lldp_neighbors(lldp_text, dev, now))
 
             mac_text = client.call_tool(
                 "execute_junos_command",
-                {"router": dev, "command": "show ethernet-switching table"},
+                {"router_name": dev, "command": "show ethernet-switching table"},
             )
             observations.extend(parse_mac_table(mac_text, dev, now))
 
             arp_text = client.call_tool(
                 "execute_junos_command",
-                {"router": dev, "command": "show arp no-resolve"},
+                {"router_name": dev, "command": "show arp no-resolve"},
             )
             observations.extend(parse_arp(arp_text, dev, now))
             observations.append(firewall_inventory("junos", dev, now))
