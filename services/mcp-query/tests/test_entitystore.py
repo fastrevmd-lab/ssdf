@@ -56,3 +56,44 @@ def test_store_find_entity_returns_first_row_or_none():
     assert store.find_entity("10.64.0.5") == {"entity_id": "x"}
     ch2 = _FakeCH([[]])
     assert ClickHouseEntityStore(ch2, tenant="t_main").find_entity("nope") is None
+
+
+from ssdf_mcp_query.entitystore import (
+    build_firewall_match_sql, build_configured_governed_sql,
+)
+
+
+def test_firewall_match_sql_filters_kind_and_device_names():
+    sql, params = build_firewall_match_sql(["panosvm", "vSRX-test10"], tenant="t_main")
+    assert "ssdf.entities FINAL" in sql
+    assert "kind = 'firewall'" in sql
+    assert "identifiers['device_name'] IN {names:Array(String)}" in sql
+    assert params["names"] == ["panosvm", "vSRX-test10"]
+    assert params["tenant"] == "t_main"
+
+
+def test_configured_governed_sql_filters_source_and_src_ids():
+    sql, params = build_configured_governed_sql(["fw1"], tenant="t_main")
+    assert "edge_type = 'governed_by'" in sql
+    assert "source = 'configured'" in sql
+    assert "src_id IN {ids:Array(String)}" in sql
+    assert params["ids"] == ["fw1"]
+
+
+def test_configured_policies_for_firewalls_joins_fw_edge_policy():
+    # rows popped in call order: firewalls, governed edges, policies
+    ch = _FakeCH([
+        [{"entity_id": "fwid", "identifiers": {"device_name": "panosvm"}, "name": "panosvm"}],
+        [{"edge_id": "g1", "src_id": "fwid", "dst_id": "polid", "attrs": {}}],
+        [{"entity_id": "polid", "name": "allow-web", "attrs": {"action": "allow"}}],
+    ])
+    store = ClickHouseEntityStore(ch, tenant="t_main")
+    result = store.configured_policies_for_firewalls(["panosvm"])
+    assert result == [{"firewall": "panosvm",
+                       "policy": {"entity_id": "polid", "name": "allow-web",
+                                  "attrs": {"action": "allow"}}}]
+
+
+def test_configured_policies_for_firewalls_empty_input():
+    store = ClickHouseEntityStore(_FakeCH([]), tenant="t_main")
+    assert store.configured_policies_for_firewalls([]) == []

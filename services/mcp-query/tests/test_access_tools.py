@@ -16,6 +16,9 @@ class _FakeStore:
     def governed_policies(self, comm_edge_ids):
         return self._policies
 
+    def configured_policies_for_firewalls(self, names):
+        return []
+
 
 class _FakeTopo:
     def __init__(self, firewalls, path):
@@ -60,7 +63,7 @@ def test_observed_flow_with_controls_and_coverage():
     assert out["controls"][0]["source"] == "observed"
     assert out["controls"][0]["firewall"] == "vSRX-test10"
     assert out["controls"][0]["firewall_basis"] == "topology"
-    assert out["coverage"] == {"observed": True, "configured": "pending_m6b"}
+    assert out["coverage"] == {"observed": True, "configured": 0}
     assert out["topology_path"]["found"] is True
 
 
@@ -88,3 +91,73 @@ def test_firewall_omitted_when_topology_ambiguous():
     out = AccessTools(store, topo).explain_access("10.64.0.5", "8.8.8.8")
     assert out["controls"][0]["firewall"] is None
     assert out["firewalls"] == ["fw1", "fw2"]
+
+
+class _StoreWithConfigured:
+    """Minimal EntityStore double exercising the configured path."""
+
+    def __init__(self, configured):
+        self._configured = configured
+
+    def find_entity(self, ident):
+        return {"entity_id": ident, "name": ident, "identity_basis": "mac"}
+
+    def communicated_edges(self, a, b, since):
+        return []
+
+    def governed_policies(self, ids):
+        return []
+
+    def configured_policies_for_firewalls(self, names):
+        return self._configured
+
+
+class _TopoOneFw:
+    def enforcement_points(self, src, dst):
+        return {"firewalls": ["panosvm"]}
+
+    def find_path(self, src, dst):
+        return {"path": []}
+
+
+def test_explain_access_lists_configured_controls_and_counts():
+    from ssdf_mcp_query.access_tools import AccessTools
+    configured = [{"firewall": "panosvm",
+                   "policy": {"name": "allow-web",
+                              "attrs": {"action": "allow", "from_zone": "trust",
+                                        "to_zone": "untrust", "position": "0",
+                                        "enabled": "true"}}}]
+    access = AccessTools(_StoreWithConfigured(configured), _TopoOneFw())
+    out = access.explain_access("10.64.0.1", "10.64.0.2")
+    assert out["coverage"]["configured"] == 1
+    assert out["configured_basis"] == "topology"
+    ctrl = out["configured_controls"][0]
+    assert ctrl["firewall"] == "panosvm" and ctrl["rule"] == "allow-web"
+    assert ctrl["action"] == "allow" and ctrl["enabled"] is True
+    assert ctrl["source"] == "configured"
+
+
+def test_explain_access_no_path_firewall_sets_basis():
+    from ssdf_mcp_query.access_tools import AccessTools
+
+    class _TopoNoFw:
+        def enforcement_points(self, src, dst):
+            return {"firewalls": []}
+
+        def find_path(self, src, dst):
+            return {"path": []}
+
+    access = AccessTools(_StoreWithConfigured([]), _TopoNoFw())
+    out = access.explain_access("10.64.0.1", "10.64.0.2")
+    assert out["coverage"]["configured"] == 0
+    assert out["configured_basis"] == "no_path_firewall"
+    assert out["configured_controls"] == []
+
+
+def test_explain_access_unmatched_firewall_basis():
+    from ssdf_mcp_query.access_tools import AccessTools
+    # topology names a firewall, but no configured Policy entities match it
+    access = AccessTools(_StoreWithConfigured([]), _TopoOneFw())
+    out = access.explain_access("10.64.0.1", "10.64.0.2")
+    assert out["coverage"]["configured"] == 0
+    assert out["configured_basis"] == "firewall_name_unmatched"
