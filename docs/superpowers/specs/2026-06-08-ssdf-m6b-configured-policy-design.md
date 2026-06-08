@@ -166,6 +166,10 @@ Policy rows.
   topology firewall node's name, the rules for that firewall are reported as omitted rather
   than attributed. Reconciling device naming across sources is deferred.
 - **`first_seen` collapses to the current window** (inherited M6a/M4 trade-off).
+- **vsys1 security rulebase only (no shared pre/post).** §3.1 aspires to "vsys rules + shared
+  pre/post rules where present," but the implemented PAN-OS collector scopes to the vsys1
+  `rulebase/security/rules`. The lab target is single-vsys, no Panorama, so there are no
+  shared pre/post-rulebases to read; Panorama pre/post-rule collection is a future item.
 
 ## 7. Deployment
 
