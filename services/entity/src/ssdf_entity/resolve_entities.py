@@ -24,6 +24,27 @@ def normalize_segment(name: str | None) -> str:
     return label or "unknown"
 
 
+def build_binding_map(bindings: list[dict]) -> tuple[dict[tuple[str, str], str], set[tuple[str, str]]]:
+    """Build {(segment, ip) -> mac} (latest observation wins) and the set of
+    (segment, ip) keys claimed by >1 MAC (genuine same-segment IP conflicts)."""
+    latest: dict[tuple[str, str], tuple[str, str]] = {}   # key -> (observed_at, mac)
+    macs_seen: dict[tuple[str, str], set[str]] = {}
+    for binding in bindings:
+        segment = normalize_segment(binding.get("source_device"))
+        ip = binding.get("ip") or ""
+        mac = (binding.get("mac") or "").lower()
+        if not ip or not mac:
+            continue
+        key = (segment, ip)
+        macs_seen.setdefault(key, set()).add(mac)
+        observed_at = binding.get("observed_at") or ""
+        if key not in latest or observed_at > latest[key][0]:
+            latest[key] = (observed_at, mac)
+    binding_map = {key: value[1] for key, value in latest.items()}
+    conflict = {key for key, macs in macs_seen.items() if len(macs) > 1}
+    return binding_map, conflict
+
+
 def _build_ip_to_mac(topo_hosts: list[dict]) -> dict[str, str]:
     """Map IP→lowercased MAC from M4 host nodes that bind both."""
     ip_to_mac: dict[str, str] = {}

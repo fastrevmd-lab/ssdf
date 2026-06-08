@@ -132,3 +132,43 @@ def test_observer_hosts_absent_defaults_empty():
     _, edges = resolve_entities([_flow()], topo_hosts=[], tenant="t_main")
     comm = next(e for e in edges if e["edge_type"] == COMMUNICATED_WITH)
     assert comm["attrs"]["observer_hosts"] == ""
+
+
+def test_build_binding_map_keys_by_segment_and_ip():
+    from ssdf_entity.resolve_entities import build_binding_map
+    rows = [
+        {"source_device": "fwA", "ip": "198.51.100.150", "mac": "aa:aa:aa:aa:aa:aa",
+         "observed_at": "2026-06-08 10:00:00.000"},
+        {"source_device": "fwB", "ip": "198.51.100.150", "mac": "bb:bb:bb:bb:bb:bb",
+         "observed_at": "2026-06-08 10:00:00.000"},
+    ]
+    binding_map, conflict = build_binding_map(rows)
+    assert binding_map[("fwa", "198.51.100.150")] == "aa:aa:aa:aa:aa:aa"
+    assert binding_map[("fwb", "198.51.100.150")] == "bb:bb:bb:bb:bb:bb"
+    assert conflict == set()  # different segments => not a conflict
+
+
+def test_build_binding_map_latest_observation_wins():
+    from ssdf_entity.resolve_entities import build_binding_map
+    rows = [
+        {"source_device": "fwA", "ip": "10.64.0.5", "mac": "aa:aa:aa:aa:aa:aa",
+         "observed_at": "2026-06-08 09:00:00.000"},
+        {"source_device": "fwA", "ip": "10.64.0.5", "mac": "cc:cc:cc:cc:cc:cc",
+         "observed_at": "2026-06-08 11:00:00.000"},
+    ]
+    binding_map, conflict = build_binding_map(rows)
+    assert binding_map[("fwa", "10.64.0.5")] == "cc:cc:cc:cc:cc:cc"
+    assert conflict == {("fwa", "10.64.0.5")}  # same segment, two MACs => conflict
+
+
+def test_build_binding_map_skips_missing_ip_or_mac():
+    from ssdf_entity.resolve_entities import build_binding_map
+    rows = [
+        {"source_device": "fwA", "ip": "", "mac": "aa:aa:aa:aa:aa:aa",
+         "observed_at": "2026-06-08 09:00:00.000"},
+        {"source_device": "fwA", "ip": "10.64.0.5", "mac": "",
+         "observed_at": "2026-06-08 09:00:00.000"},
+    ]
+    binding_map, conflict = build_binding_map(rows)
+    assert binding_map == {}
+    assert conflict == set()
