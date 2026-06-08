@@ -26,6 +26,7 @@ def build_flow_agg_sql(window_hours: int, tenant: str) -> tuple[str, dict]:
         "groupUniqArray(destination_port) AS ports, "
         "any(rule_name) AS rule_name, any(event_provider) AS provider, "
         "any(network_transport) AS transport, "
+        "groupUniqArray(observer_hostname) AS observer_hosts, "
         "toString(min(timestamp)) AS first_seen, toString(max(timestamp)) AS last_seen "
         "FROM ssdf.events "
         "WHERE tenant_id = {tenant:String} "
