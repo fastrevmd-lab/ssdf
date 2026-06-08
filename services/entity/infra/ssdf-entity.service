@@ -1,0 +1,9 @@
+# services/entity/infra/ssdf-entity.service
+[Unit]
+Description=SSDF M6 entity resolver (oneshot)
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/ssdf-entity/ENV.local
+ExecStart=/opt/ssdf-entity/venv/bin/python -m ssdf_entity.resolve_main

@@ -1,0 +1,11 @@
+# services/entity/infra/ssdf-entity.timer
+[Unit]
+Description=Run SSDF entity resolver every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+Unit=ssdf-entity.service
+
+[Install]
+WantedBy=timers.target
