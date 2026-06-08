@@ -38,3 +38,23 @@ def test_parse_lldp_xml():
     first = obs[0]
     assert first.observation_type == "lldp_neighbor"
     assert "local_port" in first.attrs
+
+
+def test_collect_emits_firewall_inventory():
+    from ssdf_topo.collectors.panos import PanosCollector
+
+    empty_envelope = (
+        '{"result":"<response status=\\"success\\"><result></result></response>"}'
+    )
+
+    class _EmptyClient:
+        def call_tool(self, name, args=None):
+            return empty_envelope
+
+    obs = PanosCollector("panosvm").collect(_EmptyClient(), NOW)
+
+    inv = [o for o in obs if o.observation_type == "device_inventory"]
+    assert len(inv) == 1
+    assert inv[0].source_device == "panosvm"
+    assert inv[0].attrs["role"] == "firewall"
+    assert inv[0].collector == "panos"
