@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import xml.etree.ElementTree as ET
+
+logger = logging.getLogger(__name__)
 
 from .base import register
 
@@ -23,7 +26,8 @@ def _root(text: str) -> ET.Element | None:
         pass
     try:
         return ET.fromstring(xml_text)
-    except ET.ParseError:
+    except ET.ParseError as exc:
+        logger.warning("panos: failed to parse config XML: %s", exc)
         return None
 
 
