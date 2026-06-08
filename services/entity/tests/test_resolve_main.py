@@ -7,11 +7,13 @@ class _FakeWriter:
         self.edges = None
 
     def query(self, sql, params=None):
-        if "graph_nodes" in sql:
-            return [{"identifiers": {"mac": "aa:aa:aa:aa:aa:aa", "ip": "10.64.0.5"}}]
-        return [{"src_ip": "10.64.0.5", "dst_ip": "8.8.8.8", "bytes": 100, "flows": 1,
-                 "ports": [443], "rule_name": "r1", "provider": "juniper",
-                 "transport": "tcp", "first_seen": "2026-06-07 00:00:00.000",
+        if "topo_observations" in sql:
+            return [{"source_device": "fw1", "ip": "10.64.0.5",
+                     "mac": "aa:aa:aa:aa:aa:aa", "observed_at": "2026-06-07 00:00:00.000"}]
+        return [{"src_ip": "10.64.0.5", "dst_ip": "8.8.8.8", "observer_hostname": "fw1",
+                 "bytes": 100, "flows": 1, "ports": [443], "rule_name": "r1",
+                 "provider": "juniper", "transport": "tcp",
+                 "first_seen": "2026-06-07 00:00:00.000",
                  "last_seen": "2026-06-07 00:00:00.000"}]
 
     def replace_entities(self, entities):
@@ -25,7 +27,8 @@ class _FakeWriter:
 
 def test_run_resolver_reads_both_inputs_and_writes():
     writer = _FakeWriter()
-    n_entities, n_edges = run_resolver(writer, tenant="t_main", window_hours=24)
+    n_entities, n_edges = run_resolver(writer, tenant="t_main", window_hours=24,
+                                       binding_lookback_hours=168)
     assert n_entities == 3        # mac-anchored src + ip-only dst + policy r1
     assert n_edges == 2           # communicated_with + governed_by
     src = next(e for e in writer.entities if e["identifiers"].get("mac"))

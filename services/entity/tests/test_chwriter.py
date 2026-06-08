@@ -1,5 +1,5 @@
 from ssdf_entity.chwriter import (
-    build_flow_agg_sql, build_topo_hosts_sql, build_binding_sql,
+    build_flow_agg_sql, build_binding_sql,
     entity_rows, edge_rows, ENTITY_COLUMNS, ENTITY_EDGE_COLUMNS,
 )
 
@@ -28,12 +28,6 @@ def test_binding_sql_reads_arp_entries_with_source_device():
     assert "{lookback_hours:UInt32}" in sql
     assert params == {"tenant": "t_main", "lookback_hours": 168}
 
-
-def test_topo_hosts_sql_filters_to_host_kind():
-    sql, params = build_topo_hosts_sql(tenant="t_main")
-    assert "ssdf.graph_nodes FINAL" in sql
-    assert "kind = 'host'" in sql
-    assert params == {"tenant": "t_main"}
 
 
 def test_entity_rows_follow_column_order():

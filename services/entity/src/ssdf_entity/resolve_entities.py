@@ -1,8 +1,10 @@
-"""Resolve flow aggregates (+ topology MAC↔IP) into Asset/Policy entities and edges.
+"""Resolve flow aggregates (+ segment-scoped ARP bindings) into Asset/Policy
+entities and edges.
 
-Pure function, deterministic. Asset identity is keyed: MAC when the topology binds
-the IP→MAC, else the IP itself. Two IPs sharing a MAC collapse to one Asset; distinct
-IPs never merge (no merge on IP alone). Observed Policy is keyed (provider, rule_name).
+Pure function, deterministic. Asset identity is MAC when an ARP binding for the
+flow's segment (firewall vantage) binds the IP→MAC, else a segment-local key
+ip:<segment>:<ip>. Two IPs sharing a MAC collapse to one Asset; the same IP in
+different segments never merges. Observed Policy is keyed (provider, rule_name).
 """
 
 from __future__ import annotations
@@ -45,17 +47,6 @@ def build_binding_map(bindings: list[dict]) -> tuple[dict[tuple[str, str], str],
     return binding_map, conflict
 
 
-def _build_ip_to_mac(topo_hosts: list[dict]) -> dict[str, str]:
-    """Map IP→lowercased MAC from M4 host nodes that bind both."""
-    ip_to_mac: dict[str, str] = {}
-    for host in topo_hosts:
-        identifiers = host.get("identifiers") or {}
-        mac = identifiers.get("mac")
-        ip = identifiers.get("ip")
-        if mac and ip:
-            ip_to_mac[ip] = mac.lower()
-    return ip_to_mac
-
 
 def _bump_window(record: dict, first_seen: str, last_seen: str) -> None:
     """Widen a record's [first_seen, last_seen] window (lexical ISO compare)."""
@@ -80,15 +71,15 @@ def _merge_set_attr(attrs: dict, key: str, values) -> None:
     attrs[key] = ",".join(sorted(current))
 
 
-def resolve_entities(flow_aggregates: list[dict], topo_hosts: list[dict],
+def resolve_entities(flow_aggregates: list[dict], bindings: list[dict],
                      tenant: str) -> tuple[list[dict], list[dict]]:
-    ip_to_mac = _build_ip_to_mac(topo_hosts)
+    binding_map, conflict = build_binding_map(bindings)
     entities: dict[str, dict] = {}
     edges: dict[str, dict] = {}
 
-    def asset_for(ip: str, first_seen: str, last_seen: str) -> dict:
-        mac = ip_to_mac.get(ip)
-        canonical = f"mac:{mac}" if mac else f"ip:{ip}"
+    def asset_for(ip: str, segment: str, first_seen: str, last_seen: str) -> dict:
+        mac = binding_map.get((segment, ip))
+        canonical = f"mac:{mac}" if mac else f"ip:{segment}:{ip}"
         eid = entity_id(tenant, ASSET, canonical)
         entity = entities.get(eid)
         if entity is None:
@@ -103,6 +94,8 @@ def resolve_entities(flow_aggregates: list[dict], topo_hosts: list[dict],
                 entity["identifiers"]["mac"] = mac
             entities[eid] = entity
         _add_ip(entity, ip)
+        if mac and (segment, ip) in conflict:
+            entity["attrs"]["ip_conflict"] = ip
         _bump_window(entity, first_seen, last_seen)
         return entity
 
@@ -122,10 +115,12 @@ def resolve_entities(flow_aggregates: list[dict], topo_hosts: list[dict],
 
     for row in flow_aggregates:
         first_seen, last_seen = row["first_seen"], row["last_seen"]
-        src = asset_for(row["src_ip"], first_seen, last_seen)
-        dst = asset_for(row["dst_ip"], first_seen, last_seen)
+        segment = normalize_segment(row.get("observer_hostname"))
+        src = asset_for(row["src_ip"], segment, first_seen, last_seen)
+        dst = asset_for(row["dst_ip"], segment, first_seen, last_seen)
 
-        comm_eid = edge_id(tenant, src["entity_id"], dst["entity_id"],
+        src_ip, dst_ip = row["src_ip"], row["dst_ip"]
+        comm_eid = edge_id(tenant, f"ip:{src_ip}", f"ip:{dst_ip}",
                            COMMUNICATED_WITH, OBSERVED)
         comm = edges.get(comm_eid)
         if comm is None:
@@ -143,7 +138,8 @@ def resolve_entities(flow_aggregates: list[dict], topo_hosts: list[dict],
         _merge_set_attr(comm["attrs"], "ports", row.get("ports") or [])
         _merge_set_attr(comm["attrs"], "providers", [row.get("provider", "")])
         _merge_set_attr(comm["attrs"], "transports", [row.get("transport", "")])
-        _merge_set_attr(comm["attrs"], "observer_hosts", row.get("observer_hosts") or [])
+        observer = row.get("observer_hostname")
+        _merge_set_attr(comm["attrs"], "observer_hosts", [observer] if observer else [])
         _bump_window(comm, first_seen, last_seen)
 
         rule = (row.get("rule_name") or "").strip()

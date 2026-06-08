@@ -42,14 +42,6 @@ def build_flow_agg_sql(window_hours: int, tenant: str) -> tuple[str, dict]:
     return sql, {"tenant": tenant, "window_hours": window_hours}
 
 
-def build_topo_hosts_sql(tenant: str) -> tuple[str, dict]:
-    """Read M4 host nodes to enrich IP->MAC bindings."""
-    sql = (
-        "SELECT identifiers FROM ssdf.graph_nodes FINAL "
-        "WHERE tenant_id = {tenant:String} AND kind = 'host'"
-    )
-    return sql, {"tenant": tenant}
-
 
 def build_binding_sql(lookback_hours: int, tenant: str) -> tuple[str, dict]:
     """Read M4 arp_entry observations as (source_device, ip, mac, observed_at).
