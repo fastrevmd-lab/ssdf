@@ -1,0 +1,13 @@
+<configuration-information>
+<configuration-output>
+set security policies global policy baseline-permit match source-address any
+set security policies global policy baseline-permit match destination-address any
+set security policies global policy baseline-permit match application any
+set security policies global policy baseline-permit match from-zone any
+set security policies global policy baseline-permit match to-zone any
+set security policies global policy baseline-permit then permit
+set security policies global policy baseline-permit then log session-close
+set security policies global policy baseline-permit then count
+set security policies pre-id-default-policy then log session-close
+</configuration-output>
+</configuration-information>
