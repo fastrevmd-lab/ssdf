@@ -13,6 +13,17 @@ from .models import (
 )
 
 
+def normalize_segment(name: str | None) -> str:
+    """Reduce a firewall vantage name to a comparable segment key.
+
+    Takes the first dotted label, lowercased, so the flow-side ECS
+    observer.hostname (often an FQDN) and the binding-side source_device
+    (a short device name) agree. Empty/unknown collapses to 'unknown'.
+    """
+    label = (name or "").split(".")[0].strip().lower()
+    return label or "unknown"
+
+
 def _build_ip_to_mac(topo_hosts: list[dict]) -> dict[str, str]:
     """Map IP→lowercased MAC from M4 host nodes that bind both."""
     ip_to_mac: dict[str, str] = {}

@@ -1,6 +1,20 @@
 from ssdf_entity.models import ASSET, POLICY, COMMUNICATED_WITH, GOVERNED_BY, entity_id
 from ssdf_entity.resolve_entities import resolve_entities
 
+
+def test_normalize_segment_strips_domain_and_lowercases():
+    from ssdf_entity.resolve_entities import normalize_segment
+    assert normalize_segment("panosvm.example.com") == "panosvm"
+    assert normalize_segment("vSRX-test10") == "vsrx-test10"
+    assert normalize_segment("FW1.local") == "fw1"
+
+
+def test_normalize_segment_empty_becomes_unknown():
+    from ssdf_entity.resolve_entities import normalize_segment
+    assert normalize_segment("") == "unknown"
+    assert normalize_segment(None) == "unknown"
+    assert normalize_segment("   ") == "unknown"
+
 NOW1 = "2026-06-07 00:00:00.000"
 NOW2 = "2026-06-07 01:00:00.000"
 
