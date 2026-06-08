@@ -47,3 +47,12 @@ def test_collect_then_resolve_populates_graph():
         {"t": config.tenant_id},
     )
     assert int(rows[0]["c"]) >= n_nodes
+
+    fw_rows = writer.query(
+        "SELECT name FROM ssdf.graph_nodes FINAL "
+        "WHERE tenant_id = {t:String} AND kind = 'device' "
+        "AND attrs['role'] = 'firewall'",
+        {"t": config.tenant_id},
+    )
+    fw_names = {r["name"] for r in fw_rows}
+    assert "vSRX-test10" in fw_names, f"vSRX-test10 not tagged firewall; got {fw_names}"
