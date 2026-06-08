@@ -1,6 +1,6 @@
 from ssdf_entity.chwriter import (
-    build_flow_agg_sql, build_topo_hosts_sql, entity_rows, edge_rows,
-    ENTITY_COLUMNS, ENTITY_EDGE_COLUMNS,
+    build_flow_agg_sql, build_topo_hosts_sql, build_binding_sql,
+    entity_rows, edge_rows, ENTITY_COLUMNS, ENTITY_EDGE_COLUMNS,
 )
 
 
@@ -8,14 +8,25 @@ def test_flow_agg_sql_is_parameterized_and_groups_by_pair():
     sql, params = build_flow_agg_sql(window_hours=24, tenant="t_main")
     assert "{tenant:String}" in sql
     assert "{window_hours:UInt32}" in sql
-    assert "GROUP BY src_ip, dst_ip" in sql
+    assert "GROUP BY src_ip, dst_ip, observer_hostname" in sql
     assert "groupUniqArray(destination_port)" in sql
     assert params == {"tenant": "t_main", "window_hours": 24}
 
 
-def test_flow_agg_sql_selects_observer_hosts():
+def test_flow_agg_sql_selects_observer_hostname_per_row():
     sql, _ = build_flow_agg_sql(window_hours=24, tenant="t_main")
-    assert "groupUniqArray(observer_hostname) AS observer_hosts" in sql
+    assert "toString(observer_hostname) AS observer_hostname" in sql
+
+
+def test_binding_sql_reads_arp_entries_with_source_device():
+    sql, params = build_binding_sql(lookback_hours=168, tenant="t_main")
+    assert "ssdf.topo_observations" in sql
+    assert "observation_type = 'arp_entry'" in sql
+    assert "source_device" in sql
+    assert "replaceOne(subj_id, 'ip:', '') AS ip" in sql
+    assert "replaceOne(obj_id, 'mac:', '') AS mac" in sql
+    assert "{lookback_hours:UInt32}" in sql
+    assert params == {"tenant": "t_main", "lookback_hours": 168}
 
 
 def test_topo_hosts_sql_filters_to_host_kind():

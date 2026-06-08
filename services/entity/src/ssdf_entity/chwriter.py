@@ -19,20 +19,25 @@ ENTITY_EDGE_COLUMNS = [
 
 
 def build_flow_agg_sql(window_hours: int, tenant: str) -> tuple[str, dict]:
-    """Aggregate ssdf.events into per-(src_ip,dst_ip) flow rows for the resolver."""
+    """Aggregate ssdf.events into per-(src_ip,dst_ip,observer) flow rows.
+
+    Grouping by observer_hostname gives each row a single firewall vantage
+    (its segment), so the resolver can scope IP identity. The COMMUNICATED_WITH
+    edge's observer_hosts set is reassembled across rows in resolve_entities.
+    """
     sql = (
         "SELECT toString(source_ip) AS src_ip, toString(destination_ip) AS dst_ip, "
+        "toString(observer_hostname) AS observer_hostname, "
         "sum(network_bytes) AS bytes, count() AS flows, "
         "groupUniqArray(destination_port) AS ports, "
         "any(rule_name) AS rule_name, any(event_provider) AS provider, "
         "any(network_transport) AS transport, "
-        "groupUniqArray(observer_hostname) AS observer_hosts, "
         "toString(min(timestamp)) AS first_seen, toString(max(timestamp)) AS last_seen "
         "FROM ssdf.events "
         "WHERE tenant_id = {tenant:String} "
         "AND timestamp >= now() - INTERVAL {window_hours:UInt32} HOUR "
         "AND source_ip IS NOT NULL AND destination_ip IS NOT NULL "
-        "GROUP BY src_ip, dst_ip"
+        "GROUP BY src_ip, dst_ip, observer_hostname"
     )
     return sql, {"tenant": tenant, "window_hours": window_hours}
 
@@ -44,6 +49,26 @@ def build_topo_hosts_sql(tenant: str) -> tuple[str, dict]:
         "WHERE tenant_id = {tenant:String} AND kind = 'host'"
     )
     return sql, {"tenant": tenant}
+
+
+def build_binding_sql(lookback_hours: int, tenant: str) -> tuple[str, dict]:
+    """Read M4 arp_entry observations as (source_device, ip, mac, observed_at).
+
+    Reads topo_observations (which retains source_device, unlike the flattened
+    graph_nodes) over a lookback window so a transient single-pass binding drop
+    does not orphan a host. subj_id is 'ip:<ip>', obj_id is 'mac:<mac>'.
+    """
+    sql = (
+        "SELECT source_device, "
+        "replaceOne(subj_id, 'ip:', '') AS ip, "
+        "replaceOne(obj_id, 'mac:', '') AS mac, "
+        "toString(observed_at) AS observed_at "
+        "FROM ssdf.topo_observations "
+        "WHERE tenant_id = {tenant:String} "
+        "AND observation_type = 'arp_entry' "
+        "AND observed_at >= now() - INTERVAL {lookback_hours:UInt32} HOUR"
+    )
+    return sql, {"tenant": tenant, "lookback_hours": lookback_hours}
 
 
 def entity_rows(entities: Iterable[dict]) -> list[list[Any]]:
