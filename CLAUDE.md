@@ -111,6 +111,15 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
   `enforcement_points`, `topology_snapshot`) live on the existing `ssdf-mcp-query` (ct106).
   As-built coords in gitignored `services/topo/infra/ENV.local`.
 
+### M6a (entity/correlation — services/entity + explain_access tool)
+- Entity unit tests: `cd services/entity && uv run pytest -m "not integration"`
+- Entity live integration (writes CH): `cd services/entity && CH_HOST=<ip> CH_USER=ssdf_entity CH_PASSWORD=<pw> uv run pytest -m integration`
+- mcp-query unit tests (incl. entitystore/access_tools): `cd services/mcp-query && uv run pytest -m "not integration"`
+- One resolver pass: `cd services/entity && uv run python -m ssdf_entity.resolve_main`
+- Apply entity schema + user: `clickhouse-client < infra/clickhouse/004_entities.sql` then `ENTITY_PW=<pw> envsubst < infra/clickhouse/005_entity_user.sql | clickhouse-client`.
+- Deployed: resolver on Proxmox LXC **ct109** (shares host with M4 topo; venv `/opt/ssdf-entity`, env `/etc/ssdf-entity/ENV.local` mode 600) on a 5-min systemd timer (`ssdf-entity.timer` → oneshot `ssdf-entity.service`); writes CH ct104 as `ssdf_entity` into `ssdf.entities`/`ssdf.entity_edges`. The `explain_access(client, server)` MCP tool lives on `ssdf-mcp-query` (ct106), reading as `ssdf_ro`. As-built coords in gitignored `services/entity/infra/ENV.local`.
+- **ClickHouse `toString(col) AS col` alias trap:** aliasing a `toString(...)` back to the source column name shadows the real typed column in WHERE/ORDER BY, turning datetime comparisons into lexical string compares. Qualify the column (e.g. `entity_edges.last_seen`) in filters. (Bug found in M6a live validation; see STATUS.md.)
+
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems

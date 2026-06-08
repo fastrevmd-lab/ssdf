@@ -217,6 +217,12 @@ rule exists or permits traffic unless a flow actually hit it. When M6b adds conf
 and `coverage.configured` flips to `true`. An empty `controls` with `observed_flows.sessions > 0`
 is surfaced as a finding (observed traffic with no resolved governing rule), never hidden.
 
+> **As-built reconciliation (2026-06-07).** The shipped `controls[]` entry omits the per-control
+> `sessions` field shown in the example above; session/byte/port counts are reported once in
+> `observed_flows` (the aggregate over all comm edges for the pair), not duplicated per control.
+> Each control carries `firewall`, `vendor`, `rule`, `source`, `firewall_basis`. See
+> `docs/superpowers/STATUS.md` (M6a row) for the canonical as-built shape.
+
 ## 6. Edge cases
 
 - **IP-only endpoint** → Asset with `identity_basis: ip_only`, confidence < 1.0; never merged on
