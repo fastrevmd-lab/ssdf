@@ -26,6 +26,10 @@ def test_binding_sql_reads_arp_entries_with_source_device():
     assert "replaceOne(subj_id, 'ip:', '') AS ip" in sql
     assert "replaceOne(obj_id, 'mac:', '') AS mac" in sql
     assert "{lookback_hours:UInt32}" in sql
+    # Must qualify the column: the toString(observed_at) alias otherwise shadows
+    # the DateTime column, making the window filter a String/DateTime compare
+    # (NO_COMMON_TYPE) that fails the read outright.
+    assert "topo_observations.observed_at >= now() - INTERVAL {lookback_hours:UInt32} HOUR" in sql
     assert params == {"tenant": "t_main", "lookback_hours": 168}
 
 
