@@ -92,9 +92,11 @@ def build_app() -> FastMCP:
 
     @mcp.tool
     def explain_access(client: str, server: str, since_hours: int | None = None) -> dict:
-        """End-to-end view: observed flows + security controls (rules/firewalls) + topology path
-        between a client and a server. Accepts ip/mac/name. Controls are observed-only in M6a
-        (coverage.configured = 'pending_m6b'); firewall attribution is inferred from topology."""
+        """End-to-end view: observed flows + observed controls + CONFIGURED rules (from each
+        firewall's ruleset) + topology path between a client and a server. Accepts ip/mac/name.
+        `configured_controls` lists rules on the path firewalls (no match-scoring); `coverage`
+        reports observed (bool) and configured (rule count). Firewall attribution is from
+        topology; `configured_basis` flags no_path_firewall / firewall_name_unmatched."""
         return access.explain_access(client, server, since_hours=since_hours)
 
     return mcp
