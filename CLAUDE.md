@@ -110,6 +110,8 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
   ct104 as `ssdf_topo`. Topology MCP tools (`get_entity`, `locate`, `neighbors`, `find_path`,
   `enforcement_points`, `topology_snapshot`) live on the existing `ssdf-mcp-query` (ct106).
   As-built coords in gitignored `services/topo/infra/ENV.local`.
+- **Firewall-role device nodes (M6c, issue #6 scope A).** The junos + panos collectors self-emit one `device_inventory(role=firewall, name=<device>)` observation per device (helper `collectors/base.py:firewall_inventory`), so `panosvm`/`vSRX-test10` resolve as `kind=device, attrs.role=firewall` and `enforcement_points` can attribute them. Requires `JUNOS_DEVICES` to be set on ct109 (`/etc/ssdf-topo/ENV.local`) — junos collector is a no-op with an empty device list.
+- **Collector MCP arg names (latent-bug fix, M6c):** `execute_junos_command` takes `router_name` (NOT `router`); `execute_pan_op` takes `host` + `cmd`. Wrong names raise `missing_argument`, which `run_collectors` catches and silently skips — surfaced only when a collector first runs live.
 
 ### M6a (entity/correlation — services/entity + explain_access tool)
 - Entity unit tests: `cd services/entity && uv run pytest -m "not integration"`

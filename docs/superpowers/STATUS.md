@@ -129,8 +129,27 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
     gap is purely topology→firewall attribution; closing it requires M4 to emit firewall-role device
     nodes (tracked as the M6b→M4 dependency in **issue #6**). This was recorded honestly rather than fabricating M4
     nodes to make the number non-zero.
-- **M6c — multi-hop L3 stitching + Postgres-as-graph.** Relocate the entity store off ClickHouse
-  to Postgres-as-graph (Neo4j still deferred); stitch multi-hop paths. Deferred.
+    - **Scope A closed by M6c (2026-06-08).** M4's junos/panos collectors now self-emit a
+      `device_inventory(role=firewall)` observation per device, so `panosvm` and `vSRX-test10`
+      resolve as `kind=device, attrs.role=firewall` in `ssdf.graph_nodes` (verified live on ct104).
+      `enforcement_points` now returns them when they sit in a path's L1/L2 component. **Scope B**
+      (host↔firewall L2/L3 connectivity so a real transit pair yields `coverage.configured>0`
+      end-to-end) remains open under issue #6 / M6c.
+- **M6c — firewall-node tagging (issue #6, scope A).** ✅ Built 2026-06-08. Closes the M6b→M4
+  bridge gap's *node-tagging* half. New `firewall_inventory()` helper in `collectors/base.py`;
+  junos + panos collectors each append one `device_inventory(role=firewall, name=<device>)`
+  observation, merged by the resolver onto the same name-keyed device node. Also fixed a latent
+  M4 collector bug surfaced when the collectors first ran live on ct109: `execute_junos_command`
+  needs `router_name` (not `router`) and `execute_pan_op` needs `host` — both raised
+  `missing_argument` and were silently skipped before. Added `JUNOS_DEVICES=vSRX-test10` to
+  ct109's `/etc/ssdf-topo/ENV.local` (junos collector had never run live — list was empty).
+  Live proof: collect cycle 197→223 obs, 204→218 nodes; CH query returns `panosvm` and
+  `vSRX-test10` both `kind=device, role=firewall`. Spec:
+  `specs/2026-06-08-m4-firewall-node-tagging-design.md`; plan:
+  `plans/2026-06-08-m4-firewall-node-tagging.md`. **Scope B still open** under issue #6.
+- **M6d — multi-hop L3 stitching + Postgres-as-graph.** Relocate the entity store off ClickHouse
+  to Postgres-as-graph (Neo4j still deferred); stitch multi-hop paths. Deferred. (Renumbered from
+  M6c, which is now the firewall-node tagging milestone above.)
 - **M7 — sovereignty + MCP split.** Scope-gating, sovereignty policy + audit on the read MCP;
   split local/frontier MCP when frontier egress is wired.
 - **Later sources:** UniFi (CEF + Suricata EVE via `unifi-mcp`), Proxmox (rsyslog + PVE API

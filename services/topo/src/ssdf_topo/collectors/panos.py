@@ -7,7 +7,7 @@ import json
 import xml.etree.ElementTree as ET
 
 from ..models import Observation
-from .base import register
+from .base import firewall_inventory, register
 
 
 def _entries(text: str) -> list[ET.Element]:
@@ -107,10 +107,14 @@ class PanosCollector:
         """Pull LLDP neighbors and ARP table from PAN-OS via the MCP client."""
         lldp_text = client.call_tool(
             "execute_pan_op",
-            {"cmd": "<show><lldp><neighbors>all</neighbors></lldp></show>"},
+            {"host": self.device, "cmd": "<show><lldp><neighbors>all</neighbors></lldp></show>"},
         )
         arp_text = client.call_tool(
             "execute_pan_op",
-            {"cmd": "<show><arp><entry name='all'/></arp></show>"},
+            {"host": self.device, "cmd": "<show><arp><entry name='all'/></arp></show>"},
         )
-        return parse_lldp_xml(lldp_text, self.device, now) + parse_arp_xml(arp_text, self.device, now)
+        return (
+            parse_lldp_xml(lldp_text, self.device, now)
+            + parse_arp_xml(arp_text, self.device, now)
+            + [firewall_inventory("panos", self.device, now)]
+        )
