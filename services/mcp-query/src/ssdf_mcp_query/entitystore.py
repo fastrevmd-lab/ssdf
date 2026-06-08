@@ -28,10 +28,15 @@ def build_entity_match_sql(value: str, tenant: str) -> tuple[str, dict]:
 
 def build_comm_edges_sql(a_id: str, b_id: str, since_iso: str,
                          tenant: str) -> tuple[str, dict]:
+    # `entity_edges.last_seen` is qualified on purpose: `_EDGE_COLS` aliases
+    # `toString(last_seen) AS last_seen`, and an unqualified `last_seen` in WHERE
+    # binds to that String alias — making this a lexical compare against the
+    # ISO `since` value (space < 'T') that silently drops every row. Qualifying
+    # forces the real DateTime64 column so ClickHouse parses `since` as a datetime.
     sql = (
         f"SELECT {_EDGE_COLS} FROM ssdf.entity_edges FINAL "
         "WHERE tenant_id = {tenant:String} AND edge_type = 'communicated_with' "
-        "AND last_seen >= {since:String} AND ("
+        "AND entity_edges.last_seen >= {since:String} AND ("
         "(src_id = {a:String} AND dst_id = {b:String}) OR "
         "(src_id = {b:String} AND dst_id = {a:String}))"
     )

@@ -20,7 +20,9 @@ def test_entity_match_sql_preserves_non_mac():
 def test_comm_edges_sql_is_bidirectional_and_windowed():
     sql, params = build_comm_edges_sql("A", "B", "2026-06-07T00:00:00", tenant="t_main")
     assert "edge_type = 'communicated_with'" in sql
-    assert "last_seen >= {since:String}" in sql
+    # Must qualify the column so the toString(last_seen) alias doesn't turn the
+    # window filter into a lexical string compare that drops every row.
+    assert "entity_edges.last_seen >= {since:String}" in sql
     assert params["a"] == "A" and params["b"] == "B"
 
 
