@@ -11,6 +11,8 @@ from .clickhouse import ClickHouseClient
 from .tools import Tools
 from .graphstore import ClickHouseGraphStore
 from .topo_tools import TopoTools
+from .entitystore import ClickHouseEntityStore
+from .access_tools import AccessTools
 
 
 def build_app() -> FastMCP:
@@ -19,6 +21,8 @@ def build_app() -> FastMCP:
     tools = Tools(client)
     graph_store = ClickHouseGraphStore(client, tenant="t_main")
     topo = TopoTools(graph_store)
+    entity_store = ClickHouseEntityStore(client, tenant="t_main")
+    access = AccessTools(entity_store, topo)
     auth = StaticTokenVerifier(
         tokens={config.auth_token: {"sub": "agent", "client_id": "ssdf"}}
     )
@@ -85,6 +89,13 @@ def build_app() -> FastMCP:
     def topology_snapshot(layer: str | None = None, since_hours: int | None = None) -> dict:
         """Bounded nodes+edges subgraph for visualization/LLM context; reports truncation."""
         return topo.topology_snapshot(layer=layer, since_hours=since_hours)
+
+    @mcp.tool
+    def explain_access(client: str, server: str, since_hours: int | None = None) -> dict:
+        """End-to-end view: observed flows + security controls (rules/firewalls) + topology path
+        between a client and a server. Accepts ip/mac/name. Controls are observed-only in M6a
+        (coverage.configured = 'pending_m6b'); firewall attribution is inferred from topology."""
+        return access.explain_access(client, server, since_hours=since_hours)
 
     return mcp
 
