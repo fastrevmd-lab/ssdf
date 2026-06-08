@@ -161,3 +161,50 @@ def test_explain_access_unmatched_firewall_basis():
     out = access.explain_access("10.64.0.1", "10.64.0.2")
     assert out["coverage"]["configured"] == 0
     assert out["configured_basis"] == "firewall_name_unmatched"
+
+
+def test_explain_access_provenance_primary_attributes_logging_firewall():
+    ents = _client_server()
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "1", "bytes": "10",
+                                        "ports": "443", "providers": "juniper",
+                                        "transports": "tcp",
+                                        "observer_hosts": "vSRX-test10"}}]
+
+    class _StoreProv(_FakeStore):
+        def configured_policies_for_firewalls(self, names):
+            assert names == ["vSRX-test10"]
+            return [{"firewall": "vSRX-test10",
+                     "policy": {"name": "baseline-permit(global)", "attrs": {"enabled": "true"}}}]
+
+    class _TopoBoom(_FakeTopo):
+        def enforcement_points(self, src, dst):
+            raise AssertionError("enforcement_points must not be called when provenance present")
+
+    store = _StoreProv(ents, comm, [])
+    out = AccessTools(store, _TopoBoom(["fwX"], {"found": True})).explain_access("10.64.0.5", "8.8.8.8")
+    assert out["firewall_basis"] == "provenance"
+    assert out["firewalls"] == ["vSRX-test10"]
+    assert out["coverage"]["configured"] == 1
+
+
+def test_explain_access_falls_back_to_topology_when_no_provenance():
+    ents = _client_server()
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "1", "bytes": "10",
+                                        "ports": "443", "providers": "juniper",
+                                        "transports": "tcp", "observer_hosts": ""}}]
+    store = _FakeStore(ents, comm, [])
+    topo = _FakeTopo(["vSRX-test10"], {"found": True, "hops": 3})
+    out = AccessTools(store, topo).explain_access("10.64.0.5", "8.8.8.8")
+    assert out["firewall_basis"] == "topology"
+    assert out["firewalls"] == ["vSRX-test10"]
+
+
+def test_explain_access_no_provenance_no_topology_is_no_path_firewall():
+    ents = _client_server()
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "1", "bytes": "10",
+                                        "ports": "443", "providers": "juniper",
+                                        "transports": "tcp", "observer_hosts": ""}}]
+    store = _FakeStore(ents, comm, [])
+    out = AccessTools(store, _FakeTopo([], {"found": False})).explain_access("10.64.0.5", "8.8.8.8")
+    assert out["firewall_basis"] == "no_path_firewall"
+    assert out["coverage"]["configured"] == 0
