@@ -21,7 +21,16 @@ def test_entity_match_sql_orders_by_qualified_column():
     # Must qualify so the toString(last_seen) alias doesn't make "most recent"
     # a lexical string sort instead of a real DateTime64 sort.
     sql, _ = build_entity_match_sql("10.64.0.5", tenant="t_main")
-    assert "ORDER BY entities.last_seen DESC" in sql
+    assert "entities.last_seen DESC" in sql
+
+
+def test_entity_match_sql_orders_by_confidence_then_last_seen():
+    # A by-IP lookup can match both a MAC asset (confidence 1.0) and a stale
+    # ip_only twin (0.5); confidence-first ordering makes the MAC asset win so
+    # its observer_hosts-bearing edge is the one explain_access reads.
+    sql, params = build_entity_match_sql("198.51.100.150", tenant="t_main")
+    assert "ORDER BY confidence DESC, entities.last_seen DESC LIMIT 1" in sql
+    assert params["tenant"] == "t_main"
 
 
 def test_comm_edges_sql_is_bidirectional_and_windowed():
