@@ -38,3 +38,20 @@ def test_entity_rows_follow_column_order():
 def test_edge_rows_follow_column_order():
     edge = {c: c for c in ENTITY_EDGE_COLUMNS}
     assert edge_rows([edge]) == [[c for c in ENTITY_EDGE_COLUMNS]]
+
+
+def test_assets_by_basis_sql_filters_basis():
+    from ssdf_entity.chwriter import build_assets_by_basis_sql
+    sql, params = build_assets_by_basis_sql("ip_only", tenant="t_main")
+    assert "ssdf.entities FINAL" in sql
+    assert "identity_basis = {basis:String}" in sql
+    assert "kind = 'asset'" in sql
+    assert params == {"tenant": "t_main", "basis": "ip_only"}
+
+
+def test_all_edges_by_type_sql():
+    from ssdf_entity.chwriter import build_all_edges_by_type_sql
+    sql, params = build_all_edges_by_type_sql("communicated_with", tenant="t_main")
+    assert "ssdf.entity_edges FINAL" in sql
+    assert "edge_type = {etype:String}" in sql
+    assert params == {"tenant": "t_main", "etype": "communicated_with"}
