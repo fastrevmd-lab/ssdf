@@ -1143,8 +1143,9 @@ class _FakeTopo:
 
 
 def _client_server():
-    return ({"client": {"entity_id": "C", "name": "10.64.0.5", "identity_basis": "ip_only"},
-             "server": {"entity_id": "S", "name": "8.8.8.8", "identity_basis": "ip_only"}})
+    # keyed by the identifier strings explain_access() looks up
+    return {"10.64.0.5": {"entity_id": "C", "name": "10.64.0.5", "identity_basis": "ip_only"},
+            "8.8.8.8": {"entity_id": "S", "name": "8.8.8.8", "identity_basis": "ip_only"}}
 
 
 def test_not_found_when_endpoint_unresolved():
