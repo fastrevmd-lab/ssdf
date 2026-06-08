@@ -43,7 +43,7 @@ def parse_security_policies(text: str, device_name: str, now: str) -> list[dict]
         inactive = line.startswith("inactive:")
         if inactive:
             line = line[len("inactive:"):].strip()
-        if not line.startswith("set ") and not line.startswith("deactivate "):
+        if not line.startswith("set "):
             continue
         zone_match = _ZONE_RE.search(line)
         if zone_match:

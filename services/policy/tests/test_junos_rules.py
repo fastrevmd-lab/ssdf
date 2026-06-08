@@ -66,6 +66,23 @@ def test_global_policy_zones_default_to_any_when_unspecified():
     assert rule["action"] == "deny"
 
 
+INACTIVE_SAMPLE = """
+inactive: set security policies from-zone trust to-zone untrust policy dead-rule match source-address any
+inactive: set security policies from-zone trust to-zone untrust policy dead-rule match destination-address any
+inactive: set security policies from-zone trust to-zone untrust policy dead-rule match application any
+inactive: set security policies from-zone trust to-zone untrust policy dead-rule then deny
+""".strip()
+
+
+def test_inactive_policy_sets_enabled_false():
+    rules = parse_security_policies(INACTIVE_SAMPLE, "vSRX-test10", "2026-06-08T00:00:00")
+    assert len(rules) == 1
+    rule = rules[0]
+    assert rule["rule_name"] == "dead-rule"
+    assert rule["enabled"] is False
+    assert rule["action"] == "deny"
+
+
 def test_parses_zonepair_fixture_actions():
     rules = parse_security_policies(ZONEPAIR_FIXTURE.read_text(), "vSRX-test11", "2026-06-08T00:00:00")
     by_name = {r["rule_name"]: r for r in rules}
