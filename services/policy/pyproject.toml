@@ -22,3 +22,8 @@ packages = ["src/ssdf_policy"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = ["integration: requires live ClickHouse + MCPs (deselect with -m 'not integration')"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
