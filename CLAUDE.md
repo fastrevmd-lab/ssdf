@@ -156,6 +156,14 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
 - ct106 is an editable install at `/opt/src/mcp-query/src` — sync source + `systemctl restart ssdf-mcp-query.service`; add `MCP_TOKENS_FILE`/`MCP_CLASSIFICATION_FILE`/`CH_AUDIT_USER`/`CH_AUDIT_PASSWORD` to `/etc/ssdf-mcp/…` (mode 600).
 - **Hands to M7b:** `classification.py` (taxonomy+map), `audit.py`+`ssdf.audit` (public process writes `tier="public"`), and the token-map auth pattern. Classes flagged `shareable` drive M7b's shareable views + `ssdf_public` grants.
 
+### M7b (public MCP split — ssdf-mcp-public tier)
+- Unit tests: `cd services/mcp-query && uv run pytest -m "not integration"` (adds `test_server_public` + classification/graphstore public-schema suites).
+- Live floor/audit integration: `cd services/mcp-query && CH_HOST=<ip> CH_PUBLIC_PASSWORD=<pub_pw> CH_AUDIT_PASSWORD=<audit_pw> CH_PASSWORD=<pub_pw> [CH_ADMIN_PASSWORD=<pw>] uv run pytest tests/test_public_views_integration.py -m integration`.
+- Apply public views + users: `DEFINER_PW="$CH_DEFINER_PASSWORD" PUBLIC_PW="$CH_PUBLIC_PASSWORD" envsubst < infra/clickhouse/008_public_views.sql | clickhouse-client --host <ct104> --multiquery` (creates `ssdf_public` db, `ssdf_view_definer`, two `SQL SECURITY DEFINER` views, and the `ssdf_public` reader granted on views only).
+- **Tier select:** the SAME `ssdf_mcp_query.server` runs public when `MCP_TIER=public` (default `sovereign`). Public build registers only tools whose data classes are ALL `shareable` (per `MCP_CLASSIFICATION_FILE`), **minus `run_sql`** (hard-excluded). No shareable class ⇒ 0 tools + a stderr warning (secure default). Public stores read the `ssdf_public` schema (`graphstore` `schema` param); audit rows are tagged `tier="public"`.
+- **Hard floor:** `ssdf_public` has SELECT on `ssdf_public.graph_nodes`/`graph_edges` ONLY; the definer views read base `ssdf.*` as `ssdf_view_definer`. `ssdf_public` selecting any base `ssdf.*` table ⇒ `ACCESS_DENIED` (proven by `test_public_cannot_read_sovereign_base_tables`).
+- **Deploy:** new LXC **ct110** (`ssdf-mcp-public`, 198.51.100.154, port 30033). Unit `services/mcp-query/infra/ssdf-mcp-public.service`; `/etc/ssdf-mcp/secrets.env` (mode 600) holds `CH_PASSWORD`=ssdf_public pw + `CH_AUDIT_PASSWORD`; `/etc/ssdf-mcp/classification.json` flips `topology`/`identity` to `shareable` (see `infra/classification.public.example.json`). A public LLM connects as an MCP client to `http://198.51.100.154:30033/mcp` with a public-tier token — MCP is the only interface; no API/egress to configure.
+
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems
