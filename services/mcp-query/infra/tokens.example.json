@@ -1,0 +1,9 @@
+{
+  "REPLACE_WITH_TRIAGE_TOKEN": {
+    "principal": "triage-agent",
+    "allowed_tools": ["query_flows", "top_talkers", "explain_access"]
+  },
+  "REPLACE_WITH_ADMIN_TOKEN": {
+    "principal": "admin-agent"
+  }
+}
