@@ -41,6 +41,8 @@ def audited_tool(
 
     @functools.wraps(fn)
     def wrapped(*args: Any, **kwargs: Any) -> Any:
+        # FastMCP dispatches tools by keyword, so the audited args are kwargs.
+        # If a caller ever invokes positionally, those args run but aren't recorded.
         principal, allowed = caller()
         if allowed is not None and tool_name not in allowed:
             auditor.record(
