@@ -18,3 +18,10 @@ def test_load_config_defaults(monkeypatch):
     assert config.ch_user == "ssdf_entity"
     assert config.tenant_id == "t_main"
     assert config.window_hours == 24
+
+
+def test_load_config_default_binding_lookback(monkeypatch):
+    monkeypatch.setenv("CH_PASSWORD", "x")
+    monkeypatch.delenv("TOPO_BINDING_LOOKBACK_HOURS", raising=False)
+    from ssdf_entity.config import load_config
+    assert load_config().binding_lookback_hours == 168

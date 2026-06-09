@@ -26,7 +26,7 @@ def build_entity_match_sql(value: str, tenant: str) -> tuple[str, dict]:
         f"SELECT {_ENTITY_COLS} FROM ssdf.entities FINAL "
         "WHERE tenant_id = {tenant:String} AND ("
         "entity_id = {val:String} OR has(mapValues(identifiers), {val:String})) "
-        "ORDER BY entities.last_seen DESC LIMIT 1"
+        "ORDER BY confidence DESC, entities.last_seen DESC LIMIT 1"
     )
     return sql, {"tenant": tenant, "val": _normalize_identifier(value)}
 
