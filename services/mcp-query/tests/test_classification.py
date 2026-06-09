@@ -84,3 +84,9 @@ def test_reject_non_object_json(tmp_path):
 def test_label_for_unknown_class_raises():
     with pytest.raises(ConfigError):
         load_classification(None).label_for_class("bogus")
+
+
+def test_missing_file_raises(tmp_path):
+    missing = tmp_path / "does-not-exist.json"
+    with pytest.raises(ConfigError):
+        load_classification(str(missing))

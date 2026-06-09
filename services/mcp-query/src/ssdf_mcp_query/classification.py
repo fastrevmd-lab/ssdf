@@ -67,7 +67,11 @@ def load_classification(path: str | None = None) -> Classification:
     if not resolved:
         return Classification(labels=labels)
     try:
-        overrides = json.loads(Path(resolved).read_text(encoding="utf-8"))
+        raw = Path(resolved).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"cannot read classification file '{resolved}': {exc}") from exc
+    try:
+        overrides = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ConfigError(f"invalid classification JSON: {exc}") from exc
     if not isinstance(overrides, dict):
