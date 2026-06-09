@@ -7,11 +7,14 @@ authorized (per-principal ``allowed_tools``) and recorded to ``ssdf.audit``.
 
 from __future__ import annotations
 
+import os
+import sys
+
 from fastmcp import FastMCP
 from fastmcp.server.auth import StaticTokenVerifier
 
 from .config import load_config
-from .classification import load_classification
+from .classification import load_classification, public_tool_names
 from .audit import Auditor, make_ch_auditor
 from .wrapper import audited_tool
 from .clickhouse import ClickHouseClient
@@ -22,14 +25,15 @@ from .entitystore import ClickHouseEntityStore
 from .access_tools import AccessTools
 
 
-def build_app() -> FastMCP:
+def build_app(tier: str = "sovereign") -> FastMCP:
     config = load_config()
-    load_classification()  # fail closed on invalid classification config
+    classification = load_classification()  # fail closed on invalid classification config
     auditor = make_ch_auditor(config)
 
+    schema = "ssdf_public" if tier == "public" else "ssdf"
     client = ClickHouseClient(config)
     tools = Tools(client)
-    graph_store = ClickHouseGraphStore(client, tenant="t_main")
+    graph_store = ClickHouseGraphStore(client, tenant="t_main", schema=schema)
     topo = TopoTools(graph_store)
     entity_store = ClickHouseEntityStore(client, tenant="t_main")
     access = AccessTools(entity_store, topo)
@@ -39,7 +43,7 @@ def build_app() -> FastMCP:
         payload = {
             "sub": tp.principal,
             "client_id": "ssdf",
-            "tier": "sovereign",
+            "tier": tier,
             "principal": tp.principal,
         }
         if tp.allowed_tools is not None:
@@ -121,15 +125,24 @@ def build_app() -> FastMCP:
         "topology_snapshot": topology_snapshot,
         "explain_access": explain_access,
     }
-    for name, fn in raw_tools.items():
-        mcp.tool(name=name)(audited_tool(name, fn, auditor))
+    if tier == "public":
+        selected = public_tool_names(classification, list(raw_tools))
+        if not selected:
+            print("[public] no shareable classes configured; 0 tools exposed",
+                  file=sys.stderr)
+    else:
+        selected = list(raw_tools)
+
+    for name in selected:
+        mcp.tool(name=name)(audited_tool(name, raw_tools[name], auditor, tier=tier))
 
     return mcp
 
 
 def main() -> None:
     config = load_config()
-    app = build_app()
+    tier = os.environ.get("MCP_TIER", "sovereign")
+    app = build_app(tier)
     app.run(transport="http", host=config.mcp_bind, port=config.mcp_port)
 
 
