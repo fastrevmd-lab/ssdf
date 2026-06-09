@@ -85,3 +85,28 @@ def load_classification(path: str | None = None) -> Classification:
             raise ConfigError(f"invalid label '{value}' for class '{data_class}'")
         labels[data_class] = value
     return Classification(labels=labels)
+
+
+# Tools structurally barred from the public server regardless of classification
+# (defense in depth: arbitrary SQL must never live on the public process).
+PUBLIC_EXCLUDED_TOOLS: frozenset[str] = frozenset({"run_sql"})
+
+
+def is_tool_shareable(classification: Classification, tool_name: str) -> bool:
+    """True iff every class the tool returns is 'shareable' and it is not excluded.
+
+    Unknown tools (no declared classes) and hard-excluded tools are never shareable.
+    """
+    if tool_name in PUBLIC_EXCLUDED_TOOLS:
+        return False
+    classes = classes_for_tool(tool_name)
+    if not classes:
+        return False
+    return all(classification.label_for_class(cls) == "shareable" for cls in classes)
+
+
+def public_tool_names(
+    classification: Classification, candidates: list[str]
+) -> list[str]:
+    """Return, in input order, the candidate tools exposable on the public server."""
+    return [name for name in candidates if is_tool_shareable(classification, name)]
