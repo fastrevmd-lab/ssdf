@@ -1,7 +1,9 @@
+import json
 import pytest
-from ssdf_mcp_query.config import load_config, ConfigError
+from ssdf_mcp_query.config import load_config, load_token_map, ConfigError
 
-def test_load_config_from_env(monkeypatch, tmp_path):
+
+def test_single_token_fallback_from_file(monkeypatch, tmp_path):
     token_file = tmp_path / "token"
     token_file.write_text("secret-token\n")
     monkeypatch.setenv("CH_HOST", "10.64.0.9")
@@ -9,31 +11,71 @@ def test_load_config_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("CH_PASSWORD", "pw")
     monkeypatch.setenv("MCP_TOKEN_FILE", str(token_file))
     monkeypatch.delenv("MCP_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("MCP_TOKENS_FILE", raising=False)
     cfg = load_config()
     assert cfg.ch_host == "10.64.0.9"
-    assert cfg.ch_port == 8123
-    assert cfg.ch_user == "ssdf_ro"
     assert cfg.mcp_port == 30032
-    assert cfg.auth_token == "secret-token"
+    assert set(cfg.tokens) == {"secret-token"}
+    principal = cfg.tokens["secret-token"]
+    assert principal.principal == "agent"
+    assert principal.allowed_tools is None
+
 
 def test_inline_token_env_wins(monkeypatch):
     monkeypatch.setenv("CH_PASSWORD", "pw")
     monkeypatch.setenv("MCP_AUTH_TOKEN", "inline")
     monkeypatch.delenv("MCP_TOKEN_FILE", raising=False)
-    assert load_config().auth_token == "inline"
+    monkeypatch.delenv("MCP_TOKENS_FILE", raising=False)
+    cfg = load_config()
+    assert set(cfg.tokens) == {"inline"}
+    assert cfg.tokens["inline"].principal == "agent"
+
 
 def test_missing_token_raises(monkeypatch):
     monkeypatch.setenv("CH_PASSWORD", "pw")
     monkeypatch.delenv("MCP_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("MCP_TOKEN_FILE", raising=False)
+    monkeypatch.delenv("MCP_TOKENS_FILE", raising=False)
     with pytest.raises(ConfigError):
         load_config()
 
-def test_whitespace_only_token_raises(monkeypatch, tmp_path):
-    token_file = tmp_path / "token"
-    token_file.write_text("   \n")
-    monkeypatch.setenv("CH_PASSWORD", "pw")
-    monkeypatch.setenv("MCP_TOKEN_FILE", str(token_file))
-    monkeypatch.delenv("MCP_AUTH_TOKEN", raising=False)
+
+def test_token_map_multi_principal(monkeypatch, tmp_path):
+    f = tmp_path / "tokens.json"
+    f.write_text(json.dumps({
+        "tok-triage": {"principal": "triage-agent",
+                       "allowed_tools": ["query_flows", "top_talkers"]},
+        "tok-admin": {"principal": "admin-agent"},
+    }))
+    monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
+    tokens = load_token_map()
+    assert tokens["tok-triage"].principal == "triage-agent"
+    assert tokens["tok-triage"].allowed_tools == frozenset({"query_flows", "top_talkers"})
+    assert tokens["tok-admin"].allowed_tools is None
+
+
+def test_token_map_empty_object_raises(monkeypatch, tmp_path):
+    f = tmp_path / "tokens.json"
+    f.write_text("{}")
+    monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
     with pytest.raises(ConfigError):
-        load_config()
+        load_token_map()
+
+
+def test_token_map_entry_missing_principal_raises(monkeypatch, tmp_path):
+    f = tmp_path / "tokens.json"
+    f.write_text(json.dumps({"tok": {"allowed_tools": ["query_flows"]}}))
+    monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
+    with pytest.raises(ConfigError):
+        load_token_map()
+
+
+def test_audit_conn_fields(monkeypatch):
+    monkeypatch.setenv("CH_PASSWORD", "pw")
+    monkeypatch.setenv("MCP_AUTH_TOKEN", "inline")
+    monkeypatch.setenv("CH_AUDIT_PASSWORD", "apw")
+    monkeypatch.delenv("MCP_TOKENS_FILE", raising=False)
+    monkeypatch.delenv("MCP_TOKEN_FILE", raising=False)
+    cfg = load_config()
+    assert cfg.ch_audit_user == "ssdf_audit"
+    assert cfg.ch_audit_password == "apw"

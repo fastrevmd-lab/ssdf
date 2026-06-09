@@ -29,3 +29,6 @@ venv/
 
 # serena MCP tool cache
 .serena/
+
+# Git worktrees
+/.worktrees/
