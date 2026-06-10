@@ -1,4 +1,6 @@
-from ssdf_mcp_query.access_tools import AccessTools
+import pytest
+
+from ssdf_mcp_query.access_tools import AccessTools, _short_host
 
 
 class _FakeStore:
@@ -208,3 +210,14 @@ def test_explain_access_no_provenance_no_topology_is_no_path_firewall():
     out = AccessTools(store, _FakeTopo([], {"found": False})).explain_access("10.64.0.5", "8.8.8.8")
     assert out["firewall_basis"] == "no_path_firewall"
     assert out["coverage"]["configured"] == 0
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("panosvm.example.com", "panosvm"),
+    ("vSRX-test10", "vSRX-test10"),
+    ("198.51.100.1", "198.51.100.1"),
+    ("fe80::1", "fe80::1"),
+    ("PANOSVM.example.com", "PANOSVM"),
+])
+def test_short_host(raw, expected):
+    assert _short_host(raw) == expected
