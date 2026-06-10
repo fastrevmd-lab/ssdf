@@ -181,11 +181,16 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
     M6a-fix milestone (branch `m6a-identity-segment`):** segment-scoped identity stops new twins,
     `reconcile_assets` cleans up existing ones, and `find_entity`'s `confidence DESC` ordering makes
     a by-IP lookup resolve the MAC asset so provenance is returned.
-  - **PAN-OS provenance carve-out.** PAN-OS stamps `observer.hostname` as `panosvm.example.com` but
-    the M6b Firewall entity is named `panosvm` (domain-suffix mismatch), so PAN-OS provenance would
-    not yet bridge to its configured policies. PAN-OS transit was already "unproven live" (no transit
-    traffic, M5 carve-out); SRX/vSRX-test10 is the live-proven path. Normalizing the device-name
-    suffix is follow-up work.
+  - **PAN-OS provenance carve-out — bridged (2026-06-10).** PAN-OS stamps `observer.hostname` as
+    `panosvm.example.com` but the M6b Firewall entity is named `panosvm` (domain-suffix mismatch), so
+    PAN-OS provenance did not bridge to its configured policies. **Closed at read time:**
+    `explain_access` now maps each `observer_hosts` value through `access_tools._short_host` (first
+    DNS label, case-preserved, IPv4/IPv6-guarded) before matching Firewall entities, so
+    `panosvm.example.com`→`panosvm`; vSRX (`vSRX-test10`, dot-free) is a no-op. Read-path only — no
+    ingest/schema/resolver change. Unit-proven; still NOT live-proven end-to-end (PAN-OS transit
+    traffic still doesn't exist in the lab — M5 carve-out); SRX/vSRX-test10 remains the live-proven
+    path. Spec: `specs/2026-06-10-ssdf-panos-provenance-suffix-normalization-design.md`; plan:
+    `plans/2026-06-10-ssdf-panos-provenance-suffix-normalization.md`.
 - **M6d — multi-hop L3 stitching + Postgres-as-graph.** Relocate the entity store off ClickHouse
   to Postgres-as-graph (Neo4j still deferred); stitch multi-hop paths. Deferred. (Renumbered from
   M6c, which is now the firewall attribution milestone above.)
