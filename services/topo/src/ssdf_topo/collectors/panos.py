@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import json
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # serialization only (ET.tostring)
+from defusedxml.ElementTree import fromstring as _xml_fromstring, ParseError as _XmlParseError
 
 from ..models import Observation
 from .base import firewall_inventory, register
@@ -24,8 +25,8 @@ def _entries(text: str) -> list[ET.Element]:
     except json.JSONDecodeError:
         xml_text = text
     try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError:
+        root = _xml_fromstring(xml_text)
+    except (_XmlParseError, Exception):  # ParseError + defused EntitiesForbidden/DTDForbidden
         return []
     return root.findall(".//entry")
 
