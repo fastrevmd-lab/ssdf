@@ -1,0 +1,20 @@
+#!/usr/sbin/nft -f
+
+# SSDF ingest hardening (security review 2026-06-10, finding H1).
+# Restrict UDP 514 (SRX) / 515 (PAN-OS) to the vSRX test fleet + panosvm.
+# Dedicated table; does not touch the default `inet filter` table.
+# The `table ... / delete table ...` prologue makes reloads idempotent.
+
+table inet ssdf_ingest
+delete table inet ssdf_ingest
+table inet ssdf_ingest {
+    chain input {
+        type filter hook input priority filter; policy accept;
+
+        # Allowed syslog senders: vSRX test fleet + panosvm (198.51.100.220-.242).
+        udp dport { 514, 515 } ip saddr 198.51.100.220-198.51.100.242 accept
+
+        # Everything else hitting the ingest ports is dropped.
+        udp dport { 514, 515 } drop
+    }
+}
