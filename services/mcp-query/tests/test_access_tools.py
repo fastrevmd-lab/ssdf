@@ -230,6 +230,7 @@ def test_explain_access_provenance_preserves_mixed_case_short_name():
         "10.64.0.5", "8.8.8.8")
     assert out["firewall_basis"] == "provenance"
     assert out["firewalls"] == ["vSRX-test10"]
+    assert out["coverage"]["configured"] == 1
 
 
 def test_explain_access_provenance_normalizes_panos_fqdn():
@@ -263,6 +264,7 @@ def test_explain_access_provenance_normalizes_panos_fqdn():
     ("198.51.100.1", "198.51.100.1"),
     ("fe80::1", "fe80::1"),
     ("PANOSVM.example.com", "PANOSVM"),
+    ("panosvm.", "panosvm"),
 ])
 def test_short_host(raw, expected):
     assert _short_host(raw) == expected
