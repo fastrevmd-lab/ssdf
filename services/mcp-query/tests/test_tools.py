@@ -54,3 +54,36 @@ def test_top_talkers_invalid_arg_is_validation_error():
     tools = Tools(FakeClient(), max_rows=1000)
     out = tools.top_talkers(by="bogus")
     assert out["error"] == "validation"
+
+
+import re
+
+
+class _BoomClient:
+    def run(self, sql, params=None):
+        raise RuntimeError("CH internal: column observer_hostname on host 198.51.100.151")
+
+
+def test_safe_execute_scrubs_upstream_detail():
+    out = Tools(_BoomClient()).query_flows(dst_port=443)
+    assert out["error"] == "upstream"
+    assert out["detail"] == "query failed"
+    assert re.fullmatch(r"[0-9a-f]{32}", out["correlation_id"])
+    blob = str(out)
+    assert "198.51.100.151" not in blob
+    assert "observer_hostname" not in blob
+
+
+def test_describe_schema_scrubs_upstream_detail():
+    out = Tools(_BoomClient()).describe_schema()
+    assert out["error"] == "upstream"
+    assert out["detail"] == "query failed"
+    assert re.fullmatch(r"[0-9a-f]{32}", out["correlation_id"])
+    assert "198.51.100.151" not in str(out)
+
+
+def test_validation_error_detail_is_preserved():
+    out = Tools(_BoomClient()).query_flows(since="not-a-time")
+    assert out["error"] == "validation"
+    assert out["detail"] != "query failed"
+    assert "correlation_id" not in out

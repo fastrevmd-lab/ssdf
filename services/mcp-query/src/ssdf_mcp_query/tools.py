@@ -3,12 +3,16 @@
 
 from __future__ import annotations
 
+import logging
 import time
+import uuid
 from typing import Any
 
 from .builders import build_query_flows, build_top_talkers, BuilderError, MAX_LIMIT
 from .sql_guard import guard_sql, GuardError
 from .timeparse import TimeParseError
+
+logger = logging.getLogger("ssdf_mcp_query.tools")
 
 
 def _ok(result: dict, requested_limit: int) -> dict:
@@ -84,8 +88,10 @@ class Tools:
                 "time_range": {"min": stat_row["mn"], "max": stat_row["mx"]},
                 **enums,
             }
-        except Exception as exc:  # noqa: BLE001 - surface as structured upstream error
-            return {"error": "upstream", "detail": str(exc)}
+        except Exception:  # noqa: BLE001 - surface as scrubbed upstream error
+            cid = uuid.uuid4().hex
+            logger.exception("describe_schema upstream error correlation_id=%s", cid)
+            return {"error": "upstream", "detail": "query failed", "correlation_id": cid}
 
     def run_sql(self, query: str) -> dict:
         try:
@@ -97,5 +103,7 @@ class Tools:
     def _safe_execute(self, sql: str, params: dict, requested_limit: int) -> dict:
         try:
             return self._execute(sql, params, requested_limit)
-        except Exception as exc:  # noqa: BLE001 - upstream/CH failures
-            return {"error": "upstream", "detail": str(exc)}
+        except Exception:  # noqa: BLE001 - upstream/CH failures, scrubbed
+            cid = uuid.uuid4().hex
+            logger.exception("tool upstream error correlation_id=%s", cid)
+            return {"error": "upstream", "detail": "query failed", "correlation_id": cid}
