@@ -212,6 +212,26 @@ def test_explain_access_no_provenance_no_topology_is_no_path_firewall():
     assert out["coverage"]["configured"] == 0
 
 
+def test_explain_access_provenance_preserves_mixed_case_short_name():
+    ents = _client_server()
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "1", "bytes": "10",
+                                        "ports": "443", "providers": "juniper",
+                                        "transports": "tcp",
+                                        "observer_hosts": "vSRX-test10"}}]
+
+    class _StoreProv(_FakeStore):
+        def configured_policies_for_firewalls(self, names):
+            assert names == ["vSRX-test10"]
+            return [{"firewall": "vSRX-test10",
+                     "policy": {"name": "baseline-permit(global)", "attrs": {"enabled": "true"}}}]
+
+    store = _StoreProv(ents, comm, [])
+    out = AccessTools(store, _FakeTopo(["fwX"], {"found": True})).explain_access(
+        "10.64.0.5", "8.8.8.8")
+    assert out["firewall_basis"] == "provenance"
+    assert out["firewalls"] == ["vSRX-test10"]
+
+
 def test_explain_access_provenance_normalizes_panos_fqdn():
     ents = _client_server()
     comm = [{"edge_id": "E1", "attrs": {"sessions": "1", "bytes": "10",
