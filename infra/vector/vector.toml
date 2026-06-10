@@ -74,6 +74,15 @@ if err != null {
         user = ""
     }
 
+    obs_host = string(parsed.hostname) ?? ""
+    _obs_parts = split(obs_host, ".")
+    _obs_short = downcase(string(_obs_parts[0]) ?? "")
+    _obs_known = false
+    if _obs_short == "panosvm" { _obs_known = true }
+    _om, _oe = parse_regex(_obs_short, r'^vsrx-test\d')
+    if _oe == null { _obs_known = true }
+    if !_obs_known { obs_host = "" }
+
     . = {
         "timestamp": parsed.timestamp,
         "event_id": uuid_v4(),
@@ -94,7 +103,7 @@ if err != null {
         "rule_name": string(fields."policy-name") ?? "",
         "observer_ingress_zone": string(fields."source-zone-name") ?? "",
         "observer_egress_zone": string(fields."destination-zone-name") ?? "",
-        "observer_hostname": string(parsed.hostname) ?? "",
+        "observer_hostname": obs_host,
         "user_name": user,
         "ext": map_values(fields) -> |v| { string(v) },
         "raw": raw
@@ -435,6 +444,21 @@ extract_from = "panos_ecs"
 type = "vrl"
 source = '''
 assert_eq!(.observer_hostname, "panosvm.example.com")
+'''
+
+[[tests]]
+name = "srx_observer_hostname_unknown_is_blanked"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-06-08T12:00:00.000Z evil-host RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.observer_hostname, "")
+assert_eq!(.rule_name, "baseline-permit(global)")
 '''
 
 # ---------------- PAN-OS unit tests ----------------
