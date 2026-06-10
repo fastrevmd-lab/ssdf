@@ -1,4 +1,6 @@
-from ssdf_mcp_query.access_tools import AccessTools
+import pytest
+
+from ssdf_mcp_query.access_tools import AccessTools, _short_host
 
 
 class _FakeStore:
@@ -208,3 +210,61 @@ def test_explain_access_no_provenance_no_topology_is_no_path_firewall():
     out = AccessTools(store, _FakeTopo([], {"found": False})).explain_access("10.64.0.5", "8.8.8.8")
     assert out["firewall_basis"] == "no_path_firewall"
     assert out["coverage"]["configured"] == 0
+
+
+def test_explain_access_provenance_preserves_mixed_case_short_name():
+    ents = _client_server()
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "1", "bytes": "10",
+                                        "ports": "443", "providers": "juniper",
+                                        "transports": "tcp",
+                                        "observer_hosts": "vSRX-test10"}}]
+
+    class _StoreProv(_FakeStore):
+        def configured_policies_for_firewalls(self, names):
+            assert names == ["vSRX-test10"]
+            return [{"firewall": "vSRX-test10",
+                     "policy": {"name": "baseline-permit(global)", "attrs": {"enabled": "true"}}}]
+
+    store = _StoreProv(ents, comm, [])
+    out = AccessTools(store, _FakeTopo(["fwX"], {"found": True})).explain_access(
+        "10.64.0.5", "8.8.8.8")
+    assert out["firewall_basis"] == "provenance"
+    assert out["firewalls"] == ["vSRX-test10"]
+    assert out["coverage"]["configured"] == 1
+
+
+def test_explain_access_provenance_normalizes_panos_fqdn():
+    ents = _client_server()
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "1", "bytes": "10",
+                                        "ports": "443", "providers": "paloalto",
+                                        "transports": "tcp",
+                                        "observer_hosts": "panosvm.example.com"}}]
+
+    class _StoreProv(_FakeStore):
+        def configured_policies_for_firewalls(self, names):
+            assert names == ["panosvm"]
+            return [{"firewall": "panosvm",
+                     "policy": {"name": "transit-permit", "attrs": {"enabled": "true"}}}]
+
+    class _TopoBoom(_FakeTopo):
+        def enforcement_points(self, src, dst):
+            raise AssertionError("enforcement_points must not be called when provenance present")
+
+    store = _StoreProv(ents, comm, [])
+    out = AccessTools(store, _TopoBoom(["fwX"], {"found": True})).explain_access(
+        "10.64.0.5", "8.8.8.8")
+    assert out["firewall_basis"] == "provenance"
+    assert out["firewalls"] == ["panosvm"]
+    assert out["coverage"]["configured"] == 1
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("panosvm.example.com", "panosvm"),
+    ("vSRX-test10", "vSRX-test10"),
+    ("198.51.100.1", "198.51.100.1"),
+    ("fe80::1", "fe80::1"),
+    ("PANOSVM.example.com", "PANOSVM"),
+    ("panosvm.", "panosvm"),
+])
+def test_short_host(raw, expected):
+    assert _short_host(raw) == expected

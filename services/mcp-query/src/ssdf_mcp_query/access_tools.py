@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import ipaddress
 
 DEFAULT_WINDOW_HOURS = 24
 
@@ -14,6 +15,15 @@ def _since(hours: int) -> str:
 
 def _csv_list(value: str) -> list[str]:
     return [item for item in value.split(",") if item]
+
+
+def _short_host(name: str) -> str:
+    """First DNS label of a hostname, case preserved. A bare IP is returned unchanged."""
+    try:
+        ipaddress.ip_address(name)   # IP guard: never dot-split an address
+        return name
+    except ValueError:
+        return name.split(".", 1)[0]
 
 
 class AccessTools:
@@ -52,7 +62,7 @@ class AccessTools:
         for edge in comm_edges:
             observer_hosts.update(_csv_list(edge.get("attrs", {}).get("observer_hosts", "")))
         if observer_hosts:
-            firewalls = sorted(observer_hosts)
+            firewalls = sorted({_short_host(h) for h in observer_hosts})
             firewall_basis = "provenance"
         else:
             firewalls = self._topo.enforcement_points(client, server).get("firewalls", [])
