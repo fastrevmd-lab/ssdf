@@ -62,7 +62,7 @@ class AccessTools:
         for edge in comm_edges:
             observer_hosts.update(_csv_list(edge.get("attrs", {}).get("observer_hosts", "")))
         if observer_hosts:
-            firewalls = sorted(observer_hosts)
+            firewalls = sorted({_short_host(h) for h in observer_hosts})
             firewall_basis = "provenance"
         else:
             firewalls = self._topo.enforcement_points(client, server).get("firewalls", [])

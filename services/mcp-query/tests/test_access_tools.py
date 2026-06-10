@@ -212,6 +212,31 @@ def test_explain_access_no_provenance_no_topology_is_no_path_firewall():
     assert out["coverage"]["configured"] == 0
 
 
+def test_explain_access_provenance_normalizes_panos_fqdn():
+    ents = _client_server()
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "1", "bytes": "10",
+                                        "ports": "443", "providers": "paloalto",
+                                        "transports": "tcp",
+                                        "observer_hosts": "panosvm.example.com"}}]
+
+    class _StoreProv(_FakeStore):
+        def configured_policies_for_firewalls(self, names):
+            assert names == ["panosvm"]
+            return [{"firewall": "panosvm",
+                     "policy": {"name": "transit-permit", "attrs": {"enabled": "true"}}}]
+
+    class _TopoBoom(_FakeTopo):
+        def enforcement_points(self, src, dst):
+            raise AssertionError("enforcement_points must not be called when provenance present")
+
+    store = _StoreProv(ents, comm, [])
+    out = AccessTools(store, _TopoBoom(["fwX"], {"found": True})).explain_access(
+        "10.64.0.5", "8.8.8.8")
+    assert out["firewall_basis"] == "provenance"
+    assert out["firewalls"] == ["panosvm"]
+    assert out["coverage"]["configured"] == 1
+
+
 @pytest.mark.parametrize("raw,expected", [
     ("panosvm.example.com", "panosvm"),
     ("vSRX-test10", "vSRX-test10"),
