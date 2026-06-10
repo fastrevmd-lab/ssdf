@@ -1,8 +1,12 @@
-"""Append-only audit of MCP tool calls (M7a).
+"""Append-only audit of MCP tool calls (M7a) with a per-tier hash chain (M3).
 
-Best-effort by design: an audit write failure is logged to stderr but must never
-fail the tool call. Rows are inserted by a dedicated INSERT-only ``ssdf_audit``
-CH user on a connection separate from the ``ssdf_ro`` query path.
+Best-effort by design: an audit write failure is logged to stderr and never fails
+the tool call. Rows are inserted by a dedicated INSERT-only ``ssdf_audit`` CH user
+on a connection separate from the ``ssdf_ro`` query path. Each row carries
+``prev_hash``/``row_hash`` linking it to the previous row of the SAME tier written
+by this process, so tampering (edits, deletions, reorders) is later detectable by
+``verify_audit``. The chain head is kept in-process and seeded at startup via the
+read-only ``ssdf_audit_verify`` identity; the insert path itself never reads.
 """
 
 from __future__ import annotations
@@ -10,13 +14,18 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import sys
+import threading
 from typing import Any, Callable, Iterable
 
-# Column order MUST match infra/clickhouse/007_audit.sql.
-AUDIT_COLUMNS: list[str] = [
+from .audit_chain import compute_row_hash
+
+# The nine stored business fields (what build_audit_row produces).
+AUDIT_BASE_COLUMNS: list[str] = [
     "ts", "principal", "tier", "tool", "args",
     "data_classes", "decision", "row_count", "error",
 ]
+# Full insert column order MUST match infra/clickhouse/007_audit.sql + 009_audit_hash_chain.sql.
+AUDIT_COLUMNS: list[str] = AUDIT_BASE_COLUMNS + ["prev_hash", "row_hash"]
 
 
 def build_audit_row(
@@ -31,7 +40,7 @@ def build_audit_row(
     error: Any,
     ts: _dt.datetime | None = None,
 ) -> dict:
-    """Build a fully-shaped audit row dict (pure; no I/O)."""
+    """Build the nine business fields of an audit row (pure; no hashes, no I/O)."""
     return {
         "ts": ts or _dt.datetime.now(_dt.timezone.utc),
         "principal": principal,
@@ -46,25 +55,59 @@ def build_audit_row(
 
 
 class Auditor:
-    """Wraps a row-insert callable, swallowing (and logging) insert failures."""
+    """Wraps a row-insert callable; chains hashes per process and swallows failures."""
 
-    def __init__(self, insert: Callable[[dict], None]):
+    def __init__(self, insert: Callable[[dict], None], last_hash: str = ""):
         self._insert = insert
+        self._last_hash = last_hash
+        self._lock = threading.Lock()
 
     def record(self, **fields: Any) -> None:
-        """Build and insert one audit row; never raises."""
+        """Build, hash-chain, and insert one audit row; never raises."""
         row = build_audit_row(**fields)
-        try:
-            self._insert(row)
-        except Exception as exc:  # best-effort: audit must not block a tool call
-            print(f"[audit] insert failed: {exc}", file=sys.stderr)
+        with self._lock:
+            prev = self._last_hash
+            row_hash = compute_row_hash(prev, row)
+            row["prev_hash"] = prev
+            row["row_hash"] = row_hash
+            try:
+                self._insert(row)
+            except Exception as exc:  # best-effort: audit must not block a tool call
+                print(f"[audit] insert failed: {exc}", file=sys.stderr)
+                return
+            self._last_hash = row_hash  # advance only after a successful insert
 
 
 def _noop_insert(_row: dict) -> None:
     return None
 
 
-def make_ch_auditor(config) -> Auditor:
+def _seed_last_hash(config, tier: str) -> str:
+    """Seed the chain head from the latest row of this tier (read-only identity)."""
+    if not config.ch_audit_verify_password:
+        print("[audit] CH_AUDIT_VERIFY_PASSWORD unset; chain starts fresh "
+              "(not seeded from history)", file=sys.stderr)
+        return ""
+    import clickhouse_connect
+
+    verify_client = clickhouse_connect.get_client(
+        host=config.ch_host,
+        port=config.ch_port,
+        username="ssdf_audit_verify",
+        password=config.ch_audit_verify_password,
+        database=config.ch_database,
+    )
+    res = verify_client.query(
+        "SELECT row_hash FROM ssdf.audit WHERE tier = {tier:String} "
+        "ORDER BY ts DESC LIMIT 1",
+        parameters={"tier": tier},
+    )
+    if res.result_rows:
+        return res.result_rows[0][0]
+    return ""
+
+
+def make_ch_auditor(config, tier: str = "sovereign") -> Auditor:
     """Build a CH-backed Auditor, or a no-op one when no audit password is set."""
     if not config.ch_audit_password:
         print("[audit] CH_AUDIT_PASSWORD unset; audit disabled (no-op)", file=sys.stderr)
@@ -86,4 +129,5 @@ def make_ch_auditor(config) -> Auditor:
             column_names=AUDIT_COLUMNS,
         )
 
-    return Auditor(insert)
+    last_hash = _seed_last_hash(config, tier)
+    return Auditor(insert, last_hash=last_hash)
