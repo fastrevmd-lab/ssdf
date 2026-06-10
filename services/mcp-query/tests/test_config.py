@@ -79,3 +79,25 @@ def test_audit_conn_fields(monkeypatch):
     cfg = load_config()
     assert cfg.ch_audit_user == "ssdf_audit"
     assert cfg.ch_audit_password == "apw"
+
+
+def test_load_config_reads_query_limit_envs(monkeypatch):
+    from ssdf_mcp_query.config import load_config
+    monkeypatch.setenv("CH_PASSWORD", "x")
+    monkeypatch.setenv("MCP_AUTH_TOKEN", "t")
+    monkeypatch.setenv("MCP_MAX_RESULT_ROWS", "5")
+    monkeypatch.setenv("MCP_MAX_MEMORY_BYTES", "9")
+    cfg = load_config()
+    assert cfg.max_result_rows == 5
+    assert cfg.max_memory_usage == 9
+
+
+def test_load_config_query_limit_defaults(monkeypatch):
+    from ssdf_mcp_query.config import load_config
+    monkeypatch.setenv("CH_PASSWORD", "x")
+    monkeypatch.setenv("MCP_AUTH_TOKEN", "t")
+    monkeypatch.delenv("MCP_MAX_RESULT_ROWS", raising=False)
+    monkeypatch.delenv("MCP_MAX_MEMORY_BYTES", raising=False)
+    cfg = load_config()
+    assert cfg.max_result_rows == 100000
+    assert cfg.max_memory_usage == 1_000_000_000
