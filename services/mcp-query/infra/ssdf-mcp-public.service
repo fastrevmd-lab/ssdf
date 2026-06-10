@@ -1,0 +1,24 @@
+[Unit]
+Description=SSDF M7b public-tier MCP server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=MCP_TIER=public
+Environment=CH_HOST=198.51.100.151
+Environment=CH_PORT=8123
+Environment=CH_USER=ssdf_public
+Environment=CH_DATABASE=ssdf_public
+Environment=MCP_BIND=0.0.0.0
+Environment=MCP_PORT=30033
+Environment=MCP_TOKEN_FILE=/etc/ssdf-mcp/token
+Environment=MCP_CLASSIFICATION_FILE=/etc/ssdf-mcp/classification.json
+Environment=CH_AUDIT_USER=ssdf_audit
+EnvironmentFile=/etc/ssdf-mcp/secrets.env
+ExecStart=/opt/ssdf-mcp/bin/python -m ssdf_mcp_query.server
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

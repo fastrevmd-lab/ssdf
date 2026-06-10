@@ -44,3 +44,36 @@ def test_node_match_sql_preserves_non_mac_case():
     """Names/IPs are not MAC-shaped and must pass through verbatim."""
     _, params = build_node_match_sql("Switch-A", tenant="t_main")
     assert params["val"] == "Switch-A"
+
+
+from ssdf_mcp_query.graphstore import build_nodes_by_id_sql
+
+
+def test_builders_default_to_ssdf_schema():
+    node_sql, _ = build_node_match_sql("10.64.0.5", tenant="t_main")
+    edge_sql, _ = build_subgraph_sql(since_iso="2026-06-06T00:00:00+00:00", tenant="t_main")
+    ids_sql, _ = build_nodes_by_id_sql(["n1"], tenant="t_main")
+    assert "ssdf.graph_nodes FINAL" in node_sql
+    assert "ssdf.graph_edges FINAL" in edge_sql
+    assert "ssdf.graph_nodes FINAL" in ids_sql
+
+
+def test_builders_honor_public_schema():
+    node_sql, _ = build_node_match_sql("10.64.0.5", tenant="t_main", schema="ssdf_public")
+    edge_sql, _ = build_subgraph_sql(
+        since_iso="2026-06-06T00:00:00+00:00", tenant="t_main", schema="ssdf_public"
+    )
+    ids_sql, _ = build_nodes_by_id_sql(["n1"], tenant="t_main", schema="ssdf_public")
+    assert "ssdf_public.graph_nodes FINAL" in node_sql
+    assert "ssdf_public.graph_edges FINAL" in edge_sql
+    assert "ssdf_public.graph_nodes FINAL" in ids_sql
+    # base schema must NOT appear when the public schema is requested
+    assert "ssdf.graph_nodes" not in node_sql
+    assert "ssdf.graph_edges" not in edge_sql
+
+
+def test_store_threads_schema_into_queries():
+    fake = FakeCH()
+    store = ClickHouseGraphStore(fake, tenant="t_main", schema="ssdf_public")
+    store.find_node("10.64.0.5")
+    assert any("ssdf_public.graph_nodes" in sql for sql, _ in fake.calls)
