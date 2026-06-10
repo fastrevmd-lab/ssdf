@@ -5,6 +5,14 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+DynamicUser=yes
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+Environment=PYTHONDONTWRITEBYTECODE=1
 EnvironmentFile=/etc/ssdf-topo/ENV.local
 ExecStartPre=/opt/ssdf-topo/bin/python -m ssdf_topo.collect_all
 ExecStart=/opt/ssdf-topo/bin/python -m ssdf_topo.resolve_main
