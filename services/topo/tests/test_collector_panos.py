@@ -58,3 +58,16 @@ def test_collect_emits_firewall_inventory():
     assert inv[0].source_device == "panosvm"
     assert inv[0].attrs["role"] == "firewall"
     assert inv[0].collector == "panos"
+
+
+_BILLION_LAUGHS = """<?xml version="1.0"?>
+<!DOCTYPE lolz [
+ <!ENTITY lol "lol">
+ <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+ <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
+]>
+<response><result><entry><ip>&lol3;</ip><mac>00:11:22:33:44:55</mac></entry></result></response>"""
+
+
+def test_parse_arp_xml_rejects_entity_expansion():
+    assert parse_arp_xml(_BILLION_LAUGHS, "panosvm", "2026-06-10T00:00:00Z") == []

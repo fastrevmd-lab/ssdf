@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-import xml.etree.ElementTree as ET
+from defusedxml.ElementTree import fromstring as _xml_fromstring, ParseError as _XmlParseError
+import xml.etree.ElementTree as ET  # type annotations only (ET.Element)
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +26,8 @@ def _root(text: str) -> ET.Element | None:
     except json.JSONDecodeError:
         pass
     try:
-        return ET.fromstring(xml_text)
-    except ET.ParseError as exc:
+        return _xml_fromstring(xml_text)
+    except (_XmlParseError, Exception) as exc:  # ParseError + defused entity/DTD errors
         logger.warning("panos: failed to parse config XML: %s", exc)
         return None
 

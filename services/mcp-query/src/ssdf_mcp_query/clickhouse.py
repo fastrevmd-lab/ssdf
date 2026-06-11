@@ -42,7 +42,16 @@ class ClickHouseClient:
 
     def run(self, sql: str, params: dict | None = None) -> dict:
         """Execute a read query; return {columns, rows, row_count}. Rows are dicts."""
-        result = self._client.query(sql, parameters=params or {})
+        result = self._client.query(
+            sql,
+            parameters=params or {},
+            settings={
+                "max_execution_time": self._config.max_execution_time,
+                "max_result_rows": self._config.max_result_rows,
+                "max_memory_usage": self._config.max_memory_usage,
+                "result_overflow_mode": "throw",
+            },
+        )
         columns = list(result.column_names)
         rows = [
             {col: jsonify(val) for col, val in zip(columns, row)}

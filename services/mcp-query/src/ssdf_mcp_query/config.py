@@ -32,7 +32,10 @@ class Config:
     tokens: dict[str, "TokenPrincipal"]
     ch_audit_user: str = "ssdf_audit"
     ch_audit_password: str | None = None
+    ch_audit_verify_password: str | None = None
     max_execution_time: int = 10
+    max_result_rows: int = 100000
+    max_memory_usage: int = 1_000_000_000
 
 
 def _read_token() -> str:
@@ -99,5 +102,8 @@ def load_config() -> Config:
         tokens=load_token_map(),
         ch_audit_user=os.environ.get("CH_AUDIT_USER", "ssdf_audit"),
         ch_audit_password=os.environ.get("CH_AUDIT_PASSWORD"),
+        ch_audit_verify_password=os.environ.get("CH_AUDIT_VERIFY_PASSWORD"),
         max_execution_time=int(os.environ.get("MCP_MAX_EXEC_SECS", "10")),
+        max_result_rows=int(os.environ.get("MCP_MAX_RESULT_ROWS", "100000")),
+        max_memory_usage=int(os.environ.get("MCP_MAX_MEMORY_BYTES", "1000000000")),
     )

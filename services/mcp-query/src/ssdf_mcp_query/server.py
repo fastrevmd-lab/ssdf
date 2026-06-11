@@ -28,7 +28,7 @@ from .access_tools import AccessTools
 def build_app(tier: str = "sovereign") -> FastMCP:
     config = load_config()
     classification = load_classification()  # fail closed on invalid classification config
-    auditor = make_ch_auditor(config)
+    auditor = make_ch_auditor(config, tier)
 
     schema = "ssdf_public" if tier == "public" else "ssdf"
     client = ClickHouseClient(config)

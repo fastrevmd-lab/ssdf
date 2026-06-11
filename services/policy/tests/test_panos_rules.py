@@ -57,3 +57,17 @@ def test_real_fixture_parses_only_security_rules():
     ]
     assert all(r["rule_name"] and r["action"] for r in rules)
     assert rules[0]["position"] == 0
+
+
+from ssdf_policy.collectors.panos import _root
+
+_BILLION_LAUGHS = """<?xml version="1.0"?>
+<!DOCTYPE lolz [
+ <!ENTITY lol "lol">
+ <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+]>
+<response><result><rules><entry name="&lol2;"/></rules></response>"""
+
+
+def test_root_rejects_entity_expansion():
+    assert _root(_BILLION_LAUGHS) is None

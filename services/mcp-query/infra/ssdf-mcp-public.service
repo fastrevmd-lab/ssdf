@@ -5,6 +5,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+DynamicUser=yes
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=MCP_TIER=public
 Environment=CH_HOST=198.51.100.151
 Environment=CH_PORT=8123

@@ -23,7 +23,7 @@ def _patch_ch(monkeypatch, server):
 
     monkeypatch.setattr(server, "ClickHouseClient", _Dummy)
     monkeypatch.setattr(server, "make_ch_auditor",
-                        lambda config: server.Auditor(lambda row: None))
+                        lambda config, tier="sovereign": server.Auditor(lambda row: None))
 
 
 def _classification_file(tmp_path, **overrides):

@@ -5,6 +5,7 @@ description = "SSDF M4 topology collectors + resolver (ClickHouse-derived connec
 requires-python = ">=3.11"
 dependencies = [
     "clickhouse-connect>=0.8",
+    "defusedxml>=0.7",
     "fastmcp>=2.0",
 ]
 
@@ -20,4 +21,5 @@ packages = ["src/ssdf_topo"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 markers = ["integration: requires live ClickHouse and/or live MCP servers (deselect with -m 'not integration')"]
