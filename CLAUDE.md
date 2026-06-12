@@ -190,6 +190,18 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
   (`infra/clickhouse/012_backfill_paloalto_utc.sql.example`, cutover 2026-06-12 14:25:00 UTC).
   Any NEW log source must be onboarded with a UTC device clock — naive-parse skew otherwise.
 
+### Ops (backups + lab traffic)
+- **vzdump backups (P2, 2026-06-12):** `PVE_BACKUP_STORAGE=local ./scripts/apply_pve_backup_job.sh`
+  idempotently maintains two cluster jobs — `ssdf-ch-daily` (ct104, 03:30, keep-daily=7/weekly=4)
+  and `ssdf-all-weekly` (ct102/104/106/109/113, Sun 04:30, keep-weekly=4); snapshot mode + zstd.
+  `local` is the only backup-capable storage on pve3 (host's own disk) — covers container
+  loss/fat-fingers, NOT host-disk loss. Schedule times are pve3-host-local. Verify:
+  `pvesh get /cluster/backup` / restore drill to a SCRATCH VMID only, never ct104 itself.
+- **Lab transit traffic (P2):** ct115 `ssdf-labgen` (Alpine, 10.74.11.20 on panosvm trust
+  VLAN 103) runs `scripts/labgen_transit.sh` via 15-min cron so PAN-OS TRAFFIC ingest +
+  the M6c-B provenance bridge stay continuously live-proven. Runbook:
+  `onboarding/panos/transit-traffic.md`. Do not destroy ct115 without replacing the source.
+
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems
