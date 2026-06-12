@@ -50,7 +50,8 @@
     sql: >-
       SELECT count() FROM ssdf.entities
       WHERE kind = 'policy' AND source = 'configured'
-        AND entity_id LIKE 'policy:paloalto:panosvm:%'
+        AND identifiers['provider'] = 'paloalto'
+        AND identifiers['device_name'] = 'panosvm'
     match: numeric_tolerance
     answer_key: count
     params: {tolerance: 0}
@@ -239,7 +240,8 @@
     sql: >-
       SELECT name FROM ssdf.entities
       WHERE kind = 'policy' AND source = 'configured'
-        AND entity_id LIKE 'policy:juniper:vSRX-test10:%'
+        AND identifiers['provider'] = 'juniper'
+        AND identifiers['device_name'] = 'vSRX-test10'
     match: exact
     answer_key: rules
 
