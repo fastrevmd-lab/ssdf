@@ -29,6 +29,8 @@ class Config:
     tenant_id: str
     window_hours: int
     enabled_collectors: tuple[str, ...]
+    ch_secure: bool = False
+    ch_ca_file: str = ""
 
     def mcp_endpoint(self, name: str) -> McpEndpoint:
         prefix = name.upper()
@@ -54,4 +56,6 @@ def load_config() -> Config:
         tenant_id=os.environ.get("TOPO_TENANT", "t_main"),
         window_hours=int(os.environ.get("TOPO_WINDOW_HOURS", "24")),
         enabled_collectors=enabled,
+        ch_secure=os.environ.get("CH_SECURE", "0").strip().lower() in ("1", "true"),
+        ch_ca_file=os.environ.get("CH_CA_FILE", ""),
     )

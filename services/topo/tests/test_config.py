@@ -33,6 +33,26 @@ def test_mcp_endpoint_lookup(monkeypatch):
     ep = cfg.mcp_endpoint("junos")
     assert ep == McpEndpoint(url="http://198.51.100.194:30031/mcp", token="tok123")
 
+def test_ch_secure_defaults_off(monkeypatch):
+    _base_env(monkeypatch)
+    monkeypatch.delenv("CH_SECURE", raising=False)
+    monkeypatch.delenv("CH_CA_FILE", raising=False)
+    cfg = load_config()
+    assert cfg.ch_secure is False
+    assert cfg.ch_ca_file == ""
+
+def test_ch_secure_parses_truthy(monkeypatch):
+    _base_env(monkeypatch)
+    monkeypatch.setenv("CH_SECURE", "true")
+    monkeypatch.setenv("CH_CA_FILE", "/etc/ssdf/ssdf-ca.crt")
+    cfg = load_config()
+    assert cfg.ch_secure is True
+    assert cfg.ch_ca_file == "/etc/ssdf/ssdf-ca.crt"
+    monkeypatch.setenv("CH_SECURE", "1")
+    assert load_config().ch_secure is True
+    monkeypatch.setenv("CH_SECURE", "0")
+    assert load_config().ch_secure is False
+
 def test_mcp_endpoint_missing_raises(monkeypatch):
     _base_env(monkeypatch)
     cfg = load_config()

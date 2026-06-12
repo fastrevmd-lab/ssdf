@@ -20,6 +20,8 @@ class Config:
     tenant_id: str
     window_hours: int
     binding_lookback_hours: int
+    ch_secure: bool = False
+    ch_ca_file: str = ""
 
 
 def load_config() -> Config:
@@ -35,4 +37,6 @@ def load_config() -> Config:
         tenant_id=os.environ.get("ENTITY_TENANT", "t_main"),
         window_hours=int(os.environ.get("ENTITY_WINDOW_HOURS", "24")),
         binding_lookback_hours=int(os.environ.get("TOPO_BINDING_LOOKBACK_HOURS", "168")),
+        ch_secure=os.environ.get("CH_SECURE", "0").strip().lower() in ("1", "true"),
+        ch_ca_file=os.environ.get("CH_CA_FILE", ""),
     )
