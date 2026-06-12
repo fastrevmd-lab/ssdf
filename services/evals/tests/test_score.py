@@ -105,6 +105,41 @@ def test_main_exit_2_on_schema_violation(tmp_path):
     assert main([str(bad), "--results-dir", str(tmp_path)]) == 2
 
 
+def test_main_returns_2_when_score_run_raises(tmp_path, monkeypatch, capsys):
+    manifest_path = tmp_path / "m.json"
+    manifest_path.write_text(json.dumps(make_manifest()))
+
+    import ssdf_evals.score as score_mod
+
+    class ExplodingAuditClient:
+        def query(self, sql, parameters=None):
+            raise RuntimeError("ClickHouse died mid-run")
+
+    def fake_connect(config):
+        return FakeCH(), ExplodingAuditClient()
+
+    monkeypatch.setattr(score_mod, "_connect", fake_connect)
+    monkeypatch.setattr(score_mod, "_load_questions", lambda path: CORPUS)
+    monkeypatch.setenv("CH_PASSWORD", "x")
+    monkeypatch.setenv("CH_AUDIT_VERIFY_PASSWORD", "y")
+
+    result = main([str(manifest_path), "--results-dir", str(tmp_path)])
+    assert result == 2
+    written = list(tmp_path.glob("????-??-??-*.json"))
+    assert len(written) == 0  # no partial scorecard written
+    captured = capsys.readouterr()
+    assert "scoring error" in captured.err
+
+
+def test_score_run_empty_string_error_fails_closed():
+    manifest = make_manifest()
+    manifest["questions"][0]["error"] = ""
+    scorecard = score_run(manifest, CORPUS, *clients(), slop_secs=5)
+    by_id = {q["id"]: q for q in scorecard["questions"]}
+    assert by_id["q-sql"]["pass"] is False
+    assert any("runner error" in r for r in by_id["q-sql"]["reasons"])
+
+
 def test_main_writes_scorecard(tmp_path, monkeypatch):
     manifest_path = tmp_path / "m.json"
     manifest_path.write_text(json.dumps(make_manifest()))

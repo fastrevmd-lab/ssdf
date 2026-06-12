@@ -80,7 +80,7 @@ def score_run(manifest: dict, questions: list[Question], query_client,
         if entry is None:
             passed = False
             reasons.append("question not in manifest (fail-closed)")
-        elif entry["error"]:
+        elif entry["error"] is not None:
             passed = False
             reasons.append(f"runner error: {entry['error']}")
         else:
@@ -142,17 +142,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"config/contract error: {exc}", file=sys.stderr)
         return 2
 
-    scorecard = score_run(manifest, questions, query_client, audit_client,
-                          config.audit_slop_secs)
-    date = scorecard["scored_at"][:10]
-    out_path = (args.results_dir /
-                f"{date}-{_sanitize(manifest['model'])}-"
-                f"{_sanitize(manifest['run_id'])}.json")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(scorecard, indent=2) + "\n")
-    rollups = scorecard["rollups"]
-    print(f"scored {rollups['passed']}/{rollups['total']} -> {out_path}")
-    return 0
+    try:
+        scorecard = score_run(manifest, questions, query_client, audit_client,
+                              config.audit_slop_secs)
+        date = scorecard["scored_at"][:10]
+        out_path = (args.results_dir /
+                    f"{date}-{_sanitize(manifest['model'])}-"
+                    f"{_sanitize(manifest['run_id'])}.json")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(scorecard, indent=2) + "\n")
+        rollups = scorecard["rollups"]
+        print(f"scored {rollups['passed']}/{rollups['total']} -> {out_path}")
+        return 0
+    except Exception as exc:
+        print(f"scoring error: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
