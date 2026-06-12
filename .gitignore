@@ -19,6 +19,9 @@ venv/
 .env.*
 !.env.example
 
+# Local PKI (CA + leaf keys never leave the dev host)
+infra/tls-local/
+
 # Brainstorm scratch (visual companion)
 .superpowers/
 

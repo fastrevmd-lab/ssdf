@@ -41,9 +41,14 @@ Operator decisions (2026-06-11): self-signed local CA, nginx, build **and** depl
   `CH_SECURE` (default `0`) + `CH_CA_FILE`; chwriter/client passes
   `interface="https"`, `ca_cert=...` when secure. One shared pattern, four repos
   of code — same two-line change in each `get_client(...)` call site.
-- **Vector (ct102)**: sink endpoint becomes `endpoint = "${CH_ENDPOINT:-http://${CH_HOST}:8123}"`;
-  live env sets `CH_ENDPOINT=https://198.51.100.151:8443` + `[sinks.clickhouse.tls] ca_file`.
-  CA cert pushed to `/etc/vector/ssdf-ca.crt`.
+- **Vector (ct102)**: sink endpoint becomes
+  `endpoint = "${CH_PROTO:-http}://${CH_HOST}:${CH_HTTP_PORT:-8123}"` — Vector's
+  env interpolation cannot nest `${…}` inside a default, so the originally
+  proposed single `CH_ENDPOINT` var fails `vector validate` (proven on ct102,
+  Vector 0.56.0). Live env flips `CH_PROTO=https CH_HTTP_PORT=8443` and appends
+  `[sinks.clickhouse.tls] ca_file = "/etc/vector/ssdf-ca.crt"` on the host
+  (a checked-in `tls` block with an env-defaulted empty path would break the
+  plain-http default). CA cert pushed to `/etc/vector/ssdf-ca.crt`.
 - **verify_audit / integration tests**: same `CH_SECURE`/`CH_CA_FILE` envs.
 
 ## 3. M2 + L3 + L6 + L1b — nginx MCP edge (ct106, ct113)
