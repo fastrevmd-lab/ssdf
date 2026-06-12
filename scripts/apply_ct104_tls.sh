@@ -23,9 +23,10 @@ for f in "$TLS_DIR/ct104.crt" "$TLS_DIR/ct104.key" "$TLS_DIR/ssdf-ca.crt" "$XML_
 done
 
 # Push a local file into the container via a pve3 scratch copy (ct102 pattern).
+# umask 077 keeps private keys from sitting world-readable in pve3 /tmp.
 push_file() {
   local src="$1" dst="$2"
-  ssh "$PVE_HOST" "cat > /tmp/ssdf-push.tmp && pct push $CTID /tmp/ssdf-push.tmp $dst && rm -f /tmp/ssdf-push.tmp" < "$src"
+  ssh "$PVE_HOST" "umask 077 && cat > /tmp/ssdf-push.tmp && pct push $CTID /tmp/ssdf-push.tmp $dst && rm -f /tmp/ssdf-push.tmp" < "$src"
 }
 
 echo '=== pushing TLS material + config ==='

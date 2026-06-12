@@ -92,7 +92,9 @@ Operator decisions (2026-06-11): self-signed local CA, nginx, build **and** depl
   denylist* (`gcs`, `iceberg`, `mongodb`, `executable`, …) — pins the structural
   allow-list as the boundary so denylist drift can't regress coverage.
 - **L4:** `infra/clickhouse/011_entity_maint_user.sql` — new
-  `ssdf_entity_maint` (SELECT + INSERT + ALTER DELETE on the two entity tables);
+  `ssdf_entity_maint` (SELECT + INSERT + ALTER DELETE on the two entity tables,
+  plus SELECT on `ssdf.topo_observations` — reconcile builds its (segment, ip)
+  → mac binding map from topo observations);
   `REVOKE ALTER DELETE … FROM ssdf_entity`. The 5-min resolver identity keeps
   SELECT/INSERT only. Reconcile (manual, occasional) is run as the maint user
   (`CH_USER=ssdf_entity_maint`); docs updated. No code change.
@@ -121,3 +123,16 @@ Operator decisions (2026-06-11): self-signed local CA, nginx, build **and** depl
 
 - Cert renewal automation; mirroring audit to WORM storage (M3 "optionally");
   per-principal request quotas beyond per-IP nginx limits; vendor-MCP TLS.
+- From the whole-branch review (approved 2026-06-12, advisory):
+  - Audit-chain tail anchoring: `verify_audit`'s legacy-row exclusion means an
+    admin-level `ALTER UPDATE` blanking `row_hash` on the tail (or all) rows
+    verifies clean — persist the last verified head outside CH and alarm if it
+    regresses or `legacy_unhashed` grows. (`ssdf_audit` is INSERT-only, so this
+    needs admin compromise; tail truncation is inherent to unanchored chains.)
+  - Expired tokens still pass FastMCP session auth; data access is denied per
+    call in the wrapper (spec intent), so an expired principal can list tools
+    but not invoke them.
+  - ct104 8443 has no source allow-list (known clients: ct102/106/109/113 +
+    dev host) — could mirror the H1 ingest allow-list for consistency.
+  - `apply_mcp_edge.sh` smoke could additionally probe with a known-bad token
+    expecting 401 (currently 400/406 also pass).
