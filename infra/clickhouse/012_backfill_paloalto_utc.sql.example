@@ -1,0 +1,12 @@
+-- 012: one-time backfill — shift pre-cutover paloalto timestamps EDT->UTC (+4h).
+-- Substitute CUTOVER_TS with the device's timezone-UTC commit time (see
+-- onboarding/panos/timezone-utc.md); live cutover was 2026-06-12 14:25:00 UTC.
+-- Run as admin with mutations_sync=1. Idempotence: guarded by the WHERE window —
+-- run EXACTLY ONCE; a second run would double-shift. Verify counts first:
+--   SELECT count() FROM ssdf.events
+--   WHERE event_provider='paloalto' AND timestamp < toDateTime64('${CUTOVER_TS}', 3, 'UTC');
+ALTER TABLE ssdf.events
+UPDATE timestamp = timestamp + INTERVAL 4 HOUR
+WHERE event_provider = 'paloalto'
+  AND timestamp < toDateTime64('${CUTOVER_TS}', 3, 'UTC')
+SETTINGS mutations_sync = 1;

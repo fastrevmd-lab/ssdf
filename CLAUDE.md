@@ -185,7 +185,10 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
 - **nginx MCP edge (ct106/ct113):** apply with `./scripts/apply_mcp_edge.sh` — TLS on LAN 30032/30033, uvicorn rebound to `127.0.0.1:31032/31033` via drop-in `edge.conf`; rate limit 10r/s burst 30 + 32 conns/IP (429), Host gate (444), Origin gate (403), SSE-safe proxying. Clients now use `https://198.51.100.152:30032/mcp` / `https://…154:30033/mcp` with `ssdf-ca.crt` trust (Claude Code: `NODE_EXTRA_CA_CERTS`).
 - **Token expiry/rotation:** `tokens.json` entries take optional `"not_after": "<ISO-8601 UTC>"` — enforced per call in `wrapper` (expired ⇒ `{"error":"forbidden"}` + audit deny); malformed ⇒ fail-closed. Rotation: add new entry → restart → move clients → delete old → restart. Both tiers run named principals with +90d expiry; local client config in gitignored `.mcp.json`.
 - **L4 grant split:** `ENTITY_MAINT_PW=… envsubst < infra/clickhouse/011_entity_maint_user.sql | clickhouse-client --multiquery` — reconcile runs as `CH_USER=ssdf_entity_maint python -m ssdf_entity.reconcile_assets`; the 5-min resolver identity `ssdf_entity` no longer holds ALTER DELETE.
-- **PAN-OS event timestamps are device-local (EDT, UTC-4)** — when checking "did ingest just work", query a window shifted accordingly or you'll see false zero-rows (live-found).
+- **PAN-OS timestamps fixed to UTC (P2, 2026-06-12):** panosvm now runs `timezone UTC`
+  (onboarding/panos/timezone-utc.md) and pre-cutover rows were backfilled +4h
+  (`infra/clickhouse/012_backfill_paloalto_utc.sql.example`, cutover 2026-06-12 14:25:00 UTC).
+  Any NEW log source must be onboarded with a UTC device clock — naive-parse skew otherwise.
 
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
