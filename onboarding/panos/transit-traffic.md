@@ -47,7 +47,7 @@ pct exec 115 -- sh -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf && apk add -
 # push the generator
 pct push 115 scripts/labgen_transit.sh /usr/local/bin/labgen_transit.sh --perms 0755
 # cron every 15 min (busybox crond is enabled by default on Alpine)
-pct exec 115 -- sh -c 'echo "*/15 * * * * /usr/local/bin/labgen_transit.sh" >> /etc/crontabs/root && rc-service crond restart'
+pct exec 115 -- sh -c 'grep -q labgen_transit /etc/crontabs/root || echo "*/15 * * * * /usr/local/bin/labgen_transit.sh" >> /etc/crontabs/root; rc-service crond restart'
 ```
 
 Notes:
@@ -63,7 +63,7 @@ Notes:
 # TRAFFIC rows arriving (run container-local on ct104):
 pct exec 104 -- clickhouse-client --query "
   SELECT event_action, observer_hostname, count() FROM ssdf.events
-  WHERE event_provider='paloalto' AND event_category=['network']
+  WHERE event_provider='paloalto' AND has(event_category, 'network')
     AND timestamp > now() - INTERVAL 1 HOUR
   GROUP BY event_action, observer_hostname"
 # expect nonzero counts, observer_hostname='panosvm.example.com'

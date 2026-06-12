@@ -184,7 +184,8 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
 - **L4 grant split:** `ENTITY_MAINT_PW=… envsubst < infra/clickhouse/011_entity_maint_user.sql | clickhouse-client --multiquery` — reconcile runs as `CH_USER=ssdf_entity_maint python -m ssdf_entity.reconcile_assets`; the 5-min resolver identity `ssdf_entity` no longer holds ALTER DELETE.
 - **PAN-OS timestamps fixed to UTC (P2, 2026-06-12):** panosvm now runs `timezone UTC`
   (onboarding/panos/timezone-utc.md) and pre-cutover rows were backfilled +4h
-  (`infra/clickhouse/012_backfill_paloalto_utc.sql.example`, cutover 2026-06-12 14:25:00 UTC).
+  (`infra/clickhouse/012_backfill_paloalto_utc.sql.example`, cutover 2026-06-12 12:00:00 UTC —
+  chosen by boundary inspection in a row-free gap, NOT the commit time; see 012).
   Any NEW log source must be onboarded with a UTC device clock — naive-parse skew otherwise.
 
 ### Ops (backups + lab traffic)
@@ -198,6 +199,7 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
   VLAN 103) runs `scripts/labgen_transit.sh` via 15-min cron so PAN-OS TRAFFIC ingest +
   the M6c-B provenance bridge stay continuously live-proven. Runbook:
   `onboarding/panos/transit-traffic.md`. Do not destroy ct115 without replacing the source.
+  ct115 is deliberately NOT in the weekly backup job — it is fully reproducible from the runbook.
 
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
