@@ -3,6 +3,12 @@
 Spec: `docs/superpowers/specs/2026-06-11-ssdf-edge-hardening-design.md`.
 Branch: `edge-hardening` → one PR. Live deploy same evening (operator pre-approved).
 
+> **Status: ALL TASKS DONE — deployed + live-verified 2026-06-12.** Live findings during
+> Task D: (1) clickhouse-connect infers https from port 8443, so stale code on a host
+> fails cert-verify rather than falling back (fix: sync branch code before flipping envs);
+> (2) PAN-OS event timestamps are device-local EDT — shift query windows when checking
+> ingest; (3) integration test helpers needed the same `CH_SECURE`/`CH_CA_FILE` kwargs.
+
 ## Task A — mcp-query code (services/mcp-query)
 1. **Token expiry (M2):** `TokenProfile` gains `not_after: datetime | None`;
    `load_token_map` parses ISO-8601 (`ConfigError` on bad value, fail closed);
