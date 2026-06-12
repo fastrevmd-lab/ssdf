@@ -2,7 +2,7 @@
 
 import pytest
 
-from ssdf_evals.config import Config, ConfigError, load_config
+from ssdf_evals.config import Config, ConfigError, client_kwargs, load_config
 
 REQUIRED = {"CH_PASSWORD": "ro-pw", "CH_AUDIT_VERIFY_PASSWORD": "av-pw"}
 
@@ -50,3 +50,22 @@ def test_tls_and_slop_overrides(monkeypatch):
     assert config.ch_secure is True
     assert config.ch_ca_file == "/etc/ssdf/ssdf-ca.crt"
     assert config.audit_slop_secs == 10
+
+
+def test_client_kwargs_tls_shape(monkeypatch):
+    _set_required(monkeypatch)
+    monkeypatch.setenv("CH_PORT", "8443")
+    monkeypatch.setenv("CH_SECURE", "1")
+    monkeypatch.setenv("CH_CA_FILE", "/etc/ssdf/ssdf-ca.crt")
+    kwargs = client_kwargs(load_config())
+    assert kwargs["interface"] == "https"
+    assert kwargs["ca_cert"] == "/etc/ssdf/ssdf-ca.crt"
+    assert kwargs["port"] == 8443
+
+
+def test_client_kwargs_identity_override(monkeypatch):
+    _set_required(monkeypatch)
+    kwargs = client_kwargs(load_config(), username="ssdf_audit_verify",
+                           password="av-pw2")
+    assert kwargs["username"] == "ssdf_audit_verify"
+    assert kwargs["password"] == "av-pw2"
