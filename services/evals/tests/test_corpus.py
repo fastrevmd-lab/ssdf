@@ -75,6 +75,28 @@ def test_questions_for_tier():
     assert [q.id for q in questions_for_tier(questions, "public")] == ["b", "c"]
 
 
+def test_missing_key_raises_corpus_error(tmp_path):
+    bad = make_question()
+    del bad["predicate"]
+    with pytest.raises(CorpusError):
+        load_corpus(write_corpus(tmp_path, [bad]))
+
+
+def test_set_overlap_without_min_overlap_rejected(tmp_path):
+    bad = make_question(predicate={"type": "reference_sql", "sql": "SELECT 1",
+                                   "match": "set_overlap", "answer_key": "x"})
+    with pytest.raises(CorpusError):
+        load_corpus(write_corpus(tmp_path, [bad]))
+
+
+def test_numeric_tolerance_with_both_params_rejected(tmp_path):
+    bad = make_question(predicate={
+        "type": "reference_sql", "sql": "SELECT 1", "match": "numeric_tolerance",
+        "answer_key": "x", "params": {"tolerance": 1, "tolerance_pct": 5}})
+    with pytest.raises(CorpusError):
+        load_corpus(write_corpus(tmp_path, [bad]))
+
+
 # ---- the corpus lint: golden/core.yaml itself must satisfy every constraint ----
 
 def test_golden_corpus_lints():

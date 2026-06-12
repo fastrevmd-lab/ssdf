@@ -71,6 +71,18 @@ def _validate(q: Question) -> None:
         _check(q.predicate.get("match") in MATCH_MODES,
                f"{q.id}: bad match mode {q.predicate.get('match')!r}")
         _check(bool(q.predicate.get("answer_key")), f"{q.id}: reference_sql needs answer_key")
+        match = q.predicate.get("match")
+        if match == "set_overlap":
+            _check(
+                isinstance(q.predicate.get("params", {}).get("min_overlap"), int),
+                f"{q.id}: set_overlap needs integer params.min_overlap",
+            )
+        elif match == "numeric_tolerance":
+            params = q.predicate.get("params", {})
+            _check(
+                ("tolerance" in params) != ("tolerance_pct" in params),
+                f"{q.id}: numeric_tolerance needs exactly one of params.tolerance / params.tolerance_pct",
+            )
     elif ptype == "expected_json":
         _check("expected" in q.predicate, f"{q.id}: expected_json needs 'expected'")
     elif ptype == "refusal":
@@ -83,14 +95,19 @@ def load_corpus(path: str | Path) -> list[Question]:
     questions: list[Question] = []
     seen: set[str] = set()
     for item in raw:
-        q = Question(
-            id=str(item["id"]), question=str(item["question"]),
-            tier=str(item["tier"]), category=str(item["category"]),
-            difficulty=str(item["difficulty"]),
-            answer_format=str(item["answer_format"]),
-            required_tools=tuple(item.get("required_tools") or ()),
-            predicate=dict(item["predicate"]),
-        )
+        try:
+            q = Question(
+                id=str(item["id"]), question=str(item["question"]),
+                tier=str(item["tier"]), category=str(item["category"]),
+                difficulty=str(item["difficulty"]),
+                answer_format=str(item["answer_format"]),
+                required_tools=tuple(item.get("required_tools") or ()),
+                predicate=dict(item["predicate"]),
+            )
+        except KeyError as exc:
+            raise CorpusError(
+                f"question {item.get('id', '<no id>')!r}: missing key {exc}"
+            ) from exc
         _check(q.id not in seen, f"duplicate question id {q.id!r}")
         seen.add(q.id)
         _validate(q)
