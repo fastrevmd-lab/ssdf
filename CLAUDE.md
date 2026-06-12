@@ -2,11 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Status: greenfield.** As of this writing the repository is empty — no code, no
-> git history, no build files. Everything below describes the *intended* architecture
-> and conventions for the project, derived from the project brief. When you scaffold
-> real code, update this file to match what actually exists and remove this notice.
-
 ## What this project is
 
 **SSDF — Sovereign Security Data Fabric.** A minimal, AI-native security data platform
@@ -24,42 +19,44 @@ Two principles shape every design decision:
   swappable, with self-hosted options as first-class citizens. "Minimal" is a hard
   constraint — prefer the smallest thing that works over feature-complete frameworks.
 
-## Stack & language split
+## Stack (as built)
 
-The project is intentionally **polyglot (Rust + Python)**, split by responsibility:
+- **Ingest = Vector (VRL transforms)** on LXC ct102 — vendor syslog (SRX UDP/514,
+  PAN-OS UDP/515) normalized to ECS-ish events at ingest. Vendor log formats live ONLY
+  in `infra/vector/vector.toml`.
+- **Storage = ClickHouse** on LXC ct104 — `ssdf.events` (events), `ssdf.entities`/
+  `ssdf.entity_edges` (entity graph), topology observations, `ssdf.audit`. The
+  swappable-backend seam is the Python store classes (graphstore/entitystore), not a
+  Rust fabric.
+- **Services + MCP layer = Python** (`services/*`, uv + FastMCP) — resolvers
+  (topo/entity/policy on ct109 systemd timers) and the MCP tool surface
+  (sovereign ct106 :30032, public ct113 :30033) behind an nginx TLS edge.
+- **Rust is permitted, not doctrine** — use it where a future component is genuinely
+  performance-critical; nothing in SSDF is Rust today. `rust-junosmcp` remains the
+  external reference implementation, not part of this repo.
+- Everything runs on Proxmox LXCs (no Docker) on pve3.example.com.
 
-- **Rust** — performance- and correctness-critical core: log/event ingestion, parsing,
-  the data-fabric storage/query layer, and any long-running services. Favor single-binary,
-  low-overhead services. (Mirrors the existing `rust-junosmcp` MCP work.)
-- **Python** — LLM orchestration, MCP tool/server implementations, agent logic, and
-  product-integration adapters (NGFW / SASE / IDaaS / XDR connectors). Use async
-  (FastAPI-style) services.
+## Architecture (as built)
 
-The boundary between the two is a network/IPC contract (HTTP/gRPC or a message bus), **not**
-shared in-process code. Keep the interface schema-defined and versioned so either side can
-be rebuilt independently.
-
-## Architecture (intended, big-picture)
-
-Data flows in one direction with agents acting back through the same fabric:
+Data flows one direction; LLM agents are read-only consumers via MCP:
 
 ```
-security products ──► ingest/parse (Rust) ──► data fabric (Rust) ──► MCP tools (Python)
-   NGFW/SASE/IDaaS/XDR     normalize/enrich        store + query        ▲
-                                                                        │
-                                          LLM agents (Python, multi-LLM) ┘
+security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ──► MCP tools (ct106/ct113)
+  SRX / PAN-OS syslog    normalize at ingest     events + entity        ▲
+                                                 graph + audit          │
+                          resolvers (ct109): topo/entity/policy   LLM agents (multi-LLM)
 ```
 
-- **Ingest/parse (Rust):** receive raw telemetry from security products, normalize into a
-  common event/entity schema, enrich, and hand off to the fabric. This is the only place
-  vendor-specific log formats should live.
-- **Data fabric (Rust):** the system of record — stores normalized events/entities and
-  serves correlation/query. Storage backend must be swappable (sovereignty requirement).
-- **MCP tool layer (Python):** exposes the fabric and product-control actions as MCP tools.
-  This is the contract LLM agents bind to. Treat tool definitions as the public API.
-- **Agent/LLM layer (Python):** multiple LLMs are supported behind a common abstraction;
-  no single model provider may be load-bearing. Agents read via MCP tools and issue
-  management actions back to security products via MCP tools.
+- **Ingest (Vector):** the only place vendor-specific log formats live; normalize at
+  ingest into the common event schema.
+- **Data fabric (ClickHouse + Python resolvers):** the system of record — events plus
+  derived entity/topology/policy graph; correlation happens in the resolvers.
+- **MCP tool layer (Python/FastMCP):** exposes the fabric as MCP tools. This is the
+  contract LLM agents bind to. Treat tool definitions as the public API.
+- **Agent/LLM layer:** multiple LLMs behind MCP; no single model provider may be
+  load-bearing. **SSDF is read-only**: it stores, queries, and correlates — it never
+  applies configuration to security products in its own data path (onboarding configs
+  are applied by the operator via external vendor MCPs, e.g. rust-junosmcp/panos-mcp).
 
 ### Cross-cutting rules
 

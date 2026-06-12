@@ -108,9 +108,12 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   - **Remaining carve-out:** panosvm still has **no transit traffic** (empty session table), so
     real-wire **TRAFFIC** validation used a synthetic-but-positionally-exact line; it self-confirms
     the first time traffic hits a logged rule (PAN-OS transit-only-logging trap, same as SRX).
+    **CLOSED 2026-06-12 by P2:** ct115 `ssdf-labgen` generates periodic transit flows; real-wire
+    TRAFFIC `flow_end` rows verified in `ssdf.events` (see P2 below).
   - **Observation (pre-existing M1 concern, not M5):** PAN-OS stamps receive-time in local EDT
     (`-04:00`); ingest stores it without TZ conversion, so event `timestamp` sits ~4h behind
     ClickHouse `now()` (UTC). Affects relative-time `WHERE` filters across all sources.
+    **FIXED 2026-06-12 by P2:** panosvm device clock → UTC + historical rows backfilled +4h.
 - **M6a — entity/correlation layer (Asset + observed Policy).** ✅ Built 2026-06-07. Deterministic
   resolution from `ssdf.events` flow-aggregates + M4 `graph_nodes` hosts into `ssdf.entities`/
   `ssdf.entity_edges` (`ReplacingMergeTree(last_seen)`, 30-day TTL), separate from M4's
@@ -209,9 +212,9 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
     `explain_access` now maps each `observer_hosts` value through `access_tools._short_host` (first
     DNS label, case-preserved, IPv4/IPv6-guarded) before matching Firewall entities, so
     `panosvm.example.com`→`panosvm`; vSRX (`vSRX-test10`, dot-free) is a no-op. Read-path only — no
-    ingest/schema/resolver change. Unit-proven; still NOT live-proven end-to-end (PAN-OS transit
-    traffic still doesn't exist in the lab — M5 carve-out); SRX/vSRX-test10 remains the live-proven
-    path. Spec: `specs/2026-06-10-ssdf-panos-provenance-suffix-normalization-design.md`; plan:
+    ingest/schema/resolver change. Unit-proven 2026-06-10; **live-proven 2026-06-12 by P2's
+    transit-traffic generator** (`explain_access` ⇒ `firewall_basis:provenance`,
+    `firewalls:[panosvm]` — see P2 below). Spec: `specs/2026-06-10-ssdf-panos-provenance-suffix-normalization-design.md`; plan:
     `plans/2026-06-10-ssdf-panos-provenance-suffix-normalization.md`.
 - **M6d — multi-hop L3 stitching + Postgres-as-graph.** Relocate the entity store off ClickHouse
   to Postgres-as-graph (Neo4j still deferred); stitch multi-hop paths. Deferred. (Renumbered from
@@ -227,8 +230,32 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
     **shareable views** (never base tables), reusing M7a's classification + audit (`tier="public"`).
     Exposes the 5 shareable graph tools only. **M7 (sovereignty + public/sovereign split) is now
     complete end-to-end.**
-- **Later sources:** UniFi (CEF + Suricata EVE via `unifi-mcp`), Proxmox (rsyslog + PVE API
-  poller), Okta/Wazuh (same connector pattern).
+- **P2 — data-quality & ops batch.** ✅ Done 2026-06-12 (plan:
+  `plans/2026-06-12-ssdf-next-phase-roadmap.md`, Phase 1). (1) PAN-OS device clock → UTC
+  (`onboarding/panos/timezone-utc.md`) + one-time +4h backfill of pre-cutover paloalto rows
+  (`infra/clickhouse/012_backfill_paloalto_utc.sql.example` — documents three live-found
+  ClickHouse mutation traps incl. a recovered data-loss incident); (2) SRX clock verified
+  UTC + requirement pinned in `onboarding/srx/stream-config.set`; (3) lab transit-traffic
+  generator ct115 `ssdf-labgen` (`scripts/labgen_transit.sh`,
+  `onboarding/panos/transit-traffic.md`) — **closed the PAN-OS TRAFFIC carve-out and
+  live-proved the M6c-B suffix-normalization bridge** (`explain_access` 10.74.11.20→
+  198.51.100.1 ⇒ `firewall_basis:provenance`, `firewalls:[panosvm]`,
+  `coverage:{observed:true, configured:5}`); (4) scheduled vzdump backups
+  (`scripts/apply_pve_backup_job.sh`); (5) retired the greenfield/Rust-core doctrine
+  drift in CLAUDE.md.
+- **M8 — agent-eval harness.** Next milestone (spec required before build). Golden-set
+  questions (SOC-analyst corpus) run by (1) Claude via Agent SDK and (2) a local Ollama
+  tool-calling model, both against the REAL sovereign MCP endpoint; deterministic
+  predicate scoring + `ssdf.audit` as the eval trace; the local-model floor IS the
+  sovereignty proof. Charter in `plans/2026-06-12-ssdf-next-phase-roadmap.md` Phase 2.
+- **M9 — UniFi Suricata EVE ingest.** First detection-class source (IDS alerts) via the
+  established Vector→ClickHouse pattern. Charter in the same plan, Phase 3.
+- **M10 — derived findings layer.** Gated on M8 (evals must first show where agents
+  struggle without it). Charter in the same plan, Phase 4.
+- **M6d stays deferred** — ClickHouse-only still suffices; Postgres-as-graph/multi-hop
+  stitching only when load-bearing.
+- **Later sources:** UniFi (CEF + Suricata EVE via `unifi-mcp` — now M9), Proxmox
+  (rsyslog + PVE API poller), Okta/Wazuh (same connector pattern).
 
 ## Cross-cutting seams (kept clean, watch when extending)
 
