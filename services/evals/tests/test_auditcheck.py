@@ -59,6 +59,11 @@ def test_audit_sql_contains_explicit_utc_timezone():
     assert _AUDIT_SQL.count(", 'UTC')") == 2
 
 
+def test_audit_sql_filters_allow_decisions():
+    """Denied invocations must not satisfy required_tools — only allow rows count."""
+    assert "decision = 'allow'" in _AUDIT_SQL
+
+
 def test_required_subset_passes():
     result = check_tools(make_question(["top_talkers"]),
                          ["top_talkers", "run_sql"], tier="sovereign")

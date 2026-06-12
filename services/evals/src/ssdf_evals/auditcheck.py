@@ -15,7 +15,8 @@ _AUDIT_SQL = (
     "SELECT DISTINCT tool FROM ssdf.audit "
     "WHERE principal = {principal:String} "
     "AND ts >= parseDateTimeBestEffort({start:String}, 'UTC') "
-    "AND ts <= parseDateTimeBestEffort({end:String}, 'UTC')"
+    "AND ts <= parseDateTimeBestEffort({end:String}, 'UTC') "
+    "AND decision = 'allow'"
 )
 
 

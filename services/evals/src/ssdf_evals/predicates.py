@@ -15,6 +15,20 @@ class PredicateResult:
     detail: dict = field(default_factory=dict)
 
 
+def _normalize(value: Any) -> Any:
+    """Recursively sort scalar-only lists; recurse into dict values. Leave mixed lists."""
+    if isinstance(value, dict):
+        return {k: _normalize(v) for k, v in value.items()}
+    if isinstance(value, list):
+        normalized = [_normalize(item) for item in value]
+        # only sort if every element is a scalar (sortable, not dict/list)
+        if all(isinstance(item, (str, int, float, bool, type(None)))
+               for item in normalized):
+            return sorted(normalized, key=lambda x: (x is None, str(x)))
+        return normalized
+    return value
+
+
 def _agent_values(answer: dict, predicate: dict) -> list[Any]:
     value = answer[predicate["answer_key"]]
     if not isinstance(value, list):
@@ -72,7 +86,7 @@ def evaluate(question: Question, answer: dict | None, ch_client) -> PredicateRes
         if answer is None:
             return PredicateResult(False, "no answer provided")
         if ptype == "expected_json":
-            passed = answer == predicate["expected"]
+            passed = _normalize(answer) == _normalize(predicate["expected"])
             return PredicateResult(
                 passed, "" if passed else "answer != expected",
                 {"expected": predicate["expected"], "agent": answer})

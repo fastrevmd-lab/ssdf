@@ -106,3 +106,36 @@ def test_missing_answer_key_fails_closed():
     q = make_question({"type": "reference_sql", "sql": "SELECT 1",
                        "match": "exact", "answer_key": "missing"})
     assert not evaluate(q, {"other": 1}, FakeCH(rows=[("a",)])).passed
+
+
+def test_expected_json_list_order_insensitive():
+    """Scalar list in reversed order must still pass."""
+    q = make_question({"type": "expected_json",
+                       "expected": {"firewalls": ["panosvm", "vSRX-test10"]}})
+    assert evaluate(q, {"firewalls": ["vSRX-test10", "panosvm"]}, FakeCH()).passed
+
+
+def test_expected_json_nested_dict_with_scalar_list():
+    """Nested dict containing a scalar list in different order must pass."""
+    q = make_question({"type": "expected_json",
+                       "expected": {"result": {"providers": ["juniper", "paloalto"], "count": 2}}})
+    assert evaluate(q, {"result": {"providers": ["paloalto", "juniper"], "count": 2}},
+                    FakeCH()).passed
+
+
+def test_expected_json_scalar_value_unchanged():
+    """Scalar values and plain dicts without lists compare unchanged."""
+    q = make_question({"type": "expected_json",
+                       "expected": {"kind": "device", "role": "firewall"}})
+    assert evaluate(q, {"kind": "device", "role": "firewall"}, FakeCH()).passed
+    assert not evaluate(q, {"kind": "device", "role": "router"}, FakeCH()).passed
+
+
+def test_expected_json_list_with_dicts_order_preserved():
+    """Lists containing dicts are NOT sorted (order may be meaningful)."""
+    q = make_question({"type": "expected_json",
+                       "expected": [{"a": 1}, {"b": 2}]})
+    # same order passes
+    assert evaluate(q, [{"a": 1}, {"b": 2}], FakeCH()).passed
+    # reversed order fails (dicts in list = order preserved)
+    assert not evaluate(q, [{"b": 2}, {"a": 1}], FakeCH()).passed
