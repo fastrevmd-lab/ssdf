@@ -201,6 +201,16 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
   `onboarding/panos/transit-traffic.md`. Do not destroy ct115 without replacing the source.
   ct115 is deliberately NOT in the weekly backup job — it is fully reproducible from the runbook.
 
+### M8 (agent evals — services/evals, SSDF side only)
+- Unit tests + corpus lint: `cd services/evals && uv run pytest -m "not integration"`
+- Live integration (corpus SQL validity + audit join): `CH_HOST=<ip> CH_PORT=8443 CH_SECURE=1 CH_CA_FILE=… CH_PASSWORD=<ro_pw> CH_AUDIT_VERIFY_PASSWORD=<av_pw> [CH_AUDIT_PASSWORD=<audit_pw>] uv run pytest -m integration`
+- Score a run: `uv run python -m ssdf_evals.score <manifest.json>` (exit 0 scored / 2 config); regression gate: `uv run python -m ssdf_evals.regress results/<scorecard>.json` (exit 1 = a question that ever passed for that model now fails).
+- **Boundary:** this repo stops at the MCP layer — NO runner code, NO LLM-judge, NO new MCP tools, nothing deploys. External runner projects execute the corpus against the live MCP endpoints (prod https+token path) under a dedicated eval principal (`eval-*` in tokens.json) and hand back a run-manifest JSON (`services/evals/schemas/manifest.schema.json` = the contract). `ssdf.audit` is the only trusted tool trace.
+- Scoring is 100% deterministic: `reference_sql` predicates compute ground truth against live CH **at scoring time** (live lab data — static answers would rot); `expected_json` for stable facts; `refusal` for honesty questions. Structured answers via per-question `answer_format` (verbatim prompt suffix) are what make this possible.
+- Corpus: `golden/core.yaml` (22 questions, 5 categories, tier-tagged sovereign|public|both); lint enforced in unit tests (unique ids, public questions restricted to public tools, SELECT-only SQL). Scorecards committed under `services/evals/results/` — git history is the eval database.
+- **Corpus live-fixes:** configured-policy questions filter `identifiers['provider']`/`identifiers['device_name']` (live entity_ids are 16-hex hashes, not natural keys); the panosvm policy count uses `count(DISTINCT entity_id)` (ReplacingMergeTree duplicate-version trap).
+- **Audit-check integrity:** `started`/`finished` + principal are trusted from the manifest — this only holds if the runner uses a **dedicated, per-run-unique eval principal** (e.g. `eval-claude`); add it to ct106/ct113 tokens.json at first run. A shared/reused principal's audit window is treated as untrustworthy.
+
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems
