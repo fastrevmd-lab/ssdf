@@ -48,7 +48,7 @@
   predicate:
     type: reference_sql
     sql: >-
-      SELECT count() FROM ssdf.entities
+      SELECT count(DISTINCT entity_id) FROM ssdf.entities
       WHERE kind = 'policy' AND source = 'configured'
         AND identifiers['provider'] = 'paloalto'
         AND identifiers['device_name'] = 'panosvm'

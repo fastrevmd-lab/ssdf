@@ -51,14 +51,17 @@ def test_every_reference_sql_executes(query_client):
     """
     from ssdf_evals.corpus import load_corpus
     failures = []
+    checked = 0
     for question in load_corpus(GOLDEN):
         if question.predicate["type"] != "reference_sql":
             continue
+        checked += 1
         try:
             rows = query_client.query(question.predicate["sql"]).result_rows
             assert isinstance(rows, list)
         except Exception as exc:  # collect all, report together
             failures.append(f"{question.id}: {exc}")
+    assert checked > 0, "no reference_sql questions found in corpus — vacuous pass"
     assert not failures, "corpus SQL errors:\n" + "\n".join(failures)
 
 
@@ -82,7 +85,7 @@ def test_audit_join_roundtrip(config, audit_client):
     principal = f"eval-inttest-{now.strftime('%H%M%S')}"
     writer.insert(
         "ssdf.audit",
-        [[now, principal, "sovereign", "locate", "{}", ["topology"],
+        [[now, principal, "eval-test", "locate", "{}", ["topology"],
           "allow", 1, ""]],
         column_names=["ts", "principal", "tier", "tool", "args",
                       "data_classes", "decision", "row_count", "error"])
