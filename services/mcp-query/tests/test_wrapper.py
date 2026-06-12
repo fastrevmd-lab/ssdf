@@ -76,6 +76,53 @@ def test_audit_write_failure_does_not_break_tool():
     assert wrapped() == {"rows": [1]}  # tool result still returned
 
 
+def test_unexpired_token_runs(monkeypatch):
+    import datetime as dt
+    rec = _Recorder()
+    future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
+    fn = lambda: {"rows": [1]}
+    wrapped = audited_tool("query_flows", fn, rec, caller=lambda: ("p", None, future))
+    assert wrapped() == {"rows": [1]}
+    assert rec.calls[0]["decision"] == "allow"
+
+
+def test_no_expiry_token_runs(monkeypatch):
+    rec = _Recorder()
+    fn = lambda: {"rows": [1]}
+    wrapped = audited_tool("query_flows", fn, rec, caller=lambda: ("p", None, None))
+    assert wrapped() == {"rows": [1]}
+    assert rec.calls[0]["decision"] == "allow"
+
+
+def test_expired_token_denied_and_not_invoked():
+    import datetime as dt
+    rec = _Recorder()
+    invoked = {"hit": False}
+
+    def fn(**kwargs):
+        invoked["hit"] = True
+        return {"rows": []}
+
+    past = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=1)
+    wrapped = audited_tool("query_flows", fn, rec, caller=lambda: ("p", None, past))
+    result = wrapped(dst_port=443)
+    assert result["error"] == "forbidden"
+    assert invoked["hit"] is False
+    assert len(rec.calls) == 1
+    assert rec.calls[0]["decision"] == "deny"
+    assert rec.calls[0]["row_count"] == 0
+    assert rec.calls[0]["principal"] == "p"
+
+
+def test_two_tuple_caller_backward_compat():
+    """Legacy (principal, allowed) callers keep working — no expiry implied."""
+    rec = _Recorder()
+    fn = lambda: {"rows": [1]}
+    wrapped = audited_tool("query_flows", fn, rec, caller=lambda: ("p", None))
+    assert wrapped() == {"rows": [1]}
+    assert rec.calls[0]["decision"] == "allow"
+
+
 def test_wrapped_preserves_signature_and_doc():
     import inspect
 

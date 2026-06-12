@@ -92,6 +92,58 @@ def test_load_config_reads_query_limit_envs(monkeypatch):
     assert cfg.max_memory_usage == 9
 
 
+def test_token_map_not_after_parsed_utc(monkeypatch, tmp_path):
+    import datetime as dt
+    f = tmp_path / "tokens.json"
+    f.write_text(json.dumps({
+        "tok-exp": {"principal": "p", "not_after": "2026-09-09T12:00:00+00:00"},
+        "tok-naive": {"principal": "q", "not_after": "2026-09-09T12:00:00"},
+        "tok-forever": {"principal": "r"},
+    }))
+    monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
+    tokens = load_token_map()
+    expected = dt.datetime(2026, 9, 9, 12, 0, 0, tzinfo=dt.timezone.utc)
+    assert tokens["tok-exp"].not_after == expected
+    # naive ISO strings are treated as UTC
+    assert tokens["tok-naive"].not_after == expected
+    assert tokens["tok-forever"].not_after is None
+
+
+def test_token_map_bad_not_after_raises(monkeypatch, tmp_path):
+    f = tmp_path / "tokens.json"
+    f.write_text(json.dumps({"tok": {"principal": "p", "not_after": "next tuesday"}}))
+    monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
+    with pytest.raises(ConfigError):
+        load_token_map()
+
+
+def test_token_map_non_string_not_after_raises(monkeypatch, tmp_path):
+    f = tmp_path / "tokens.json"
+    f.write_text(json.dumps({"tok": {"principal": "p", "not_after": 12345}}))
+    monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
+    with pytest.raises(ConfigError):
+        load_token_map()
+
+
+def test_ch_secure_env_parsing(monkeypatch):
+    monkeypatch.setenv("CH_PASSWORD", "x")
+    monkeypatch.setenv("MCP_AUTH_TOKEN", "t")
+    monkeypatch.delenv("CH_SECURE", raising=False)
+    monkeypatch.delenv("CH_CA_FILE", raising=False)
+    cfg = load_config()
+    assert cfg.ch_secure is False
+    assert cfg.ch_ca_file is None
+    monkeypatch.setenv("CH_SECURE", "1")
+    monkeypatch.setenv("CH_CA_FILE", "/etc/ssdf/ssdf-ca.crt")
+    cfg = load_config()
+    assert cfg.ch_secure is True
+    assert cfg.ch_ca_file == "/etc/ssdf/ssdf-ca.crt"
+    monkeypatch.setenv("CH_SECURE", "true")
+    assert load_config().ch_secure is True
+    monkeypatch.setenv("CH_SECURE", "0")
+    assert load_config().ch_secure is False
+
+
 def test_load_config_query_limit_defaults(monkeypatch):
     from ssdf_mcp_query.config import load_config
     monkeypatch.setenv("CH_PASSWORD", "x")

@@ -338,10 +338,24 @@ ev.ext = ext
 . = ev
 '''
 
+# L1 (CH TLS): the endpoint is env-overridable so the live host can flip to
+# https without a config fork — set CH_PROTO=https + CH_HTTP_PORT=8443 in the
+# Vector env drop-in. With only CH_HOST set (the historical env), this resolves
+# to the original "http://${CH_HOST}:8123". NOTE: the design's single-var form
+# `${CH_ENDPOINT:-http://${CH_HOST}:8123}` does NOT work — Vector's env
+# interpolation is non-nesting (the default stops at the inner `}`), producing
+# an invalid URI; verified against Vector 0.56.0 on ct102.
+# The private-CA trust anchor CANNOT be expressed here conditionally either:
+# `[sinks.clickhouse.tls] ca_file = "${CH_CA_FILE:-}"` would resolve to an
+# empty-string path when unset, breaking plain-http operation, and Vector has
+# no env-gated way to omit a tls block entirely. The live https override on
+# the host therefore also appends, alongside the env flip:
+#   [sinks.clickhouse.tls]
+#   ca_file = "/etc/vector/ssdf-ca.crt"
 [sinks.clickhouse]
 type = "clickhouse"
 inputs = ["srx_ecs", "panos_ecs"]
-endpoint = "http://${CH_HOST}:8123"
+endpoint = "${CH_PROTO:-http}://${CH_HOST}:${CH_HTTP_PORT:-8123}"
 database = "ssdf"
 table = "events"
 skip_unknown_fields = false

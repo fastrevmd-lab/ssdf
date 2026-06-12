@@ -1,0 +1,25 @@
+#!/usr/sbin/nft -f
+
+# SSDF edge hardening (design 2026-06-11, L1a): ClickHouse ct104 port policy.
+# Plain HTTP 8123 and native protocol 9000 carry credentials in clear text, so
+# they become loopback/admin-only; LAN consumers move to TLS on 8443 (left
+# unrestricted here — it is the intended service port).
+# Dedicated table; does not touch the default `inet filter` table.
+# The `table ... / delete table ...` prologue makes reloads idempotent.
+# Revert: nft delete table inet ssdf_ch
+
+table inet ssdf_ch
+delete table inet ssdf_ch
+table inet ssdf_ch {
+    chain input {
+        type filter hook input priority filter; policy accept;
+
+        # Container-local admin (clickhouse-client on ct104, healthchecks).
+        tcp dport { 8123, 9000 } iifname "lo" accept
+        tcp dport { 8123, 9000 } ip saddr 127.0.0.1 accept
+
+        # Everything else hitting the plaintext ports is dropped.
+        # (8443/TLS is intentionally NOT matched — stays open to the LAN.)
+        tcp dport { 8123, 9000 } drop
+    }
+}

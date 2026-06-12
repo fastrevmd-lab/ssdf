@@ -1,7 +1,50 @@
+from ssdf_entity import chwriter
 from ssdf_entity.chwriter import (
     build_flow_agg_sql, build_binding_sql,
     entity_rows, edge_rows, ENTITY_COLUMNS, ENTITY_EDGE_COLUMNS,
 )
+from ssdf_entity.config import Config
+
+
+def _config(**overrides):
+    base = dict(
+        ch_host="10.64.0.151", ch_port=8123, ch_user="ssdf_entity", ch_password="pw",
+        ch_database="ssdf", tenant_id="t_main", window_hours=24,
+        binding_lookback_hours=168,
+    )
+    base.update(overrides)
+    return Config(**base)
+
+
+def test_writer_default_is_plain_http(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(chwriter.clickhouse_connect, "get_client",
+                        lambda **kwargs: captured.update(kwargs) or object())
+    chwriter.ClickHouseEntityWriter(_config())
+    assert captured["host"] == "10.64.0.151"
+    assert captured["port"] == 8123
+    assert "interface" not in captured
+    assert "ca_cert" not in captured
+
+
+def test_writer_secure_passes_https_and_ca(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(chwriter.clickhouse_connect, "get_client",
+                        lambda **kwargs: captured.update(kwargs) or object())
+    chwriter.ClickHouseEntityWriter(_config(
+        ch_port=8443, ch_secure=True, ch_ca_file="/etc/ssdf/ssdf-ca.crt"))
+    assert captured["interface"] == "https"
+    assert captured["port"] == 8443
+    assert captured["ca_cert"] == "/etc/ssdf/ssdf-ca.crt"
+
+
+def test_writer_secure_without_ca_file_omits_ca_cert(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(chwriter.clickhouse_connect, "get_client",
+                        lambda **kwargs: captured.update(kwargs) or object())
+    chwriter.ClickHouseEntityWriter(_config(ch_secure=True))
+    assert captured["interface"] == "https"
+    assert "ca_cert" not in captured
 
 
 def test_flow_agg_sql_is_parameterized_and_groups_by_pair():

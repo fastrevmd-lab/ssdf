@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import os
 from dataclasses import dataclass
@@ -14,10 +15,15 @@ class ConfigError(RuntimeError):
 
 @dataclass(frozen=True)
 class TokenPrincipal:
-    """A bearer token's identity. ``allowed_tools=None`` means all tools allowed."""
+    """A bearer token's identity. ``allowed_tools=None`` means all tools allowed.
+
+    ``not_after=None`` means the token never expires; otherwise it is a
+    timezone-aware UTC datetime after which the token is denied per call.
+    """
 
     principal: str
     allowed_tools: frozenset[str] | None
+    not_after: _dt.datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,40 @@ class Config:
     max_execution_time: int = 10
     max_result_rows: int = 100000
     max_memory_usage: int = 1_000_000_000
+    ch_secure: bool = False
+    ch_ca_file: str | None = None
+
+
+def ch_tls_kwargs(config: "Config") -> dict:
+    """Extra ``clickhouse_connect.get_client`` kwargs for TLS (empty when off).
+
+    When ``ch_secure`` is set, connect over HTTPS; ``ca_cert`` is passed only
+    when ``ch_ca_file`` is configured (self-signed local CA per the L1 design).
+    """
+    if not config.ch_secure:
+        return {}
+    kwargs: dict = {"interface": "https"}
+    if config.ch_ca_file:
+        kwargs["ca_cert"] = config.ch_ca_file
+    return kwargs
+
+
+def parse_not_after(value: object) -> _dt.datetime | None:
+    """Parse a tokens-file ``not_after`` ISO-8601 string (naive ⇒ UTC).
+
+    Raises ``ConfigError`` on any non-string or unparseable value (fail closed).
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ConfigError(f"not_after must be an ISO-8601 string, got {type(value).__name__}")
+    try:
+        parsed = _dt.datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ConfigError(f"invalid not_after {value!r}: {exc}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+    return parsed
 
 
 def _read_token() -> str:
@@ -83,7 +123,11 @@ def load_token_map() -> dict[str, TokenPrincipal]:
             raise ConfigError("token entry missing 'principal'")
         allowed = meta.get("allowed_tools")
         allowed_set = None if allowed is None else frozenset(allowed)
-        tokens[token] = TokenPrincipal(principal=principal, allowed_tools=allowed_set)
+        tokens[token] = TokenPrincipal(
+            principal=principal,
+            allowed_tools=allowed_set,
+            not_after=parse_not_after(meta.get("not_after")),
+        )
     return tokens
 
 
@@ -106,4 +150,6 @@ def load_config() -> Config:
         max_execution_time=int(os.environ.get("MCP_MAX_EXEC_SECS", "10")),
         max_result_rows=int(os.environ.get("MCP_MAX_RESULT_ROWS", "100000")),
         max_memory_usage=int(os.environ.get("MCP_MAX_MEMORY_BYTES", "1000000000")),
+        ch_secure=os.environ.get("CH_SECURE", "").strip().lower() in ("1", "true"),
+        ch_ca_file=os.environ.get("CH_CA_FILE") or None,
     )

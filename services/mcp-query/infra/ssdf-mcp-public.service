@@ -20,8 +20,12 @@ Environment=CH_USER=ssdf_public
 Environment=CH_DATABASE=ssdf_public
 Environment=MCP_BIND=0.0.0.0
 Environment=MCP_PORT=30033
-Environment=MCP_TOKEN_FILE=/etc/ssdf-mcp/token
-Environment=MCP_CLASSIFICATION_FILE=/etc/ssdf-mcp/classification.json
+# DynamicUser cannot read root-owned 600 files; LoadCredential exposes them
+# read-only to the service user under $CREDENTIALS_DIRECTORY (%d).
+LoadCredential=tokens.json:/etc/ssdf-mcp/tokens.json
+LoadCredential=classification.json:/etc/ssdf-mcp/classification.json
+Environment=MCP_TOKENS_FILE=%d/tokens.json
+Environment=MCP_CLASSIFICATION_FILE=%d/classification.json
 Environment=CH_AUDIT_USER=ssdf_audit
 EnvironmentFile=/etc/ssdf-mcp/secrets.env
 ExecStart=/opt/ssdf-mcp/bin/python -m ssdf_mcp_query.server

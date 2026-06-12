@@ -1,6 +1,45 @@
 # tests/test_chwriter.py
+from ssdf_topo.config import Config
 from ssdf_topo.models import Observation
+from ssdf_topo import chwriter
 from ssdf_topo.chwriter import obs_rows, OBS_COLUMNS, node_rows, edge_rows, NODE_COLUMNS, EDGE_COLUMNS
+
+def _config(**overrides):
+    base = dict(
+        ch_host="10.64.0.151", ch_port=8123, ch_user="ssdf_topo", ch_password="pw",
+        ch_database="ssdf", tenant_id="t_main", window_hours=24,
+        enabled_collectors=("junos",),
+    )
+    base.update(overrides)
+    return Config(**base)
+
+def test_writer_default_is_plain_http(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(chwriter.clickhouse_connect, "get_client",
+                        lambda **kwargs: captured.update(kwargs) or object())
+    chwriter.ClickHouseWriter(_config())
+    assert captured["host"] == "10.64.0.151"
+    assert captured["port"] == 8123
+    assert "interface" not in captured
+    assert "ca_cert" not in captured
+
+def test_writer_secure_passes_https_and_ca(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(chwriter.clickhouse_connect, "get_client",
+                        lambda **kwargs: captured.update(kwargs) or object())
+    chwriter.ClickHouseWriter(_config(
+        ch_port=8443, ch_secure=True, ch_ca_file="/etc/ssdf/ssdf-ca.crt"))
+    assert captured["interface"] == "https"
+    assert captured["port"] == 8443
+    assert captured["ca_cert"] == "/etc/ssdf/ssdf-ca.crt"
+
+def test_writer_secure_without_ca_file_omits_ca_cert(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(chwriter.clickhouse_connect, "get_client",
+                        lambda **kwargs: captured.update(kwargs) or object())
+    chwriter.ClickHouseWriter(_config(ch_secure=True))
+    assert captured["interface"] == "https"
+    assert "ca_cert" not in captured
 
 def test_obs_rows_match_column_order():
     obs = Observation(

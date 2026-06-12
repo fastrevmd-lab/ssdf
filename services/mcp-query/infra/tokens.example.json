@@ -5,5 +5,9 @@
   },
   "REPLACE_WITH_ADMIN_TOKEN": {
     "principal": "admin-agent"
+  },
+  "REPLACE_WITH_OPS_ROTATING_TOKEN": {
+    "principal": "ops-rotating",
+    "not_after": "2026-09-09T00:00:00Z"
   }
 }

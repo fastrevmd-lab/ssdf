@@ -18,6 +18,19 @@ ENTITY_EDGE_COLUMNS = [
 ]
 
 
+def client_kwargs(config: Config) -> dict[str, Any]:
+    """get_client kwargs from config; adds TLS (interface/ca_cert) when ch_secure."""
+    kwargs: dict[str, Any] = dict(
+        host=config.ch_host, port=config.ch_port, username=config.ch_user,
+        password=config.ch_password, database=config.ch_database,
+    )
+    if config.ch_secure:
+        kwargs["interface"] = "https"
+        if config.ch_ca_file:
+            kwargs["ca_cert"] = config.ch_ca_file
+    return kwargs
+
+
 def build_flow_agg_sql(window_hours: int, tenant: str) -> tuple[str, dict]:
     """Aggregate ssdf.events into per-(src_ip,dst_ip,observer) flow rows.
 
@@ -110,10 +123,7 @@ class ClickHouseEntityWriter:
 
     def __init__(self, config: Config):
         self._config = config
-        self._client = clickhouse_connect.get_client(
-            host=config.ch_host, port=config.ch_port, username=config.ch_user,
-            password=config.ch_password, database=config.ch_database,
-        )
+        self._client = clickhouse_connect.get_client(**client_kwargs(config))
 
     def query(self, sql: str, params: dict | None = None) -> list[dict]:
         result = self._client.query(sql, parameters=params or {})

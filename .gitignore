@@ -19,6 +19,9 @@ venv/
 .env.*
 !.env.example
 
+# Local PKI (CA + leaf keys never leave the dev host)
+infra/tls-local/
+
 # Brainstorm scratch (visual companion)
 .superpowers/
 
@@ -32,3 +35,7 @@ venv/
 
 # Git worktrees
 /.worktrees/
+
+# Local MCP client config (bearer tokens)
+.mcp.json
+.claude/settings.local.json

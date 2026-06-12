@@ -9,10 +9,11 @@ tool's signature + docstring so FastMCP builds the correct schema.
 
 from __future__ import annotations
 
+import datetime as _dt
 import functools
 from typing import Any, Callable
 
-from .auth import current_caller
+from .auth import current_caller_claims
 from .classification import classes_for_tool
 
 
@@ -34,26 +35,37 @@ def audited_tool(
     auditor: Any,
     *,
     tier: str = "sovereign",
-    caller: Callable[[], tuple[str, frozenset[str] | None]] = current_caller,
+    caller: Callable[[], tuple] = current_caller_claims,
 ) -> Callable[..., Any]:
-    """Return ``fn`` wrapped with per-call authz + audit for ``tool_name``."""
+    """Return ``fn`` wrapped with per-call authz + audit for ``tool_name``.
+
+    ``caller`` may return ``(principal, allowed_tools)`` (legacy) or
+    ``(principal, allowed_tools, not_after)``; an expired ``not_after`` is
+    denied exactly like a disallowed tool (M2 token expiry).
+    """
     data_classes = sorted(classes_for_tool(tool_name))
+
+    def _deny(principal: str, kwargs: dict, detail: str) -> dict:
+        auditor.record(
+            principal=principal, tier=tier, tool=tool_name, args=kwargs,
+            data_classes=data_classes, decision="deny", row_count=0,
+            error="forbidden",
+        )
+        return {"error": "forbidden", "detail": detail}
 
     @functools.wraps(fn)
     def wrapped(*args: Any, **kwargs: Any) -> Any:
         # FastMCP dispatches tools by keyword, so the audited args are kwargs.
         # If a caller ever invokes positionally, those args run but aren't recorded.
-        principal, allowed = caller()
+        info = caller()
+        principal, allowed = info[0], info[1]
+        not_after = info[2] if len(info) > 2 else None
+        if not_after is not None and _dt.datetime.now(_dt.timezone.utc) >= not_after:
+            return _deny(principal, kwargs,
+                         f"token for principal '{principal}' has expired")
         if allowed is not None and tool_name not in allowed:
-            auditor.record(
-                principal=principal, tier=tier, tool=tool_name, args=kwargs,
-                data_classes=data_classes, decision="deny", row_count=0,
-                error="forbidden",
-            )
-            return {
-                "error": "forbidden",
-                "detail": f"tool '{tool_name}' not permitted for principal '{principal}'",
-            }
+            return _deny(principal, kwargs,
+                         f"tool '{tool_name}' not permitted for principal '{principal}'")
         result = fn(*args, **kwargs)
         error = result.get("error", "") if isinstance(result, dict) else ""
         auditor.record(

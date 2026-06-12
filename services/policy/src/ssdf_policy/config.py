@@ -33,6 +33,8 @@ class Config:
     enabled_collectors: tuple[str, ...]
     junos_devices: tuple[str, ...]
     panos_device: str
+    ch_secure: bool = False
+    ch_ca_file: str = ""
 
     def mcp_endpoint(self, name: str) -> McpEndpoint:
         prefix = name.upper()
@@ -63,4 +65,6 @@ def load_config() -> Config:
         enabled_collectors=enabled,
         junos_devices=_csv("JUNOS_DEVICES"),
         panos_device=os.environ.get("PANOS_DEVICE", "panosvm"),
+        ch_secure=os.environ.get("CH_SECURE", "0").strip().lower() in ("1", "true"),
+        ch_ca_file=os.environ.get("CH_CA_FILE", ""),
     )
