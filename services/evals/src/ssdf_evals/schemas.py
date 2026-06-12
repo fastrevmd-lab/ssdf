@@ -6,6 +6,7 @@ runner projects code against; this module is the only validator.
 
 from __future__ import annotations
 
+import functools
 import json
 from pathlib import Path
 
@@ -18,13 +19,18 @@ class SchemaError(ValueError):
     """A document does not conform to its contract schema."""
 
 
+@functools.lru_cache(maxsize=None)
 def _load(name: str) -> dict:
     return json.loads((SCHEMAS_DIR / name).read_text())
 
 
 def _validate(obj: dict, schema_name: str) -> None:
     try:
-        jsonschema.validate(obj, _load(schema_name))
+        jsonschema.validate(
+            obj,
+            _load(schema_name),
+            format_checker=jsonschema.Draft202012Validator.FORMAT_CHECKER,
+        )
     except jsonschema.ValidationError as exc:
         raise SchemaError(f"{schema_name}: {exc.message}") from exc
 

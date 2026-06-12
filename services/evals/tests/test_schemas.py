@@ -76,3 +76,10 @@ def test_valid_scorecard_passes():
 def test_scorecard_missing_rollups_rejected():
     with pytest.raises(SchemaError):
         validate_scorecard({"schema_version": 1})
+
+
+def test_malformed_timestamp_rejected():
+    manifest = make_manifest()
+    manifest["questions"][0]["started"] = "yesterday-ish"
+    with pytest.raises(SchemaError):
+        validate_manifest(manifest)
