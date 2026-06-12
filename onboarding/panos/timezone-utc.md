@@ -23,8 +23,11 @@ host `panosvm`. SSDF itself never touches device configuration in its data path.
                                element=<timezone>UTC</timezone>
    ```
 
-   Record the commit time — it is the backfill cutover (`infra/clickhouse/012`
-   runbook in the P2 plan).
+   Record the commit time — it is the **starting point** for choosing the
+   backfill cutover. The actual cutover must be determined by boundary
+   inspection (see `infra/clickhouse/012_backfill_paloalto_utc.sql.example`)
+   because rows emitted during the commit window are already UTC-stamped and
+   the commit time alone is not a safe cutover boundary.
 
 Verify (allow one syslog to arrive, e.g. a config commit generates one):
 
