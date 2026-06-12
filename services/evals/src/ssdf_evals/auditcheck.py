@@ -7,15 +7,15 @@ Runner-self-reported tool calls are ignored by design.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .corpus import PUBLIC_TOOLS, Question
 
 _AUDIT_SQL = (
     "SELECT DISTINCT tool FROM ssdf.audit "
     "WHERE principal = {principal:String} "
-    "AND ts >= parseDateTimeBestEffort({start:String}) "
-    "AND ts <= parseDateTimeBestEffort({end:String})"
+    "AND ts >= parseDateTimeBestEffort({start:String}, 'UTC') "
+    "AND ts <= parseDateTimeBestEffort({end:String}, 'UTC')"
 )
 
 
@@ -26,14 +26,22 @@ class ToolCheckResult:
     reason: str
 
 
+def _to_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def fetch_tools(client, principal: str, started: datetime, finished: datetime,
                 slop_secs: int) -> list[str]:
     """Distinct tools the principal invoked in [started-slop, finished+slop] (UTC)."""
     slop = timedelta(seconds=slop_secs)
+    start_dt = _to_utc(started) - slop
+    end_dt = _to_utc(finished) + slop
     parameters = {
         "principal": principal,
-        "start": (started - slop).strftime("%Y-%m-%d %H:%M:%S"),
-        "end": (finished + slop).strftime("%Y-%m-%d %H:%M:%S"),
+        "start": start_dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        "end": end_dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
     }
     rows = client.query(_AUDIT_SQL, parameters=parameters).result_rows
     return sorted(str(row[0]) for row in rows)
