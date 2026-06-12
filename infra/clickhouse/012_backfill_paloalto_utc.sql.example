@@ -1,0 +1,83 @@
+-- 012: one-time backfill — shift pre-cutover paloalto timestamps EDT → UTC (+4h).
+--
+-- WHY ALTER UPDATE IS IMPOSSIBLE (live finding 1)
+-- ================================================
+-- `timestamp` is a key column: ORDER BY (tenant_id, timestamp, event_action) and
+-- also the partition key. ClickHouse rejects mutations on key columns with:
+--   Code: 420. DB::Exception: Cannot UPDATE key column `timestamp`.
+-- There is no workaround inside ALTER TABLE ... UPDATE for key columns.
+--
+-- WHY COPIES MUST BE STAGED IN A SCRATCH TABLE (live finding 2 — data loss)
+-- ==========================================================================
+-- The naive "INSERT shifted copies then DELETE originals" pattern is a
+-- copy-eating trap: the shifted copies have timestamps that are still LESS than
+-- CUTOVER_TS for everything except the last 4 hours of the window, so the
+-- follow-up DELETE WHERE timestamp < CUTOVER_TS deletes the copies too.
+-- This trap triggered live; data was recovered only from inactive parts
+-- (hardlink rescue → ATTACH PART into scratch → event_id dedupe).
+-- The safe procedure stages copies in a scratch table that is NEVER touched by
+-- the WHERE window predicate, then deletes originals, then promotes copies.
+--
+-- HOW TO CHOOSE CUTOVER_TS (live finding 3 — boundary inspection)
+-- ================================================================
+-- The device's timezone-commit time is only the STARTING POINT for the search.
+-- Syslog rows emitted DURING the commit are already UTC-stamped — the device
+-- timezone-flip and the syslog timestamps are not atomic.
+-- Live boundary: device flip at ~14:25 UTC, but 2 SYSTEM rows arrived with
+-- UTC timestamps at 14:24:47 and 14:24:56 (already correct). The last EDT row
+-- was at 10:24:46 UTC (= 14:24:46 EDT — 4h). There is a provably row-free gap
+-- between 10:24:46 and 14:24:47.
+--
+-- Inspect the boundary before choosing CUTOVER_TS:
+--   SELECT toStartOfMinute(timestamp) AS t, count()
+--   FROM ssdf.events
+--   WHERE event_provider = 'paloalto'
+--     AND timestamp BETWEEN toDateTime64('2026-06-12 10:00:00', 3, 'UTC')
+--                       AND toDateTime64('2026-06-12 15:00:00', 3, 'UTC')
+--   GROUP BY t ORDER BY t;
+-- Pick a value inside the row-free gap (no rows in that minute bucket).
+-- Live value used: 2026-06-12 12:00:00 UTC (between last EDT row 10:24:46
+-- and first UTC row 14:24:47 — over 4h gap, zero rows in between).
+--
+-- RUN-ONCE DISCIPLINE
+-- ===================
+-- This is a one-shot correction. Running it a second time would double-shift
+-- surviving rows. Pre-flight: record the count before starting and verify the
+-- scratch table matches before deleting originals (Step 2).
+--
+-- Pre-flight count (record this number before running Step 1):
+--   SELECT count()
+--   FROM ssdf.events
+--   WHERE event_provider = 'paloalto'
+--     AND timestamp < toDateTime64('${CUTOVER_TS}', 3, 'UTC');
+
+-- Step 1: stage shifted copies in a scratch table (NOT directly into events —
+-- keeps originals and copies separable no matter what the predicates do).
+CREATE TABLE ssdf.events_backfill AS ssdf.events;
+INSERT INTO ssdf.events_backfill
+SELECT * REPLACE (timestamp + INTERVAL 4 HOUR AS timestamp)
+FROM ssdf.events
+WHERE event_provider = 'paloalto'
+  AND timestamp < toDateTime64('${CUTOVER_TS}', 3, 'UTC');
+
+-- Step 2: verify scratch count == pre-flight count before going further.
+--   SELECT count() FROM ssdf.events_backfill;
+-- Must equal the pre-flight count. Do NOT proceed if counts differ.
+
+-- Step 3: delete originals from events (copies are safe in the scratch table).
+ALTER TABLE ssdf.events DELETE
+WHERE event_provider = 'paloalto'
+  AND timestamp < toDateTime64('${CUTOVER_TS}', 3, 'UTC')
+SETTINGS mutations_sync = 1;
+
+-- Step 4: move the shifted copies in, then drop the scratch table.
+INSERT INTO ssdf.events SELECT * FROM ssdf.events_backfill;
+DROP TABLE ssdf.events_backfill;
+
+-- Step 5: verify — count and dedup integrity, and confirm timestamp shift.
+--   SELECT count(), uniqExact(event_id)
+--   FROM ssdf.events
+--   WHERE event_provider = 'paloalto';
+-- uniqExact must equal count (proves no duplicates).
+-- Additionally confirm min(timestamp) equals old_min + 4h:
+--   SELECT min(timestamp) FROM ssdf.events WHERE event_provider = 'paloalto';

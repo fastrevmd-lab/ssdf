@@ -2,11 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Status: greenfield.** As of this writing the repository is empty — no code, no
-> git history, no build files. Everything below describes the *intended* architecture
-> and conventions for the project, derived from the project brief. When you scaffold
-> real code, update this file to match what actually exists and remove this notice.
-
 ## What this project is
 
 **SSDF — Sovereign Security Data Fabric.** A minimal, AI-native security data platform
@@ -24,42 +19,44 @@ Two principles shape every design decision:
   swappable, with self-hosted options as first-class citizens. "Minimal" is a hard
   constraint — prefer the smallest thing that works over feature-complete frameworks.
 
-## Stack & language split
+## Stack (as built)
 
-The project is intentionally **polyglot (Rust + Python)**, split by responsibility:
+- **Ingest = Vector (VRL transforms)** on LXC ct102 — vendor syslog (SRX UDP/514,
+  PAN-OS UDP/515) normalized to ECS-ish events at ingest. Vendor log formats live ONLY
+  in `infra/vector/vector.toml`.
+- **Storage = ClickHouse** on LXC ct104 — `ssdf.events` (events), `ssdf.entities`/
+  `ssdf.entity_edges` (entity graph), topology observations, `ssdf.audit`. The
+  swappable-backend seam is the Python store classes (graphstore/entitystore), not a
+  Rust fabric.
+- **Services + MCP layer = Python** (`services/*`, uv + FastMCP) — resolvers
+  (topo/entity/policy on ct109 systemd timers) and the MCP tool surface
+  (sovereign ct106 :30032, public ct113 :30033) behind an nginx TLS edge.
+- **Rust is permitted, not doctrine** — use it where a future component is genuinely
+  performance-critical; nothing in SSDF is Rust today. `rust-junosmcp` remains the
+  external reference implementation, not part of this repo.
+- Everything runs on Proxmox LXCs (no Docker) on pve3.example.com.
 
-- **Rust** — performance- and correctness-critical core: log/event ingestion, parsing,
-  the data-fabric storage/query layer, and any long-running services. Favor single-binary,
-  low-overhead services. (Mirrors the existing `rust-junosmcp` MCP work.)
-- **Python** — LLM orchestration, MCP tool/server implementations, agent logic, and
-  product-integration adapters (NGFW / SASE / IDaaS / XDR connectors). Use async
-  (FastAPI-style) services.
+## Architecture (as built)
 
-The boundary between the two is a network/IPC contract (HTTP/gRPC or a message bus), **not**
-shared in-process code. Keep the interface schema-defined and versioned so either side can
-be rebuilt independently.
-
-## Architecture (intended, big-picture)
-
-Data flows in one direction with agents acting back through the same fabric:
+Data flows one direction; LLM agents are read-only consumers via MCP:
 
 ```
-security products ──► ingest/parse (Rust) ──► data fabric (Rust) ──► MCP tools (Python)
-   NGFW/SASE/IDaaS/XDR     normalize/enrich        store + query        ▲
-                                                                        │
-                                          LLM agents (Python, multi-LLM) ┘
+security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ──► MCP tools (ct106/ct113)
+  SRX / PAN-OS syslog    normalize at ingest     events + entity        ▲
+                                                 graph + audit          │
+                          resolvers (ct109): topo/entity/policy   LLM agents (multi-LLM)
 ```
 
-- **Ingest/parse (Rust):** receive raw telemetry from security products, normalize into a
-  common event/entity schema, enrich, and hand off to the fabric. This is the only place
-  vendor-specific log formats should live.
-- **Data fabric (Rust):** the system of record — stores normalized events/entities and
-  serves correlation/query. Storage backend must be swappable (sovereignty requirement).
-- **MCP tool layer (Python):** exposes the fabric and product-control actions as MCP tools.
-  This is the contract LLM agents bind to. Treat tool definitions as the public API.
-- **Agent/LLM layer (Python):** multiple LLMs are supported behind a common abstraction;
-  no single model provider may be load-bearing. Agents read via MCP tools and issue
-  management actions back to security products via MCP tools.
+- **Ingest (Vector):** the only place vendor-specific log formats live; normalize at
+  ingest into the common event schema.
+- **Data fabric (ClickHouse + Python resolvers):** the system of record — events plus
+  derived entity/topology/policy graph; correlation happens in the resolvers.
+- **MCP tool layer (Python/FastMCP):** exposes the fabric as MCP tools. This is the
+  contract LLM agents bind to. Treat tool definitions as the public API.
+- **Agent/LLM layer:** multiple LLMs behind MCP; no single model provider may be
+  load-bearing. **SSDF is read-only**: it stores, queries, and correlates — it never
+  applies configuration to security products in its own data path (onboarding configs
+  are applied by the operator via external vendor MCPs, e.g. rust-junosmcp/panos-mcp).
 
 ### Cross-cutting rules
 
@@ -185,7 +182,24 @@ security products ──► ingest/parse (Rust) ──► data fabric (Rust) ─
 - **nginx MCP edge (ct106/ct113):** apply with `./scripts/apply_mcp_edge.sh` — TLS on LAN 30032/30033, uvicorn rebound to `127.0.0.1:31032/31033` via drop-in `edge.conf`; rate limit 10r/s burst 30 + 32 conns/IP (429), Host gate (444), Origin gate (403), SSE-safe proxying. Clients now use `https://198.51.100.152:30032/mcp` / `https://…154:30033/mcp` with `ssdf-ca.crt` trust (Claude Code: `NODE_EXTRA_CA_CERTS`).
 - **Token expiry/rotation:** `tokens.json` entries take optional `"not_after": "<ISO-8601 UTC>"` — enforced per call in `wrapper` (expired ⇒ `{"error":"forbidden"}` + audit deny); malformed ⇒ fail-closed. Rotation: add new entry → restart → move clients → delete old → restart. Both tiers run named principals with +90d expiry; local client config in gitignored `.mcp.json`.
 - **L4 grant split:** `ENTITY_MAINT_PW=… envsubst < infra/clickhouse/011_entity_maint_user.sql | clickhouse-client --multiquery` — reconcile runs as `CH_USER=ssdf_entity_maint python -m ssdf_entity.reconcile_assets`; the 5-min resolver identity `ssdf_entity` no longer holds ALTER DELETE.
-- **PAN-OS event timestamps are device-local (EDT, UTC-4)** — when checking "did ingest just work", query a window shifted accordingly or you'll see false zero-rows (live-found).
+- **PAN-OS timestamps fixed to UTC (P2, 2026-06-12):** panosvm now runs `timezone UTC`
+  (onboarding/panos/timezone-utc.md) and pre-cutover rows were backfilled +4h
+  (`infra/clickhouse/012_backfill_paloalto_utc.sql.example`, cutover 2026-06-12 12:00:00 UTC —
+  chosen by boundary inspection in a row-free gap, NOT the commit time; see 012).
+  Any NEW log source must be onboarded with a UTC device clock — naive-parse skew otherwise.
+
+### Ops (backups + lab traffic)
+- **vzdump backups (P2, 2026-06-12):** `PVE_BACKUP_STORAGE=local ./scripts/apply_pve_backup_job.sh`
+  idempotently maintains two cluster jobs — `ssdf-ch-daily` (ct104, 03:30, keep-daily=7/weekly=4)
+  and `ssdf-all-weekly` (ct102/104/106/109/113, Sun 04:30, keep-weekly=4); snapshot mode + zstd.
+  `local` is the only backup-capable storage on pve3 (host's own disk) — covers container
+  loss/fat-fingers, NOT host-disk loss. Schedule times are pve3-host-local. Verify:
+  `pvesh get /cluster/backup` / restore drill to a SCRATCH VMID only, never ct104 itself.
+- **Lab transit traffic (P2):** ct115 `ssdf-labgen` (Alpine, 10.74.11.20 on panosvm trust
+  VLAN 103) runs `scripts/labgen_transit.sh` via 15-min cron so PAN-OS TRAFFIC ingest +
+  the M6c-B provenance bridge stay continuously live-proven. Runbook:
+  `onboarding/panos/transit-traffic.md`. Do not destroy ct115 without replacing the source.
+  ct115 is deliberately NOT in the weekly backup job — it is fully reproducible from the runbook.
 
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
