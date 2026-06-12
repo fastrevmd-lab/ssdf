@@ -10,12 +10,20 @@ CH_HOST = os.environ.get("CH_HOST")
 AUDIT_PW = os.environ.get("CH_AUDIT_PASSWORD")
 RO_PW = os.environ.get("CH_PASSWORD")
 
+# TLS (edge-hardening L1a): same envs the services use.
+_TLS_KWARGS = (
+    {"interface": "https", "ca_cert": os.environ.get("CH_CA_FILE")}
+    if os.environ.get("CH_SECURE") == "1"
+    else {}
+)
+
 
 def _audit_client():
     return clickhouse_connect.get_client(
         host=CH_HOST, port=int(os.environ.get("CH_PORT", "8123")),
         username=os.environ.get("CH_AUDIT_USER", "ssdf_audit"),
         password=AUDIT_PW, database="ssdf",
+        **_TLS_KWARGS,
     )
 
 
@@ -41,6 +49,7 @@ def test_audit_row_inserts_and_round_trips():
         host=CH_HOST, port=int(os.environ.get("CH_PORT", "8123")),
         username=os.environ.get("CH_ADMIN_USER", "default"),
         password=admin_pw, database="ssdf",
+        **_TLS_KWARGS,
     )
     rows = admin.query(
         "SELECT tool, decision, row_count, data_classes FROM ssdf.audit "

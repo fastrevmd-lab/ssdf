@@ -35,3 +35,7 @@ infra/tls-local/
 
 # Git worktrees
 /.worktrees/
+
+# Local MCP client config (bearer tokens)
+.mcp.json
+.claude/settings.local.json
