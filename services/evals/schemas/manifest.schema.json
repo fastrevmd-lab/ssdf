@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ssdf-evals-manifest-v1",
+  "title": "SSDF eval run-manifest (contract v1)",
+  "type": "object",
+  "required": ["schema_version", "run_id", "model", "runner", "tier",
+               "principal", "corpus_version", "questions"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "model": {"type": "string", "minLength": 1},
+    "runner": {"type": "string", "minLength": 1},
+    "tier": {"enum": ["sovereign", "public"]},
+    "principal": {"type": "string", "minLength": 1},
+    "corpus_version": {"type": "string", "minLength": 1},
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "started", "finished", "answer", "error"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "started": {"type": "string", "format": "date-time"},
+          "finished": {"type": "string", "format": "date-time"},
+          "answer": {"type": ["object", "null"]},
+          "error": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}

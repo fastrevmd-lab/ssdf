@@ -243,11 +243,12 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   `coverage:{observed:true, configured:5}`); (4) scheduled vzdump backups
   (`scripts/apply_pve_backup_job.sh`); (5) retired the greenfield/Rust-core doctrine
   drift in CLAUDE.md.
-- **M8 — agent-eval harness.** Next milestone (spec required before build). Golden-set
-  questions (SOC-analyst corpus) run by (1) Claude via Agent SDK and (2) a local Ollama
-  tool-calling model, both against the REAL sovereign MCP endpoint; deterministic
-  predicate scoring + `ssdf.audit` as the eval trace; the local-model floor IS the
-  sovereignty proof. Charter in `plans/2026-06-12-ssdf-next-phase-roadmap.md` Phase 2.
+- **M8 — agent-eval harness.** SSDF-side harness merged (corpus v1: 23 questions /
+  5 categories / tier-tagged; deterministic scorer + regression gate + contract schemas).
+  Remaining M8 work lives in runner projects (Claude Agent SDK + Ollama harnesses, pass-rate
+  floors, sovereignty proof); first real scorecard pending a runner run. Eval principals
+  (`eval-*`) to be added to ct106/ct113 `tokens.json` at first run (operator step).
+  Spec: `specs/2026-06-12-ssdf-m8-eval-harness-design.md`.
 - **M9 — UniFi Suricata EVE ingest.** First detection-class source (IDS alerts) via the
   established Vector→ClickHouse pattern. Charter in the same plan, Phase 3.
 - **M10 — derived findings layer.** Gated on M8 (evals must first show where agents
