@@ -35,8 +35,12 @@ def build_app(tier: str = "sovereign") -> FastMCP:
     tools = Tools(client)
     graph_store = ClickHouseGraphStore(client, tenant="t_main", schema=schema)
     topo = TopoTools(graph_store)
-    entity_store = ClickHouseEntityStore(client, tenant="t_main")
-    access = AccessTools(entity_store, topo)
+    # L5: the entity store/access tools are sovereign-only (hard-coded ssdf.*
+    # reads, never exposed publicly) — don't even construct them on public.
+    access = None
+    if tier != "public":
+        entity_store = ClickHouseEntityStore(client, tenant="t_main")
+        access = AccessTools(entity_store, topo)
 
     verifier_tokens: dict[str, dict] = {}
     for token, tp in config.tokens.items():
@@ -48,6 +52,8 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         }
         if tp.allowed_tools is not None:
             payload["allowed_tools"] = sorted(tp.allowed_tools)
+        if tp.not_after is not None:
+            payload["not_after"] = tp.not_after.isoformat()
         verifier_tokens[token] = payload
     auth = StaticTokenVerifier(tokens=verifier_tokens)
     mcp = FastMCP("ssdf-mcp-query", auth=auth)
@@ -123,8 +129,9 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         "find_path": find_path,
         "enforcement_points": enforcement_points,
         "topology_snapshot": topology_snapshot,
-        "explain_access": explain_access,
     }
+    if access is not None:  # sovereign-only (L5): never a candidate on public
+        raw_tools["explain_access"] = explain_access
     if tier == "public":
         selected = public_tool_names(classification, list(raw_tools))
         if not selected:

@@ -18,6 +18,7 @@ import threading
 from typing import Any, Callable, Iterable
 
 from .audit_chain import compute_row_hash
+from .config import ch_tls_kwargs
 
 # The nine stored business fields (what build_audit_row produces).
 AUDIT_BASE_COLUMNS: list[str] = [
@@ -96,6 +97,7 @@ def _seed_last_hash(config, tier: str) -> str:
         username="ssdf_audit_verify",
         password=config.ch_audit_verify_password,
         database=config.ch_database,
+        **ch_tls_kwargs(config),
     )
     res = verify_client.query(
         "SELECT row_hash FROM ssdf.audit WHERE tier = {tier:String} "
@@ -120,6 +122,7 @@ def make_ch_auditor(config, tier: str = "sovereign") -> Auditor:
         username=config.ch_audit_user,
         password=config.ch_audit_password,
         database=config.ch_database,
+        **ch_tls_kwargs(config),
     )
 
     def insert(row: dict) -> None:

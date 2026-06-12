@@ -81,6 +81,49 @@ def test_sovereign_build_unchanged(monkeypatch):
     assert _names(app) == SOVEREIGN_TOOLS
 
 
+def test_public_build_does_not_construct_entity_store(monkeypatch, tmp_path):
+    """L5: the public tier never registers entity tools, so the sovereign-only
+    ClickHouseEntityStore/AccessTools must not even be constructed."""
+    import ssdf_mcp_query.server as server
+    _patch_ch(monkeypatch, server)
+    monkeypatch.setenv("MCP_CLASSIFICATION_FILE",
+                       _classification_file(tmp_path, topology="shareable", identity="shareable"))
+    constructed = {"entity_store": 0, "access": 0}
+
+    class _EntitySpy:
+        def __init__(self, *a, **k):
+            constructed["entity_store"] += 1
+
+    class _AccessSpy:
+        def __init__(self, *a, **k):
+            constructed["access"] += 1
+
+    monkeypatch.setattr(server, "ClickHouseEntityStore", _EntitySpy)
+    monkeypatch.setattr(server, "AccessTools", _AccessSpy)
+    app = server.build_app(tier="public")
+    assert constructed == {"entity_store": 0, "access": 0}
+    # tool surface unchanged by the gating
+    assert _names(app) == {
+        "get_entity", "locate", "neighbors", "find_path", "topology_snapshot",
+    }
+
+
+def test_sovereign_build_constructs_entity_store(monkeypatch):
+    import ssdf_mcp_query.server as server
+    _patch_ch(monkeypatch, server)
+    constructed = {"entity_store": 0}
+    real_store = server.ClickHouseEntityStore
+
+    def _spy(*a, **k):
+        constructed["entity_store"] += 1
+        return real_store(*a, **k)
+
+    monkeypatch.setattr(server, "ClickHouseEntityStore", _spy)
+    app = server.build_app()
+    assert constructed["entity_store"] == 1
+    assert _names(app) == SOVEREIGN_TOOLS
+
+
 def test_public_build_uses_public_schema(monkeypatch, tmp_path):
     import ssdf_mcp_query.server as server
     _patch_ch(monkeypatch, server)

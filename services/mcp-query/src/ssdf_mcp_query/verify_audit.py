@@ -16,7 +16,7 @@ import sys
 from collections import defaultdict
 
 from .audit_chain import compute_row_hash
-from .config import load_config
+from .config import ch_tls_kwargs, load_config
 
 _VERIFY_COLUMNS = [
     "ts", "principal", "tier", "tool", "args", "data_classes",
@@ -74,6 +74,7 @@ def _fetch_rows(config) -> list[dict]:
         username="ssdf_audit_verify",
         password=config.ch_audit_verify_password,
         database=config.ch_database,
+        **ch_tls_kwargs(config),
     )
     res = client.query(
         f"SELECT {', '.join(_VERIFY_COLUMNS)} FROM ssdf.audit ORDER BY ts ASC"

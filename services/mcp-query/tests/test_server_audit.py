@@ -44,3 +44,25 @@ def test_multi_principal_tokens_register(monkeypatch, tmp_path):
     _patch_ch(monkeypatch, server)
     app = server.build_app()
     assert _names(app) == EXPECTED_TOOLS
+
+
+def test_not_after_lands_in_verifier_claims(monkeypatch, tmp_path):
+    import ssdf_mcp_query.server as server
+    f = tmp_path / "tokens.json"
+    f.write_text(json.dumps({
+        "tok-exp": {"principal": "expiring", "not_after": "2026-09-09T12:00:00+00:00"},
+        "tok-forever": {"principal": "forever"},
+    }))
+    monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
+    _patch_ch(monkeypatch, server)
+    captured = {}
+    real_verifier = server.StaticTokenVerifier
+
+    def _spy(tokens):
+        captured.update(tokens)
+        return real_verifier(tokens=tokens)
+
+    monkeypatch.setattr(server, "StaticTokenVerifier", lambda tokens: _spy(tokens))
+    server.build_app()
+    assert captured["tok-exp"]["not_after"] == "2026-09-09T12:00:00+00:00"
+    assert "not_after" not in captured["tok-forever"]

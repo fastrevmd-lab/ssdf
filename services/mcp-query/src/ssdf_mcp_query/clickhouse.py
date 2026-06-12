@@ -9,7 +9,7 @@ from typing import Any
 
 import clickhouse_connect
 
-from .config import Config
+from .config import Config, ch_tls_kwargs
 
 
 def jsonify(value: Any) -> Any:
@@ -38,6 +38,7 @@ class ClickHouseClient:
             username=config.ch_user,
             password=config.ch_password,
             database=config.ch_database,
+            **ch_tls_kwargs(config),
         )
 
     def run(self, sql: str, params: dict | None = None) -> dict:
