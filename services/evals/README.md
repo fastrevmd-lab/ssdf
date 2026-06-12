@@ -14,15 +14,23 @@ Spec: `docs/superpowers/specs/2026-06-12-ssdf-m8-eval-harness-design.md`.
    agent with `answer_format` appended **verbatim**, and records the agent's
    final JSON answer.
 2. `schemas/manifest.schema.json` — what the runner hands back (one JSON file
-   per run).
+   per run). The manifest's `corpus_version` field is set by the runner to the
+   git commit SHA of the SSDF repo (i.e. the corpus file) it ran against; the
+   scorer copies it into the scorecard unverified — it exists for human/CI
+   traceability of which corpus version the run targeted. Manifest question ids
+   that are not in the run-tier corpus (e.g. sovereign questions in a public
+   run) are ignored with a stderr warning.
 3. `schemas/scorecard.schema.json` — what the scorer emits into `results/`.
+   Scorecards are written to `results/<UTC-date>-<model>-<run_id>.json`
+   (sanitized) and should be committed to git; git history is the eval
+   database.
 
 ## Runner obligations
 
-- Use a **dedicated eval principal token** (e.g. `eval-claude`, `eval-qwen`)
-  added to the tier's `tokens.json` with expiry — never the regular agent
-  token. `ssdf.audit` is the only trusted tool trace; self-reported tool calls
-  are ignored.
+- Use a **dedicated eval-only principal token** (e.g. `eval-claude`,
+  `eval-qwen`) added to the tier's `tokens.json` with expiry — never the
+  regular agent token. `ssdf.audit` is the only trusted tool trace;
+  self-reported tool calls are ignored.
 - Bind to the real prod path: `https://198.51.100.152:30032/mcp` (sovereign) or
   `https://198.51.100.154:30033/mcp` (public) with `ssdf-ca.crt` trust — evals
   exercise prod auth by construction.
@@ -30,12 +38,16 @@ Spec: `docs/superpowers/specs/2026-06-12-ssdf-m8-eval-harness-design.md`.
   principal + this window ± `EVAL_AUDIT_SLOP_SECS`, default 5s).
 - Run-tier subset: `sovereign` runs answer `tier: sovereign|both` questions;
   `public` runs answer `tier: public|both`.
-- **IMPORTANT — audit integrity:** the audit tool-check trusts manifest
-  `started`/`finished` + principal. This guarantee only holds if each run uses
-  a **dedicated, per-run-unique eval principal** (e.g. `eval-claude`) and
-  honest timestamps. SSDF treats a shared or reused principal's audit window as
-  untrustworthy — a shared principal can mix audit rows from concurrent or
-  adjacent runs, invalidating the tool-call trace.
+- **IMPORTANT — audit integrity:** each runner uses a **dedicated eval-only
+  principal** (e.g. `eval-claude`, `eval-qwen`) that is never shared with
+  regular agents or other runners. Serial reuse of the same principal across
+  runs is fine; two runs must never execute concurrently (or with overlapping
+  ±slop audit windows) under the same principal — otherwise the audit
+  tool-check window is untrustworthy and SSDF will not vouch for the
+  scorecard.
+- **Public-tier containment:** in a `tier: public` run, a question fails if
+  ANY non-public tool appears in its audit window. Public tools are:
+  `get_entity`, `locate`, `neighbors`, `find_path`, `topology_snapshot`.
 
 ## Scoring a run
 
@@ -45,7 +57,9 @@ Spec: `docs/superpowers/specs/2026-06-12-ssdf-m8-eval-harness-design.md`.
       uv run python -m ssdf_evals.score /path/to/manifest.json
 
 Exit 0 = scored (scorecard written to `results/`, commit it — history is the
-database). Exit 2 = config/contract error.
+database). Exit 2 = config/contract/scoring error (covers mid-run failures).
+Requires `CH_PASSWORD` + `CH_AUDIT_VERIFY_PASSWORD` at minimum; see CLAUDE.md
+M8 section for the full env list.
 
 A question passes only if its predicate **and** its audit tool-check pass.
 Fail-closed: missing question = fail, runner error = fail, SQL error = fail.
@@ -54,11 +68,12 @@ Fail-closed: missing question = fail, runner error = fail, SQL error = fail.
 
     uv run python -m ssdf_evals.regress results/<new-scorecard>.json
 
-Exit 1 if any question that **ever passed for that model** now fails. No
+Exit 0 = no regressions. Exit 1 = regressions found (listed on stderr).
+Exit 2 = unreadable/schema-invalid new scorecard or missing results dir. No
 thresholds here — pass-rate floors (incl. the local-model sovereignty floor)
 are runner-project policy.
 
 ## Tests
 
     uv run pytest -m "not integration"      # unit + corpus lint
-    CH_HOST=... uv run pytest -m integration  # live corpus-SQL + audit join
+    CH_HOST=... CH_PASSWORD=... CH_AUDIT_VERIFY_PASSWORD=... uv run pytest -m integration  # live corpus-SQL + audit join (see CLAUDE.md M8 for full env list)
