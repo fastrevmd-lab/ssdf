@@ -38,6 +38,20 @@ def test_detects_deletion_of_predecessor():
     assert any(i["type"] == "missing_predecessor" for i in issues)
 
 
+def test_legacy_unhashed_rows_are_not_issues():
+    """Rows written before migration 009 have prev_hash='' / row_hash='' (column
+    DEFAULT). The first *hashed* row per tier is that tier's chain start; legacy
+    rows must not be flagged."""
+    legacy = dict(
+        ts=dt.datetime(2026, 6, 9, 12, 0, 0, 0, tzinfo=dt.timezone.utc),
+        principal="agent", tier="sovereign", tool="old", args="{}",
+        data_classes=["topology"], decision="allow", row_count=0, error="",
+        prev_hash="", row_hash="",
+    )
+    rows = [legacy] + _chain(3)
+    assert verify_tier(rows) == []
+
+
 def test_detects_unreachable_orphan():
     rows = _chain(3)
     orphan = dict(

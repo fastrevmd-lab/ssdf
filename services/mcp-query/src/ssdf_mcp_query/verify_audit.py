@@ -25,7 +25,14 @@ _VERIFY_COLUMNS = [
 
 
 def verify_tier(rows: list[dict]) -> list[dict]:
-    """Verify one tier's rows. Returns a list of issue dicts (empty == clean)."""
+    """Verify one tier's rows. Returns a list of issue dicts (empty == clean).
+
+    Rows written before migration 009 carry prev_hash='' / row_hash='' (column
+    DEFAULT) and are excluded: the first hashed row per tier is that tier's
+    chain start. A blanked-hash tamper on a chained row is still caught — its
+    successor's prev_hash names a now-missing row_hash (missing_predecessor).
+    """
+    rows = [r for r in rows if r["row_hash"] != ""]
     issues: list[dict] = []
     by_hash = {r["row_hash"]: r for r in rows}
 
@@ -88,8 +95,9 @@ def main() -> int:
     for tier, tier_rows in sorted(by_tier.items()):
         issues = verify_tier(tier_rows)
         total += len(issues)
+        legacy = sum(1 for r in tier_rows if r["row_hash"] == "")
         status = "OK" if not issues else f"{len(issues)} ISSUE(S)"
-        print(f"tier={tier} rows={len(tier_rows)} {status}")
+        print(f"tier={tier} rows={len(tier_rows)} legacy_unhashed={legacy} {status}")
         for issue in issues:
             print(f"  {issue['type']}: row_hash={issue['row_hash'][:16]}…")
     return 0 if total == 0 else 1
