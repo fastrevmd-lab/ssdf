@@ -59,3 +59,18 @@ def test_main_exit_codes(tmp_path):
     garbage = tmp_path / "g.json"
     garbage.write_text("{nope")
     assert main([str(garbage), "--results-dir", str(tmp_path)]) == 2
+
+
+def test_malformed_history_scorecard_is_warn_skipped(tmp_path):
+    # valid JSON but invalid scorecard shape — questions is a string, not a list
+    (tmp_path / "bad_shape.json").write_text(json.dumps({"questions": "oops"}))
+    # valid history: q1 passed once
+    write(tmp_path / "good.json", card("m1", "r1", {"q1": True}))
+    # new card: q1 now fails → should still be detected as regression
+    new = card("m1", "r2", {"q1": False})
+    assert find_regressions(new, tmp_path) == ["q1"]
+
+
+def test_main_missing_results_dir_returns_2(tmp_path):
+    new_path = write(tmp_path / "new.json", card("m1", "r1", {"q1": True}))
+    assert main([str(new_path), "--results-dir", "/nonexistent/path/xyz"]) == 2

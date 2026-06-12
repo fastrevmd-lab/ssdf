@@ -28,12 +28,16 @@ def _ever_passed(model: str, results_dir: Path, exclude: Path) -> set[str]:
             continue
         try:
             scorecard = json.loads(path.read_text())
+            validate_scorecard(scorecard)
         except (OSError, json.JSONDecodeError):
             print(f"warning: skipping unreadable scorecard {path}", file=sys.stderr)
             continue
+        except SchemaError:
+            print(f"warning: skipping malformed scorecard {path}", file=sys.stderr)
+            continue
         if scorecard.get("model") != model:
             continue
-        passed.update(q["id"] for q in scorecard.get("questions", []) if q.get("pass"))
+        passed.update(q["id"] for q in scorecard["questions"] if q["pass"])
     return passed
 
 
@@ -55,6 +59,10 @@ def main(argv: list[str] | None = None) -> int:
         validate_scorecard(new_scorecard)
     except (OSError, json.JSONDecodeError, SchemaError) as exc:
         print(f"cannot read scorecard: {exc}", file=sys.stderr)
+        return 2
+
+    if not args.results_dir.is_dir():
+        print(f"error: results dir does not exist: {args.results_dir}", file=sys.stderr)
         return 2
 
     regressions = find_regressions(new_scorecard, args.results_dir,
