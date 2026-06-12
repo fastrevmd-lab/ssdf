@@ -142,8 +142,9 @@ if length(f) > 3 { log_type = upcase(string(f[3]) ?? "") }
 subtype = ""
 if length(f) > 4 { subtype = string(f[4]) ?? "" }
 
-# field 7 (index 6) = GeneratedTime, device-local US/Eastern. v0: parse as-is
-# without TZ conversion (caveat: stored timestamp is wall-clock, not true UTC).
+# field 7 (index 6) = GeneratedTime, stamped in the DEVICE's local timezone with
+# no offset. SSDF requires log sources to run UTC (onboarding/panos/timezone-utc.md);
+# parsed here as naive UTC. A non-UTC device skews ssdf.events.timestamp.
 gen_time = ""
 if length(f) > 6 { gen_time = string(f[6]) ?? "" }
 event_ts = ts_fallback
