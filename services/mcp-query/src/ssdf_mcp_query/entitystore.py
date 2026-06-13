@@ -81,11 +81,35 @@ def build_configured_governed_sql(firewall_ids: list[str], tenant: str) -> tuple
     return sql, {"tenant": tenant, "ids": firewall_ids}
 
 
+def build_alerts_for_pair_sql(ips: list[str], since_iso: str,
+                              tenant: str) -> tuple[str, dict]:
+    # UniFi IPS alerts (M9) touching either endpoint IP in-window. source_ip/
+    # destination_ip are Nullable(IPv4); compare via toString to match the
+    # dotted-quad params without IPv4-cast fragility. IPv6 alerts (kept only in
+    # ext/raw) do not match here by design (events schema is IPv4-only).
+    sql = (
+        "SELECT toString(timestamp) AS timestamp, toString(source_ip) AS source_ip, "
+        "toString(destination_ip) AS destination_ip, "
+        "ext['unifi.ips.signature'] AS signature, "
+        "ext['unifi.ips.signature_id'] AS signature_id, "
+        "ext['unifi.ips.category'] AS category, "
+        "ext['unifi.ips.severity'] AS severity "
+        "FROM ssdf.events "
+        "WHERE tenant_id = {tenant:String} AND event_provider = 'unifi' "
+        "AND event_kind = 'alert' AND timestamp >= {since:String} AND ("
+        "toString(source_ip) IN {ips:Array(String)} OR "
+        "toString(destination_ip) IN {ips:Array(String)}) "
+        "ORDER BY timestamp DESC"
+    )
+    return sql, {"tenant": tenant, "ips": ips, "since": since_iso}
+
+
 class EntityStore(Protocol):
     def find_entity(self, identifier: str) -> dict | None: ...
     def communicated_edges(self, a_id: str, b_id: str, since_iso: str) -> list[dict]: ...
     def governed_policies(self, comm_edge_ids: list[str]) -> list[dict]: ...
     def configured_policies_for_firewalls(self, firewall_names: list[str]) -> list[dict]: ...
+    def alerts_for_pair(self, ips: list[str], since_iso: str) -> list[dict]: ...
 
 
 class ClickHouseEntityStore:
@@ -147,3 +171,9 @@ class ClickHouseEntityStore:
                 name = fw["identifiers"].get("device_name") or fw.get("name", "")
                 result.append({"firewall": name, "policy": policy})
         return result
+
+    def alerts_for_pair(self, ips: list[str], since_iso: str) -> list[dict]:
+        if not ips:
+            return []
+        sql, params = build_alerts_for_pair_sql(ips, since_iso, self._tenant)
+        return self._ch.run(sql, params)["rows"]

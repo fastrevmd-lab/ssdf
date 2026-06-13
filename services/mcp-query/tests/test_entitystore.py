@@ -2,6 +2,20 @@ from ssdf_mcp_query.entitystore import (
     build_entity_match_sql, build_comm_edges_sql, build_governed_by_sql,
     build_entities_by_id_sql, ClickHouseEntityStore,
 )
+from ssdf_mcp_query.entitystore import build_alerts_for_pair_sql
+
+
+def test_build_alerts_for_pair_sql_filters_provider_kind_ips_and_window():
+    sql, params = build_alerts_for_pair_sql(
+        ["198.51.100.50", "198.51.100.20"], "2026-06-13T00:00:00.000", "t_main")
+    assert "event_provider = 'unifi'" in sql
+    assert "event_kind = 'alert'" in sql
+    assert "timestamp >= {since:String}" in sql
+    assert "toString(source_ip) IN {ips:Array(String)}" in sql
+    assert "toString(destination_ip) IN {ips:Array(String)}" in sql
+    assert params["ips"] == ["198.51.100.50", "198.51.100.20"]
+    assert params["since"] == "2026-06-13T00:00:00.000"
+    assert params["tenant"] == "t_main"
 
 
 def test_entity_match_sql_lowercases_mac_and_matches_values():
