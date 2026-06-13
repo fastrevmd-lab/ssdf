@@ -386,7 +386,13 @@ ev.network_transport = "unknown"
 ev.rule_name = ""
 ev.observer_ingress_zone = ""
 ev.observer_egress_zone = ""
-ev.observer_hostname = ""
+obs_host = string(parsed.hostname) ?? ""
+_obs_parts = split(obs_host, ".")
+_obs_short = downcase(string(_obs_parts[0]) ?? "")
+_obs_known = false
+if _obs_short == "gatewaymax" { _obs_known = true }
+if !_obs_known { obs_host = "" }
+ev.observer_hostname = obs_host
 ev.user_name = ""
 ev.raw = raw
 
@@ -842,4 +848,65 @@ assert_eq!(.event_kind, "alert")
 assert_eq!(.event_action, "alert_web-application-attack")
 assert_eq!(.event_outcome, "failure")
 assert_eq!(.ext."unifi.ips.severity", "1")
+'''
+
+[[tests]]
+name = "unifi_observer_hostname_known_passes"
+[[tests.inputs]]
+insert_at = "unifi_ips"
+type = "raw"
+value = '<29>1 2026-06-13T12:03:00.000000+00:00 gatewaymax suricata - - - {"timestamp":"2026-06-13T12:03:00.000000+0000","event_type":"alert","src_ip":"198.51.100.50","dest_ip":"198.51.100.20","proto":"TCP","alert":{"action":"allowed","signature_id":1,"signature":"x","category":"Misc","severity":3}}'
+[[tests.outputs]]
+extract_from = "unifi_ips"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.observer_hostname, "gatewaymax")
+'''
+
+[[tests]]
+name = "unifi_observer_hostname_unknown_is_blanked"
+[[tests.inputs]]
+insert_at = "unifi_ips"
+type = "raw"
+value = '<29>1 2026-06-13T12:03:00.000000+00:00 evil-host suricata - - - {"timestamp":"2026-06-13T12:03:00.000000+0000","event_type":"alert","src_ip":"198.51.100.50","dest_ip":"198.51.100.20","proto":"TCP","alert":{"action":"allowed","signature_id":1,"signature":"x","category":"Misc","severity":3}}'
+[[tests.outputs]]
+extract_from = "unifi_ips"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.observer_hostname, "")
+assert_eq!(.event_kind, "alert")
+'''
+
+[[tests]]
+name = "unifi_ipv6_source_left_null_kept_in_ext"
+[[tests.inputs]]
+insert_at = "unifi_ips"
+type = "raw"
+value = '<29>1 2026-06-13T12:04:00.000000+00:00 gatewaymax suricata - - - {"timestamp":"2026-06-13T12:04:00.000000+0000","event_type":"alert","src_ip":"2001:db8::1","dest_ip":"198.51.100.20","proto":"TCP","alert":{"action":"allowed","signature_id":1,"signature":"x","category":"Misc","severity":3}}'
+[[tests.outputs]]
+extract_from = "unifi_ips"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert!(!exists(.source_ip))
+assert_eq!(.destination_ip, "198.51.100.20")
+assert_eq!(.ext."unifi.ips.src_ip", "2001:db8::1")
+'''
+
+[[tests]]
+name = "unifi_malformed_line_is_unknown"
+[[tests.inputs]]
+insert_at = "unifi_ips"
+type = "raw"
+value = '<29>1 2026-06-13T12:05:00.000000+00:00 gatewaymax suricata - - - not-json-garbage'
+[[tests.outputs]]
+extract_from = "unifi_ips"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "unknown")
+assert_eq!(.event_provider, "unifi")
+assert!(!exists(.source_ip))
 '''
