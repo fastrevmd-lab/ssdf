@@ -354,8 +354,27 @@ type = "remap"
 inputs = ["unifi_syslog"]
 source = '''
 raw = string(.message) ?? ""
+parsed, perr = parse_syslog(raw)
+
+# UniFi wraps the Suricata eve.json record in a syslog line; slice from the first
+# "{" to the last "}" so any tag/prefix before the JSON body is ignored.
+json_body = raw
+bm, berr = parse_regex(raw, r'(?P<j>\{.*\})')
+if berr == null { json_body = string(bm.j) ?? raw }
+doc, derr = parse_json(json_body)
+if derr != null { doc = {} }
+
+# timestamp: prefer the eve record, then syslog, else now
+event_ts = now()
+if perr == null && exists(parsed.timestamp) { event_ts = parsed.timestamp }
+ts_str = string(doc.timestamp) ?? ""
+ts, tserr = parse_timestamp(ts_str, "%Y-%m-%dT%H:%M:%S%.f%z")
+if tserr == null { event_ts = ts }
+
+etype = downcase(string(doc.event_type) ?? "")
+
 ev = {}
-ev = set!(ev, ["timestamp"], now())
+ev = set!(ev, ["timestamp"], event_ts)
 ev.event_id = uuid_v4()
 ev.tenant_id = "t_main"
 ev.event_provider = "unifi"
@@ -369,8 +388,75 @@ ev.observer_ingress_zone = ""
 ev.observer_egress_zone = ""
 ev.observer_hostname = ""
 ev.user_name = ""
-ev.ext = {}
 ev.raw = raw
+
+ext = {}
+
+proto = downcase(string(doc.proto) ?? "")
+if proto != "" { ev.network_transport = proto }
+
+src_ip = string(doc.src_ip) ?? ""
+dst_ip = string(doc.dest_ip) ?? ""
+_sm, _se = parse_regex(src_ip, r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+if _se == null {
+    ev.source_ip = src_ip
+} else if src_ip != "" {
+    ext = set!(ext, ["unifi.ips.src_ip"], src_ip)
+}
+_dm, _de = parse_regex(dst_ip, r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+if _de == null {
+    ev.destination_ip = dst_ip
+} else if dst_ip != "" {
+    ext = set!(ext, ["unifi.ips.dest_ip"], dst_ip)
+}
+
+if doc.src_port != null { ev.source_port = to_int(doc.src_port) ?? null }
+if doc.dest_port != null { ev.destination_port = to_int(doc.dest_port) ?? null }
+
+app = string(doc.app_proto) ?? ""
+if app != "" { ext = set!(ext, ["unifi.ips.app_proto"], app) }
+
+if etype == "alert" {
+    ev.event_kind = "alert"
+    ev.event_category = ["intrusion_detection"]
+    alert = object(doc.alert) ?? {}
+    cat = string(alert.category) ?? ""
+    sig = string(alert.signature) ?? ""
+    act = downcase(string(alert.action) ?? "")
+    cat_slug = replace(downcase(cat), " ", "-")
+    ev.event_action = "alert_" + cat_slug
+    if act == "blocked" || act == "dropped" {
+        ev.event_outcome = "failure"
+    } else {
+        ev.event_outcome = "detection"
+    }
+    if sig != "" { ext = set!(ext, ["unifi.ips.signature"], sig) }
+    if alert.signature_id != null { ext = set!(ext, ["unifi.ips.signature_id"], to_string(alert.signature_id) ?? "") }
+    if cat != "" { ext = set!(ext, ["unifi.ips.category"], cat) }
+    if alert.severity != null { ext = set!(ext, ["unifi.ips.severity"], to_string(alert.severity) ?? "") }
+} else if etype == "flow" || etype == "netflow" {
+    ev.event_kind = "event"
+    ev.event_category = ["network"]
+    fl = object(doc.flow) ?? {}
+    state = downcase(string(fl.state) ?? "")
+    if state == "" { state = "record" }
+    ev.event_action = "flow_" + state
+    ev.event_outcome = "success"
+    sb = to_int(fl.bytes_toserver) ?? null
+    db = to_int(fl.bytes_toclient) ?? null
+    if sb != null { ev.source_bytes = sb }
+    if db != null { ev.destination_bytes = db }
+    if sb != null && db != null {
+        _sb = int!(sb)
+        _db = int!(db)
+        ev.network_bytes = _sb + _db
+    }
+} else {
+    ev.event_action = "unknown"
+    if etype != "" { ext = set!(ext, ["unifi.event_type"], etype) }
+}
+
+ev.ext = ext
 . = ev
 '''
 
@@ -665,6 +751,34 @@ source = '''
 assert_eq!(.event_action, "unknown")
 assert_eq!(.event_provider, "paloalto")
 assert!(!exists(.source_ip))
+'''
+
+[[tests]]
+name = "unifi_alert_allowed_maps_to_ecs"
+[[tests.inputs]]
+insert_at = "unifi_ips"
+type = "raw"
+value = '<29>1 2026-06-13T12:00:00.000000+00:00 gatewaymax suricata - - - {"timestamp":"2026-06-13T12:00:00.000000+0000","event_type":"alert","src_ip":"198.51.100.50","src_port":51514,"dest_ip":"198.51.100.20","dest_port":443,"proto":"TCP","app_proto":"tls","alert":{"action":"allowed","signature_id":2027865,"signature":"ET POLICY Suspicious TLS","category":"Potentially Bad Traffic","severity":2}}'
+[[tests.outputs]]
+extract_from = "unifi_ips"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_kind, "alert")
+assert_eq!(.event_category, ["intrusion_detection"])
+assert_eq!(.event_action, "alert_potentially-bad-traffic")
+assert_eq!(.event_outcome, "detection")
+assert_eq!(.event_provider, "unifi")
+assert_eq!(.source_ip, "198.51.100.50")
+assert_eq!(.destination_ip, "198.51.100.20")
+assert_eq!(.source_port, 51514)
+assert_eq!(.destination_port, 443)
+assert_eq!(.network_transport, "tcp")
+assert_eq!(.ext."unifi.ips.signature", "ET POLICY Suspicious TLS")
+assert_eq!(.ext."unifi.ips.signature_id", "2027865")
+assert_eq!(.ext."unifi.ips.category", "Potentially Bad Traffic")
+assert_eq!(.ext."unifi.ips.severity", "2")
+assert_eq!(.ext."unifi.ips.app_proto", "tls")
 '''
 
 [[tests]]
