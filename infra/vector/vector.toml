@@ -14,6 +14,13 @@ mode = "udp"
 address = "0.0.0.0:515"
 max_length = 102400
 
+# UniFi Gateway Max — Suricata IPS alerts + traffic flows on a separate UDP port.
+[sources.unifi_syslog]
+type = "socket"
+mode = "udp"
+address = "0.0.0.0:516"
+max_length = 102400
+
 [transforms.srx_ecs]
 type = "remap"
 inputs = ["srx_syslog"]
@@ -339,6 +346,34 @@ ev.ext = ext
 . = ev
 '''
 
+# UniFi Suricata eve.json over syslog -> ECS subset. Branch on event_type:
+# alert -> intrusion_detection; flow/netflow -> network. IPv4-guard typed IPs
+# (IPv6 kept in ext+raw). Parsing filled in incrementally (M9 Tasks 3-5).
+[transforms.unifi_ips]
+type = "remap"
+inputs = ["unifi_syslog"]
+source = '''
+raw = string(.message) ?? ""
+ev = {}
+ev = set!(ev, ["timestamp"], now())
+ev.event_id = uuid_v4()
+ev.tenant_id = "t_main"
+ev.event_provider = "unifi"
+ev.event_kind = "event"
+ev.event_category = ["network"]
+ev.event_action = "unknown"
+ev.event_outcome = "unknown"
+ev.network_transport = "unknown"
+ev.rule_name = ""
+ev.observer_ingress_zone = ""
+ev.observer_egress_zone = ""
+ev.observer_hostname = ""
+ev.user_name = ""
+ev.ext = {}
+ev.raw = raw
+. = ev
+'''
+
 # L1 (CH TLS): the endpoint is env-overridable so the live host can flip to
 # https without a config fork — set CH_PROTO=https + CH_HTTP_PORT=8443 in the
 # Vector env drop-in. With only CH_HOST set (the historical env), this resolves
@@ -355,7 +390,7 @@ ev.ext = ext
 #   ca_file = "/etc/vector/ssdf-ca.crt"
 [sinks.clickhouse]
 type = "clickhouse"
-inputs = ["srx_ecs", "panos_ecs"]
+inputs = ["srx_ecs", "panos_ecs", "unifi_ips"]
 endpoint = "${CH_PROTO:-http}://${CH_HOST}:${CH_HTTP_PORT:-8123}"
 database = "ssdf"
 table = "events"
