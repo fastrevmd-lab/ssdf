@@ -87,6 +87,8 @@ def build_alerts_for_pair_sql(ips: list[str], since_iso: str,
     # destination_ip are Nullable(IPv4); compare via toString to match the
     # dotted-quad params without IPv4-cast fragility. IPv6 alerts (kept only in
     # ext/raw) do not match here by design (events schema is IPv4-only).
+    # LIMIT 200: most-recent-200 detections; bounded to avoid result-overflow
+    # throw on busy endpoints (CH client runs result_overflow_mode="throw").
     sql = (
         "SELECT toString(timestamp) AS timestamp, toString(source_ip) AS source_ip, "
         "toString(destination_ip) AS destination_ip, "
@@ -99,7 +101,7 @@ def build_alerts_for_pair_sql(ips: list[str], since_iso: str,
         "AND event_kind = 'alert' AND timestamp >= {since:String} AND ("
         "toString(source_ip) IN {ips:Array(String)} OR "
         "toString(destination_ip) IN {ips:Array(String)}) "
-        "ORDER BY timestamp DESC"
+        "ORDER BY timestamp DESC LIMIT 200"
     )
     return sql, {"tenant": tenant, "ips": ips, "since": since_iso}
 

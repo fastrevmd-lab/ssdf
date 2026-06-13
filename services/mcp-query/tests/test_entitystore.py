@@ -13,6 +13,7 @@ def test_build_alerts_for_pair_sql_filters_provider_kind_ips_and_window():
     assert "timestamp >= {since:String}" in sql
     assert "toString(source_ip) IN {ips:Array(String)}" in sql
     assert "toString(destination_ip) IN {ips:Array(String)}" in sql
+    assert "LIMIT 200" in sql
     assert params["ips"] == ["198.51.100.50", "198.51.100.20"]
     assert params["since"] == "2026-06-13T00:00:00.000"
     assert params["tenant"] == "t_main"
