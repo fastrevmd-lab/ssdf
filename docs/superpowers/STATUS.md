@@ -1,6 +1,6 @@
 # SSDF — Build Status & Milestone Ledger
 
-**Last updated:** 2026-06-12
+**Last updated:** 2026-06-13
 **Purpose:** Single source of truth for *what is actually built* vs. what the design docs
 planned. Read this first; the dated specs/plans are historical and have drifted from reality.
 
@@ -243,12 +243,26 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   `coverage:{observed:true, configured:5}`); (4) scheduled vzdump backups
   (`scripts/apply_pve_backup_job.sh`); (5) retired the greenfield/Rust-core doctrine
   drift in CLAUDE.md.
-- **M8 — agent-eval harness.** SSDF-side harness merged (corpus v1: 23 questions /
-  5 categories / tier-tagged; deterministic scorer + regression gate + contract schemas).
-  Remaining M8 work lives in runner projects (Claude Agent SDK + Ollama harnesses, pass-rate
-  floors, sovereignty proof); first real scorecard pending a runner run. Eval principals
-  (`eval-*`) to be added to ct106/ct113 `tokens.json` at first run (operator step).
-  Spec: `specs/2026-06-12-ssdf-m8-eval-harness-design.md`.
+- **M8 — agent-eval harness + external runner.** ✅ Done end-to-end 2026-06-13.
+  SSDF-side harness merged (corpus v1: 23 questions / 5 categories / tier-tagged;
+  deterministic scorer + regression gate + contract schemas). External runner is a
+  **standalone sibling repo** `~/ssdf-eval-runner/` (never merged into SSDF, per the
+  M8 boundary) — pure unit-tested `core` + two adapters (`claude_adapter` shells the
+  `claude` CLI which owns MCP; `qwen_adapter` drives MCP + Ollama directly). Ran the
+  full **2 models × 2 tiers = 4 scorecards** against the live MCP edges under dedicated
+  `eval-claude`/`eval-qwen` principals (added to ct106/ct113 `tokens.json`):
+  **claude-sonnet-4-6** sovereign **16/22**, public **4/6**; **qwen2.5-coder:7b**
+  sovereign **4/22**, public **1/6** (committed under `services/evals/results/`,
+  regress gate exit 0 each — first baseline). Live proofs: (a) audit tool-checks join
+  the `eval-claude` window (per-question `tools_observed` populated); (b) **tier
+  containment** — every tool in both public runs is from the 5-tool shareable set,
+  zero sovereign-tool leaks, and claude correctly refuses the sovereign-only
+  top-talkers question; (c) qwen's honest low score (all 22 sovereign questions show
+  empty `tools_observed` — the 7B text-emits tool calls as JSON instead of structured
+  `tool_calls`, so it makes zero real MCP calls) demonstrates the harness fail-closes
+  tool-checks and that no single model is load-bearing.
+  Specs: `specs/2026-06-12-ssdf-m8-eval-harness-design.md` (harness),
+  `specs/2026-06-12-ssdf-m8-external-eval-runner-design.md` (runner).
 - **M9 — UniFi Suricata EVE ingest.** First detection-class source (IDS alerts) via the
   established Vector→ClickHouse pattern. Charter in the same plan, Phase 3.
 - **M10 — derived findings layer.** Gated on M8 (evals must first show where agents
