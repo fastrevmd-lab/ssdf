@@ -386,7 +386,8 @@ ev.network_transport = "unknown"
 ev.rule_name = ""
 ev.observer_ingress_zone = ""
 ev.observer_egress_zone = ""
-obs_host = string(parsed.hostname) ?? ""
+obs_host = ""
+if perr == null { obs_host = string(parsed.hostname) ?? "" }
 _obs_parts = split(obs_host, ".")
 _obs_short = downcase(string(_obs_parts[0]) ?? "")
 _obs_known = false
@@ -862,6 +863,20 @@ extract_from = "unifi_ips"
 type = "vrl"
 source = '''
 assert_eq!(.observer_hostname, "gatewaymax")
+'''
+
+[[tests]]
+name = "unifi_observer_hostname_known_preserves_case"
+[[tests.inputs]]
+insert_at = "unifi_ips"
+type = "raw"
+value = '<29>1 2026-06-13T12:03:30.000000+00:00 GatewayMax suricata - - - {"timestamp":"2026-06-13T12:03:30.000000+0000","event_type":"alert","src_ip":"198.51.100.50","dest_ip":"198.51.100.20","proto":"TCP","alert":{"action":"allowed","signature_id":1,"signature":"x","category":"Misc","severity":3}}'
+[[tests.outputs]]
+extract_from = "unifi_ips"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.observer_hostname, "GatewayMax")
 '''
 
 [[tests]]
