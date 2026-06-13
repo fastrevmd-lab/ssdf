@@ -21,6 +21,9 @@ class _FakeStore:
     def configured_policies_for_firewalls(self, names):
         return []
 
+    def alerts_for_pair(self, ips, since_iso):
+        return getattr(self, "_alerts", [])
+
 
 class _FakeTopo:
     def __init__(self, firewalls, path):
@@ -112,6 +115,9 @@ class _StoreWithConfigured:
 
     def configured_policies_for_firewalls(self, names):
         return self._configured
+
+    def alerts_for_pair(self, ips, since_iso):
+        return []
 
 
 class _TopoOneFw:
@@ -268,3 +274,33 @@ def test_explain_access_provenance_normalizes_panos_fqdn():
 ])
 def test_short_host(raw, expected):
     assert _short_host(raw) == expected
+
+
+def test_detections_populated_from_unifi_alerts():
+    ents = _client_server()
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "3", "bytes": "100",
+                                        "ports": "443", "providers": "unifi",
+                                        "transports": "tcp"}}]
+    store = _FakeStore(ents, comm, [])
+    store._alerts = [{"timestamp": "2026-06-13 12:00:00.000",
+                      "source_ip": "10.64.0.5", "destination_ip": "8.8.8.8",
+                      "signature": "ET POLICY Suspicious TLS", "signature_id": "2027865",
+                      "category": "Potentially Bad Traffic", "severity": "2"}]
+    topo = _FakeTopo([], {"found": False})
+    out = AccessTools(store, topo).explain_access("10.64.0.5", "8.8.8.8")
+    assert len(out["detections"]) == 1
+    det = out["detections"][0]
+    assert det["signature"] == "ET POLICY Suspicious TLS"
+    assert det["signature_id"] == "2027865"
+    assert det["category"] == "Potentially Bad Traffic"
+    assert det["severity"] == "2"
+
+
+def test_detections_empty_when_no_alerts():
+    ents = _client_server()
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "1", "bytes": "1",
+                                        "ports": "443", "providers": "unifi", "transports": "tcp"}}]
+    store = _FakeStore(ents, comm, [])   # no _alerts attribute -> []
+    topo = _FakeTopo([], {"found": False})
+    out = AccessTools(store, topo).explain_access("10.64.0.5", "8.8.8.8")
+    assert out["detections"] == []
