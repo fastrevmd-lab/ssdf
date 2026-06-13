@@ -801,3 +801,45 @@ assert_eq!(.ext."panw.panos.client", "198.51.100.199")
 assert_eq!(.ext."panw.panos.result", "Succeeded")
 assert!(!exists(.source_ip))
 '''
+
+[[tests]]
+name = "unifi_flow_maps_to_ecs"
+[[tests.inputs]]
+insert_at = "unifi_ips"
+type = "raw"
+value = '<29>1 2026-06-13T12:01:00.000000+00:00 gatewaymax suricata - - - {"timestamp":"2026-06-13T12:01:00.000000+0000","event_type":"flow","src_ip":"198.51.100.50","src_port":51520,"dest_ip":"198.51.100.20","dest_port":443,"proto":"TCP","app_proto":"tls","flow":{"state":"closed","bytes_toserver":3000,"bytes_toclient":5000}}'
+[[tests.outputs]]
+extract_from = "unifi_ips"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_kind, "event")
+assert_eq!(.event_category, ["network"])
+assert_eq!(.event_action, "flow_closed")
+assert_eq!(.event_outcome, "success")
+assert_eq!(.event_provider, "unifi")
+assert_eq!(.source_ip, "198.51.100.50")
+assert_eq!(.destination_ip, "198.51.100.20")
+assert_eq!(.destination_port, 443)
+assert_eq!(.network_transport, "tcp")
+assert_eq!(.source_bytes, 3000)
+assert_eq!(.destination_bytes, 5000)
+assert_eq!(.network_bytes, 8000)
+'''
+
+[[tests]]
+name = "unifi_alert_blocked_is_failure"
+[[tests.inputs]]
+insert_at = "unifi_ips"
+type = "raw"
+value = '<29>1 2026-06-13T12:02:00.000000+00:00 gatewaymax suricata - - - {"timestamp":"2026-06-13T12:02:00.000000+0000","event_type":"alert","src_ip":"198.51.100.99","src_port":40000,"dest_ip":"198.51.100.8","dest_port":80,"proto":"TCP","alert":{"action":"blocked","signature_id":2010935,"signature":"ET WEB_SERVER SQL Injection","category":"Web Application Attack","severity":1}}'
+[[tests.outputs]]
+extract_from = "unifi_ips"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_kind, "alert")
+assert_eq!(.event_action, "alert_web-application-attack")
+assert_eq!(.event_outcome, "failure")
+assert_eq!(.ext."unifi.ips.severity", "1")
+'''
