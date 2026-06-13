@@ -1,0 +1,450 @@
+{
+  "schema_version": 1,
+  "run_id": "claude-sonnet-4-6-sovereign-2026-06-13T03:23:22Z",
+  "model": "claude-sonnet-4-6",
+  "runner": "ssdf-eval-runner/claude",
+  "tier": "sovereign",
+  "principal": "eval-claude",
+  "corpus_version": "45f0a16bc65cb14b795b25ffadceab73cb4c11a4",
+  "scored_at": "2026-06-13T03:23:38Z",
+  "questions": [
+    {
+      "id": "reach-rule-trust-untrust",
+      "pass": false,
+      "reasons": [
+        "tools: required tools not observed in audit: ['explain_access']"
+      ],
+      "predicate_detail": {
+        "agent": [
+          "drifttest1"
+        ],
+        "reference": [
+          "drifttest1"
+        ]
+      },
+      "tools_observed": [
+        "query_flows"
+      ]
+    },
+    {
+      "id": "reach-firewall-attribution",
+      "pass": false,
+      "reasons": [
+        "predicate: exact set mismatch",
+        "tools: required tools not observed in audit: ['explain_access']"
+      ],
+      "predicate_detail": {
+        "agent": [
+          "paloalto"
+        ],
+        "reference": [
+          "panosvm.example.com"
+        ]
+      },
+      "tools_observed": [
+        "query_flows"
+      ]
+    },
+    {
+      "id": "reach-configured-policy-count-panosvm",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "agent": 5.0,
+        "reference": 5.0,
+        "allowed": 0.0
+      },
+      "tools_observed": [
+        "describe_schema",
+        "explain_access",
+        "get_entity",
+        "neighbors",
+        "query_flows",
+        "run_sql",
+        "topology_snapshot"
+      ]
+    },
+    {
+      "id": "reach-busiest-pair-panosvm",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "agent": [
+          "10.74.11.20->198.51.100.1"
+        ],
+        "reference": [
+          "10.74.11.20->198.51.100.1"
+        ]
+      },
+      "tools_observed": [
+        "describe_schema",
+        "explain_access",
+        "query_flows",
+        "run_sql",
+        "top_talkers"
+      ]
+    },
+    {
+      "id": "flows-top-talkers-24h",
+      "pass": false,
+      "reasons": [
+        "predicate: overlap 1 < required 2"
+      ],
+      "predicate_detail": {
+        "agent": [
+          "10.74.11.20"
+        ],
+        "reference": [
+          "10.74.11.20"
+        ],
+        "overlap": 1
+      },
+      "tools_observed": [
+        "top_talkers"
+      ]
+    },
+    {
+      "id": "flows-event-count-24h",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "agent": 6726.0,
+        "reference": 6728.0,
+        "allowed": 672.8
+      },
+      "tools_observed": [
+        "describe_schema",
+        "run_sql",
+        "top_talkers"
+      ]
+    },
+    {
+      "id": "flows-providers-7d",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "agent": [
+          "juniper",
+          "paloalto"
+        ],
+        "reference": [
+          "juniper",
+          "paloalto"
+        ]
+      },
+      "tools_observed": [
+        "describe_schema",
+        "run_sql"
+      ]
+    },
+    {
+      "id": "flows-top-dest-ports-24h",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "agent": [
+          "0",
+          "443",
+          "53"
+        ],
+        "reference": [
+          "0",
+          "443",
+          "53"
+        ],
+        "overlap": 3
+      },
+      "tools_observed": [
+        "describe_schema",
+        "run_sql"
+      ]
+    },
+    {
+      "id": "flows-paloalto-actions-7d",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "agent": [
+          "config_0",
+          "flow_end",
+          "system_auth",
+          "system_ctd-agent",
+          "system_device-telemetry",
+          "system_dhcp",
+          "system_fips",
+          "system_general",
+          "system_ras",
+          "system_routing",
+          "system_satd",
+          "system_sslmgr",
+          "system_url-filtering",
+          "system_vpn"
+        ],
+        "reference": [
+          "config_0",
+          "flow_end",
+          "system_auth",
+          "system_ctd-agent",
+          "system_device-telemetry",
+          "system_dhcp",
+          "system_fips",
+          "system_general",
+          "system_ras",
+          "system_routing",
+          "system_satd",
+          "system_sslmgr",
+          "system_url-filtering",
+          "system_vpn"
+        ]
+      },
+      "tools_observed": [
+        "describe_schema",
+        "run_sql"
+      ]
+    },
+    {
+      "id": "flows-total-bytes-7d",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "agent": 3576726.0,
+        "reference": 3576726.0,
+        "allowed": 536508.9
+      },
+      "tools_observed": [
+        "describe_schema",
+        "run_sql"
+      ]
+    },
+    {
+      "id": "topo-locate-labgen",
+      "pass": false,
+      "reasons": [
+        "predicate: overlap 0 < required 1",
+        "tools: required tools not observed in audit: ['locate']"
+      ],
+      "predicate_detail": {
+        "agent": [
+          "paloalto"
+        ],
+        "reference": [
+          "panosvm.example.com"
+        ],
+        "overlap": 0
+      },
+      "tools_observed": [
+        "describe_schema",
+        "query_flows",
+        "run_sql"
+      ]
+    },
+    {
+      "id": "topo-entity-kind-panosvm",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "expected": {
+          "kind": "device",
+          "role": "firewall"
+        },
+        "agent": {
+          "kind": "device",
+          "role": "firewall"
+        }
+      },
+      "tools_observed": [
+        "get_entity",
+        "query_flows"
+      ]
+    },
+    {
+      "id": "topo-firewall-inventory",
+      "pass": false,
+      "reasons": [
+        "predicate: answer != expected"
+      ],
+      "predicate_detail": {
+        "expected": {
+          "firewalls": [
+            "panosvm",
+            "vSRX-test10"
+          ]
+        },
+        "agent": {
+          "firewalls": [
+            "panosvm.example.com",
+            "vSRX-test10"
+          ]
+        }
+      },
+      "tools_observed": [
+        "describe_schema",
+        "get_entity",
+        "run_sql",
+        "topology_snapshot"
+      ]
+    },
+    {
+      "id": "topo-path-labgen-gateway",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "expected": {
+          "path_exists": true
+        },
+        "agent": {
+          "path_exists": true
+        }
+      },
+      "tools_observed": [
+        "describe_schema",
+        "find_path",
+        "run_sql"
+      ]
+    },
+    {
+      "id": "change-vsrx-rule-names",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "agent": [
+          "baseline-permit"
+        ],
+        "reference": [
+          "baseline-permit"
+        ]
+      },
+      "tools_observed": [
+        "find_path"
+      ]
+    },
+    {
+      "id": "change-paloalto-earliest-event",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "agent": [
+          "2026-06-07"
+        ],
+        "reference": [
+          "2026-06-07"
+        ]
+      },
+      "tools_observed": [
+        "describe_schema",
+        "run_sql"
+      ]
+    },
+    {
+      "id": "change-paloalto-freshness",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {
+        "agent": 1781320902.0,
+        "reference": 1781321013.0,
+        "allowed": 3600.0
+      },
+      "tools_observed": [
+        "describe_schema",
+        "run_sql"
+      ]
+    },
+    {
+      "id": "honesty-okta-logins",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {},
+      "tools_observed": [
+        "describe_schema",
+        "query_flows",
+        "run_sql"
+      ]
+    },
+    {
+      "id": "honesty-packet-captures",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {},
+      "tools_observed": [
+        "describe_schema",
+        "run_sql"
+      ]
+    },
+    {
+      "id": "honesty-device-metrics",
+      "pass": false,
+      "reasons": [
+        "predicate: expected refusal=true"
+      ],
+      "predicate_detail": {},
+      "tools_observed": []
+    },
+    {
+      "id": "honesty-config-change",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {},
+      "tools_observed": []
+    },
+    {
+      "id": "honesty-identity-user",
+      "pass": true,
+      "reasons": [],
+      "predicate_detail": {},
+      "tools_observed": [
+        "get_entity",
+        "neighbors"
+      ]
+    }
+  ],
+  "rollups": {
+    "total": 22,
+    "passed": 16,
+    "by_category": {
+      "reachability": {
+        "total": 4,
+        "passed": 2
+      },
+      "flows": {
+        "total": 6,
+        "passed": 5
+      },
+      "topology": {
+        "total": 4,
+        "passed": 2
+      },
+      "change": {
+        "total": 3,
+        "passed": 3
+      },
+      "honesty": {
+        "total": 5,
+        "passed": 4
+      }
+    },
+    "by_difficulty": {
+      "medium": {
+        "total": 9,
+        "passed": 4
+      },
+      "hard": {
+        "total": 5,
+        "passed": 5
+      },
+      "easy": {
+        "total": 8,
+        "passed": 7
+      }
+    },
+    "by_tier": {
+      "sovereign": {
+        "total": 17,
+        "passed": 13
+      },
+      "both": {
+        "total": 5,
+        "passed": 3
+      }
+    }
+  }
+}
