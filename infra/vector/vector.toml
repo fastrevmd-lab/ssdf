@@ -14,7 +14,10 @@ mode = "udp"
 address = "0.0.0.0:515"
 max_length = 102400
 
-# UniFi Gateway Max — Suricata IPS alerts + traffic flows on a separate UDP port.
+# UniFi — the Cloud Key controller forwards security events as CEF over syslog on a
+# separate UDP port (the Gateway Max's Suricata is the sensor; the controller is the
+# forwarder). The gateway also sends plain RFC3164 system logs here; those are
+# filtered out. M9 ingests IPS/IDS detections only.
 [sources.unifi_syslog]
 type = "socket"
 mode = "udp"
@@ -346,35 +349,32 @@ ev.ext = ext
 . = ev
 '''
 
-# UniFi Suricata eve.json over syslog -> ECS subset. Branch on event_type:
-# alert -> intrusion_detection; flow/netflow -> network. IPv4-guard typed IPs
-# (IPv6 kept in ext+raw). Parsing filled in incrementally (M9 Tasks 3-5).
+# UniFi SIEM export is CEF (Common Event Format), NOT Suricata eve.json. The Cloud
+# Key controller forwards security events as:
+#   Mmm DD HH:MM:SS <controller-host> CEF:0|Ubiquiti|UniFi Network|<ver>|<sigid>|<name>|<sev>|<ext>
+# (no syslog PRI). The SAME UDP/516 port also carries the gateway's plain RFC3164
+# system logs (<pri>... UXGMax ...) which are not security events. This filter keeps
+# only IPS detections (CEF name "Threat Detected", sigid 200); everything else is
+# dropped. Validated against a live ET SCAN detection 2026-06-14 — see
+# onboarding/unifi/ips-syslog.md for captured samples.
+[transforms.unifi_cef_threat]
+type = "filter"
+inputs = ["unifi_syslog"]
+condition = 'contains(string(.message) ?? "", "CEF:0|Ubiquiti") && contains(string(.message) ?? "", "|Threat Detected|")'
+
+# Parse the UniFi CEF "Threat Detected" event -> ECS subset. UniFi identifies the
+# scan endpoints by MAC + alias (no client IPs in these detections), so
+# source_ip/destination_ip stay null and MAC/alias/signature detail lives in ext.
+# Authoritative time is the UNIFIutcTime extension field (ISO-8601 UTC). The Suricata
+# sensor (UNIFIdeviceName, controller-asserted) is the observer — not the spoofable
+# syslog header host (which is the forwarding controller).
 [transforms.unifi_ips]
 type = "remap"
-inputs = ["unifi_syslog"]
+inputs = ["unifi_cef_threat"]
 source = '''
 raw = string(.message) ?? ""
-parsed, perr = parse_syslog(raw)
-
-# UniFi wraps the Suricata eve.json record in a syslog line; slice from the first
-# "{" to the last "}" so any tag/prefix before the JSON body is ignored.
-json_body = raw
-bm, berr = parse_regex(raw, r'(?P<j>\{.*\})')
-if berr == null { json_body = string(bm.j) ?? raw }
-doc, derr = parse_json(json_body)
-if derr != null { doc = {} }
-
-# timestamp: prefer the eve record, then syslog, else now
-event_ts = now()
-if perr == null && exists(parsed.timestamp) { event_ts = parsed.timestamp }
-ts_str = string(doc.timestamp) ?? ""
-ts, tserr = parse_timestamp(ts_str, "%Y-%m-%dT%H:%M:%S%.f%z")
-if tserr == null { event_ts = ts }
-
-etype = downcase(string(doc.event_type) ?? "")
 
 ev = {}
-ev = set!(ev, ["timestamp"], event_ts)
 ev.event_id = uuid_v4()
 ev.tenant_id = "t_main"
 ev.event_provider = "unifi"
@@ -386,85 +386,120 @@ ev.network_transport = "unknown"
 ev.rule_name = ""
 ev.observer_ingress_zone = ""
 ev.observer_egress_zone = ""
-obs_host = ""
-if perr == null { obs_host = string(parsed.hostname) ?? "" }
-_obs_parts = split(obs_host, ".")
-_obs_short = downcase(string(_obs_parts[0]) ?? "")
-_obs_known = false
-if _obs_short == "gatewaymax" { _obs_known = true }
-if !_obs_known { obs_host = "" }
-ev.observer_hostname = obs_host
+ev.observer_hostname = ""
 ev.user_name = ""
 ev.raw = raw
 
 ext = {}
 
-proto = downcase(string(doc.proto) ?? "")
-if proto != "" { ev.network_transport = proto }
-
-src_ip = string(doc.src_ip) ?? ""
-dst_ip = string(doc.dest_ip) ?? ""
-_sm, _se = parse_regex(src_ip, r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
-if _se == null {
-    ev.source_ip = src_ip
-} else if src_ip != "" {
-    ext = set!(ext, ["unifi.ips.src_ip"], src_ip)
-}
-_dm, _de = parse_regex(dst_ip, r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
-if _de == null {
-    ev.destination_ip = dst_ip
-} else if dst_ip != "" {
-    ext = set!(ext, ["unifi.ips.dest_ip"], dst_ip)
-}
-
-if doc.src_port != null { ev.source_port = to_int(doc.src_port) ?? null }
-if doc.dest_port != null { ev.destination_port = to_int(doc.dest_port) ?? null }
-
-app = string(doc.app_proto) ?? ""
-if app != "" { ext = set!(ext, ["unifi.ips.app_proto"], app) }
-
-if etype == "alert" {
-    ev.event_kind = "alert"
-    ev.event_category = ["intrusion_detection"]
-    alert = object(doc.alert) ?? {}
-    cat = string(alert.category) ?? ""
-    sig = string(alert.signature) ?? ""
-    act = downcase(string(alert.action) ?? "")
-    cat_slug = replace(downcase(cat), " ", "-")
-    ev.event_action = "alert_" + cat_slug
-    if act == "blocked" || act == "dropped" {
-        ev.event_outcome = "failure"
-    } else {
-        ev.event_outcome = "detection"
-    }
-    if sig != "" { ext = set!(ext, ["unifi.ips.signature"], sig) }
-    if alert.signature_id != null { ext = set!(ext, ["unifi.ips.signature_id"], to_string(alert.signature_id) ?? "") }
-    if cat != "" { ext = set!(ext, ["unifi.ips.category"], cat) }
-    if alert.severity != null { ext = set!(ext, ["unifi.ips.severity"], to_string(alert.severity) ?? "") }
-} else if etype == "flow" || etype == "netflow" {
-    ev.event_kind = "event"
-    ev.event_category = ["network"]
-    fl = object(doc.flow) ?? {}
-    state = downcase(string(fl.state) ?? "")
-    if state == "" { state = "record" }
-    ev.event_action = "flow_" + state
-    ev.event_outcome = "success"
-    sb = to_int(fl.bytes_toserver) ?? null
-    db = to_int(fl.bytes_toclient) ?? null
-    if sb != null { ev.source_bytes = sb }
-    if db != null { ev.destination_bytes = db }
-    if sb != null && db != null {
-        _sb = int!(sb)
-        _db = int!(db)
-        ev.network_bytes = _sb + _db
-    }
+# Slice the CEF payload out of the RFC3164-ish line (controller sends no PRI).
+# Strip trailing whitespace first: the live UDP syslog datagram is newline-
+# terminated, and the `$` anchor with default (non-dotall) `.` would otherwise
+# never reach end-of-haystack past the trailing "\n" and fail every real line.
+cefm, cerr = parse_regex(strip_whitespace(raw), r'(?P<cef>CEF:0\|.*)$')
+if cerr != null {
+    ev.timestamp = now()
+    ev.event_action = "parse_error"
+    ev.ext = ext
+    . = ev
 } else {
-    ev.event_action = "unknown"
-    if etype != "" { ext = set!(ext, ["unifi.event_type"], etype) }
-}
+    doc, derr = parse_cef(string(cefm.cef) ?? "")
+    if derr != null {
+        ev.timestamp = now()
+        ev.event_action = "parse_error"
+        ev.ext = ext
+        . = ev
+    } else {
+        # timestamp: prefer UNIFIutcTime (ISO-8601 UTC, trailing Z), else +HHMM, else now
+        event_ts = now()
+        utc = string(doc.UNIFIutcTime) ?? ""
+        ts, tserr = parse_timestamp(utc, "%Y-%m-%dT%H:%M:%S%.fZ")
+        if tserr != null { ts, tserr = parse_timestamp(utc, "%Y-%m-%dT%H:%M:%S%.f%z") }
+        if tserr == null { event_ts = ts }
+        ev.timestamp = event_ts
 
-ev.ext = ext
-. = ev
+        ev.event_kind = "alert"
+        ev.event_category = ["intrusion_detection"]
+
+        # event_action from the UniFi threat policy name (e.g. "Scanning Activity").
+        policy = string(doc.UNIFIpolicyName) ?? ""
+        if policy != "" {
+            ev.event_action = "alert_" + replace(downcase(policy), " ", "-")
+        } else {
+            ev.event_action = "alert"
+        }
+
+        # Detection vs prevention: act=blocked/dropped is an enforced block.
+        act = downcase(string(doc.act) ?? "")
+        if act == "blocked" || act == "dropped" {
+            ev.event_outcome = "failure"
+        } else {
+            ev.event_outcome = "detection"
+        }
+
+        proto = downcase(string(doc.proto) ?? "")
+        if proto != "" { ev.network_transport = proto }
+
+        sp = to_int(doc.spt) ?? null
+        if sp != null { ev.source_port = sp }
+        dp = to_int(doc.dpt) ?? null
+        if dp != null { ev.destination_port = dp }
+
+        # bytes: sent = source->dest, received = dest->source, total = network_bytes
+        sb = to_int(doc.UNIFIbytesSent) ?? null
+        rb = to_int(doc.UNIFIbytesReceived) ?? null
+        tb = to_int(doc.UNIFItotalBytes) ?? null
+        if sb != null { ev.source_bytes = sb }
+        if rb != null { ev.destination_bytes = rb }
+        if tb != null { ev.network_bytes = tb }
+
+        # observer = the Suricata sensor (the gateway), from the controller's trusted
+        # inventory field (not the spoofable syslog header host).
+        ev.observer_hostname = string(doc.UNIFIdeviceName) ?? ""
+
+        # IPS detail + endpoint identity (MAC/alias) -> ext.
+        sig = string(doc.UNIFIipsSignature) ?? ""
+        if sig != "" { ext = set!(ext, ["unifi.ips.signature"], sig) }
+        sid = string(doc.UNIFIipsSignatureId) ?? ""
+        if sid != "" { ext = set!(ext, ["unifi.ips.signature_id"], sid) }
+        cat = string(doc.UNIFIcategory) ?? ""
+        if cat != "" { ext = set!(ext, ["unifi.ips.category"], cat) }
+        sev = string(doc.severity) ?? ""
+        if sev != "" { ext = set!(ext, ["unifi.ips.severity"], sev) }
+        risk = string(doc.UNIFIrisk) ?? ""
+        if risk != "" { ext = set!(ext, ["unifi.ips.risk"], risk) }
+        app = string(doc.app) ?? ""
+        if app != "" { ext = set!(ext, ["unifi.ips.app_proto"], app) }
+        ptype = string(doc.UNIFIpolicyType) ?? ""
+        if ptype != "" { ext = set!(ext, ["unifi.ips.policy_type"], ptype) }
+        dir = string(doc.UNIFIdirection) ?? ""
+        if dir != "" { ext = set!(ext, ["unifi.direction"], dir) }
+        if act != "" { ext = set!(ext, ["unifi.ips.action"], act) }
+        smac = string(doc.UNIFIsrcClientMac) ?? ""
+        if smac != "" { ext = set!(ext, ["unifi.src_mac"], smac) }
+        dmac = string(doc.UNIFIdstClientMac) ?? ""
+        if dmac != "" { ext = set!(ext, ["unifi.dst_mac"], dmac) }
+        salias = string(doc.UNIFIsrcClientAlias) ?? ""
+        if salias != "" { ext = set!(ext, ["unifi.src_alias"], salias) }
+        dalias = string(doc.UNIFIdstClientAlias) ?? ""
+        if dalias != "" { ext = set!(ext, ["unifi.dst_alias"], dalias) }
+        dname = string(doc.UNIFIdeviceName) ?? ""
+        if dname != "" { ext = set!(ext, ["unifi.device_name"], dname) }
+        dip = string(doc.UNIFIdeviceIp) ?? ""
+        if dip != "" { ext = set!(ext, ["unifi.device_ip"], dip) }
+        ssid = string(doc.UNIFIipsSessionId) ?? ""
+        if ssid != "" { ext = set!(ext, ["unifi.session_id"], ssid) }
+        szone = string(doc.UNIFIsrcZone) ?? ""
+        if szone != "" { ext = set!(ext, ["unifi.src_zone"], szone) }
+        dzone = string(doc.UNIFIdstZone) ?? ""
+        if dzone != "" { ext = set!(ext, ["unifi.dst_zone"], dzone) }
+        dregion = string(doc.UNIFIdstRegion) ?? ""
+        if dregion != "" { ext = set!(ext, ["unifi.dst_region"], dregion) }
+
+        ev.ext = ext
+        . = ev
+    }
+}
 '''
 
 # L1 (CH TLS): the endpoint is env-overridable so the live host can flip to
@@ -760,12 +795,16 @@ assert_eq!(.event_provider, "paloalto")
 assert!(!exists(.source_ip))
 '''
 
+# Real UniFi CEF "Threat Detected" line captured 2026-06-14 from a live ET SCAN
+# detection (controller-forwarded, no syslog PRI). UniFi identifies the scan
+# endpoints by MAC/alias only — there are no client IPs in the detection, so
+# source_ip/destination_ip stay null and identity rides ext.
 [[tests]]
-name = "unifi_alert_allowed_maps_to_ecs"
+name = "unifi_cef_ssh_scan_maps_to_ecs"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = '<29>1 2026-06-13T12:00:00.000000+00:00 gatewaymax suricata - - - {"timestamp":"2026-06-13T12:00:00.000000+0000","event_type":"alert","src_ip":"198.51.100.50","src_port":51514,"dest_ip":"198.51.100.20","dest_port":443,"proto":"TCP","app_proto":"tls","alert":{"action":"allowed","signature_id":2027865,"signature":"ET POLICY Suspicious TLS","category":"Potentially Bad Traffic","severity":2}}'
+value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus HarmanHoldfast proto=TCP spt=38738 dpt=22 act=allowed app=SSH UNIFIrisk=medium UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing deviceOutboundInterface=Internet 1 UNIFIdeviceMac=02:00:01:27:fb:2b UNIFIdeviceName=Gateway Max UNIFIdeviceModel=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIdeviceVersion=5.0.16 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcClientModel=Windows PC UNIFIsrcZone=Internal UNIFIdstClientAlias=02:00:01:27:fb:2c UNIFIdstClientMac=02:00:01:27:fb:2c UNIFIdstRegion=US UNIFIdstZone=External UNIFItotalBytes=74 UNIFItotalPackets=1 UNIFIpacketsReceived=0 UNIFIpacketsSent=1 UNIFIbytesReceived=0 UNIFIbytesSent=74 UNIFIflowCount=1 UNIFIflowId=null UNIFIflowStartTime=Jun 14, 2026 at 7:48:50.822 PM UNIFIipsSessionId=1190371755462149 UNIFIipsSignature=ET SCAN Potential SSH Scan OUTBOUND UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z msg=A network intrusion attempt from ssdf-vector to 02:00:01:27:fb:2c has been detected.'
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
@@ -773,19 +812,37 @@ type = "vrl"
 source = '''
 assert_eq!(.event_kind, "alert")
 assert_eq!(.event_category, ["intrusion_detection"])
-assert_eq!(.event_action, "alert_potentially-bad-traffic")
+assert_eq!(.event_action, "alert_scanning-activity")
 assert_eq!(.event_outcome, "detection")
 assert_eq!(.event_provider, "unifi")
-assert_eq!(.source_ip, "198.51.100.50")
-assert_eq!(.destination_ip, "198.51.100.20")
-assert_eq!(.source_port, 51514)
-assert_eq!(.destination_port, 443)
+assert_eq!(.timestamp, t'2026-06-14T19:49:59.858Z')
+assert!(!exists(.source_ip))
+assert!(!exists(.destination_ip))
+assert_eq!(.source_port, 38738)
+assert_eq!(.destination_port, 22)
 assert_eq!(.network_transport, "tcp")
-assert_eq!(.ext."unifi.ips.signature", "ET POLICY Suspicious TLS")
-assert_eq!(.ext."unifi.ips.signature_id", "2027865")
-assert_eq!(.ext."unifi.ips.category", "Potentially Bad Traffic")
-assert_eq!(.ext."unifi.ips.severity", "2")
-assert_eq!(.ext."unifi.ips.app_proto", "tls")
+assert_eq!(.source_bytes, 74)
+assert_eq!(.destination_bytes, 0)
+assert_eq!(.network_bytes, 74)
+assert_eq!(.observer_hostname, "Gateway Max")
+assert_eq!(.ext."unifi.ips.signature", "ET SCAN Potential SSH Scan OUTBOUND")
+assert_eq!(.ext."unifi.ips.signature_id", "2003068")
+assert_eq!(.ext."unifi.ips.category", "Security")
+assert_eq!(.ext."unifi.ips.severity", "7")
+assert_eq!(.ext."unifi.ips.risk", "medium")
+assert_eq!(.ext."unifi.ips.app_proto", "SSH")
+assert_eq!(.ext."unifi.ips.policy_type", "IDS/IPS")
+assert_eq!(.ext."unifi.direction", "outgoing")
+assert_eq!(.ext."unifi.ips.action", "allowed")
+assert_eq!(.ext."unifi.src_mac", "02:01:01:02:a1:46")
+assert_eq!(.ext."unifi.dst_mac", "02:00:01:27:fb:2c")
+assert_eq!(.ext."unifi.src_alias", "ssdf-vector")
+assert_eq!(.ext."unifi.device_name", "Gateway Max")
+assert_eq!(.ext."unifi.device_ip", "198.51.100.1")
+assert_eq!(.ext."unifi.session_id", "1190371755462149")
+assert_eq!(.ext."unifi.src_zone", "Internal")
+assert_eq!(.ext."unifi.dst_zone", "External")
+assert_eq!(.ext."unifi.dst_region", "US")
 '''
 
 [[tests]]
@@ -809,119 +866,94 @@ assert_eq!(.ext."panw.panos.result", "Succeeded")
 assert!(!exists(.source_ip))
 '''
 
+# Second live signature (SID 2013479): lower CEF severity (3), app=Other, RDP
+# port 3389. Confirms the header severity + app + dpt mapping across signatures.
 [[tests]]
-name = "unifi_flow_maps_to_ecs"
+name = "unifi_cef_terminal_server_scan_maps_to_ecs"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = '<29>1 2026-06-13T12:01:00.000000+00:00 gatewaymax suricata - - - {"timestamp":"2026-06-13T12:01:00.000000+0000","event_type":"flow","src_ip":"198.51.100.50","src_port":51520,"dest_ip":"198.51.100.20","dest_port":443,"proto":"TCP","app_proto":"tls","flow":{"state":"closed","bytes_toserver":3000,"bytes_toclient":5000}}'
+value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|3|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus HarmanHoldfast proto=TCP spt=51002 dpt=3389 act=allowed app=Other UNIFIrisk=low UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing UNIFIdeviceName=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcZone=Internal UNIFIdstZone=External UNIFItotalBytes=120 UNIFIbytesReceived=0 UNIFIbytesSent=120 UNIFIipsSessionId=1190371755462200 UNIFIipsSignature=ET SCAN Behavioral Unusually fast Terminal Server Traffic Potential Scan or Infection (Outbound) UNIFIipsSignatureId=2013479 UNIFIutcTime=2026-06-14T19:49:59.884Z msg=A network intrusion attempt has been detected.'
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
 type = "vrl"
 source = '''
-assert_eq!(.event_kind, "event")
-assert_eq!(.event_category, ["network"])
-assert_eq!(.event_action, "flow_closed")
-assert_eq!(.event_outcome, "success")
-assert_eq!(.event_provider, "unifi")
-assert_eq!(.source_ip, "198.51.100.50")
-assert_eq!(.destination_ip, "198.51.100.20")
-assert_eq!(.destination_port, 443)
+assert_eq!(.event_kind, "alert")
+assert_eq!(.event_action, "alert_scanning-activity")
+assert_eq!(.event_outcome, "detection")
+assert_eq!(.destination_port, 3389)
 assert_eq!(.network_transport, "tcp")
-assert_eq!(.source_bytes, 3000)
-assert_eq!(.destination_bytes, 5000)
-assert_eq!(.network_bytes, 8000)
+assert_eq!(.timestamp, t'2026-06-14T19:49:59.884Z')
+assert_eq!(.ext."unifi.ips.severity", "3")
+assert_eq!(.ext."unifi.ips.risk", "low")
+assert_eq!(.ext."unifi.ips.app_proto", "Other")
+assert_eq!(.ext."unifi.ips.signature_id", "2013479")
+assert_eq!(.ext."unifi.ips.signature", "ET SCAN Behavioral Unusually fast Terminal Server Traffic Potential Scan or Infection (Outbound)")
 '''
 
+# Live regression: the real UDP syslog datagram is newline-terminated. The CEF
+# slice must survive the trailing "\n" (the TOML literal below keeps the newline
+# before the closing '''), else the $-anchored regex fails and every real event
+# parse_errors (observed live 2026-06-14 before strip_whitespace was added).
 [[tests]]
-name = "unifi_alert_blocked_is_failure"
+name = "unifi_cef_trailing_newline_still_parses"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = '<29>1 2026-06-13T12:02:00.000000+00:00 gatewaymax suricata - - - {"timestamp":"2026-06-13T12:02:00.000000+0000","event_type":"alert","src_ip":"198.51.100.99","src_port":40000,"dest_ip":"198.51.100.8","dest_port":80,"proto":"TCP","alert":{"action":"blocked","signature_id":2010935,"signature":"ET WEB_SERVER SQL Injection","category":"Web Application Attack","severity":1}}'
+value = '''
+Jun 14 20:10:02 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security proto=TCP spt=52102 dpt=80 act=allowed app=HTTP UNIFIrisk=medium UNIFIpolicyName=Malicious User Agents UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing UNIFIdeviceName=Gateway Max UNIFIsrcClientAlias=panosvm ee:2c UNIFIsrcClientHostname=panosvm UNIFIipsSignature=ET USER_AGENTS PyCurl Suspicious User Agent Outbound UNIFIipsSignatureId=2013054 UNIFIutcTime=2026-06-14T20:10:02.442Z msg=A network intrusion attempt has been detected.
+'''
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
 type = "vrl"
 source = '''
-assert_eq!(.event_kind, "alert")
-assert_eq!(.event_action, "alert_web-application-attack")
-assert_eq!(.event_outcome, "failure")
-assert_eq!(.ext."unifi.ips.severity", "1")
+assert_eq!(.event_action, "alert_malicious-user-agents")
+assert_eq!(.event_outcome, "detection")
+assert_eq!(.destination_port, 80)
+assert_eq!(.ext."unifi.ips.signature_id", "2013054")
+assert_eq!(.ext."unifi.ips.signature", "ET USER_AGENTS PyCurl Suspicious User Agent Outbound")
 '''
 
+# Non-CEF garbage reaching the parser (e.g. the filter let a malformed line by)
+# must not crash the pipeline: it parse_errors with no typed network fields.
 [[tests]]
-name = "unifi_observer_hostname_known_passes"
+name = "unifi_cef_garbage_is_parse_error"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = '<29>1 2026-06-13T12:03:00.000000+00:00 gatewaymax suricata - - - {"timestamp":"2026-06-13T12:03:00.000000+0000","event_type":"alert","src_ip":"198.51.100.50","dest_ip":"198.51.100.20","proto":"TCP","alert":{"action":"allowed","signature_id":1,"signature":"x","category":"Misc","severity":3}}'
+value = 'Jun 14 19:50:00 UCK-G2-Plus-HarmanHoldfast not-a-cef-line at all'
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
 type = "vrl"
 source = '''
-assert_eq!(.observer_hostname, "gatewaymax")
-'''
-
-[[tests]]
-name = "unifi_observer_hostname_known_preserves_case"
-[[tests.inputs]]
-insert_at = "unifi_ips"
-type = "raw"
-value = '<29>1 2026-06-13T12:03:30.000000+00:00 GatewayMax suricata - - - {"timestamp":"2026-06-13T12:03:30.000000+0000","event_type":"alert","src_ip":"198.51.100.50","dest_ip":"198.51.100.20","proto":"TCP","alert":{"action":"allowed","signature_id":1,"signature":"x","category":"Misc","severity":3}}'
-[[tests.outputs]]
-extract_from = "unifi_ips"
-[[tests.outputs.conditions]]
-type = "vrl"
-source = '''
-assert_eq!(.observer_hostname, "GatewayMax")
-'''
-
-[[tests]]
-name = "unifi_observer_hostname_unknown_is_blanked"
-[[tests.inputs]]
-insert_at = "unifi_ips"
-type = "raw"
-value = '<29>1 2026-06-13T12:03:00.000000+00:00 evil-host suricata - - - {"timestamp":"2026-06-13T12:03:00.000000+0000","event_type":"alert","src_ip":"198.51.100.50","dest_ip":"198.51.100.20","proto":"TCP","alert":{"action":"allowed","signature_id":1,"signature":"x","category":"Misc","severity":3}}'
-[[tests.outputs]]
-extract_from = "unifi_ips"
-[[tests.outputs.conditions]]
-type = "vrl"
-source = '''
-assert_eq!(.observer_hostname, "")
-assert_eq!(.event_kind, "alert")
-'''
-
-[[tests]]
-name = "unifi_ipv6_source_left_null_kept_in_ext"
-[[tests.inputs]]
-insert_at = "unifi_ips"
-type = "raw"
-value = '<29>1 2026-06-13T12:04:00.000000+00:00 gatewaymax suricata - - - {"timestamp":"2026-06-13T12:04:00.000000+0000","event_type":"alert","src_ip":"2001:db8::1","dest_ip":"198.51.100.20","proto":"TCP","alert":{"action":"allowed","signature_id":1,"signature":"x","category":"Misc","severity":3}}'
-[[tests.outputs]]
-extract_from = "unifi_ips"
-[[tests.outputs.conditions]]
-type = "vrl"
-source = '''
-assert!(!exists(.source_ip))
-assert_eq!(.destination_ip, "198.51.100.20")
-assert_eq!(.ext."unifi.ips.src_ip", "2001:db8::1")
-'''
-
-[[tests]]
-name = "unifi_malformed_line_is_unknown"
-[[tests.inputs]]
-insert_at = "unifi_ips"
-type = "raw"
-value = '<29>1 2026-06-13T12:05:00.000000+00:00 gatewaymax suricata - - - not-json-garbage'
-[[tests.outputs]]
-extract_from = "unifi_ips"
-[[tests.outputs.conditions]]
-type = "vrl"
-source = '''
-assert_eq!(.event_action, "unknown")
+assert_eq!(.event_action, "parse_error")
 assert_eq!(.event_provider, "unifi")
 assert!(!exists(.source_ip))
 '''
+
+# The unifi_cef_threat filter keeps only IPS detections. A "Threat Detected"
+# CEF line passes; a WiFi-roam CEF line (different name) is dropped (no output).
+[[tests]]
+name = "unifi_cef_threat_filter_keeps_detection"
+[[tests.inputs]]
+insert_at = "unifi_cef_threat"
+type = "raw"
+value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security proto=TCP spt=38738 dpt=22 act=allowed UNIFIpolicyName=Scanning Activity UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z'
+[[tests.outputs]]
+extract_from = "unifi_cef_threat"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert!(contains(string!(.message), "|Threat Detected|"))
+'''
+
+[[tests]]
+name = "unifi_cef_threat_filter_drops_non_detection"
+no_outputs_from = ["unifi_cef_threat"]
+[[tests.inputs]]
+insert_at = "unifi_cef_threat"
+type = "raw"
+value = 'Jun 14 19:49:51 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|402|WiFi Client Roamed|1|UNIFIcategory=Client Devices UNIFIhost=UCK G2 Plus HarmanHoldfast'

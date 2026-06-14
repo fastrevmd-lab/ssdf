@@ -1,7 +1,7 @@
 #!/usr/sbin/nft -f
 
 # SSDF ingest hardening (security review 2026-06-10, finding H1).
-# Restrict UDP 514 (SRX) / 515 (PAN-OS) / 516 (UniFi) to the vSRX test fleet + panosvm + gateway.
+# Restrict UDP 514 (SRX) / 515 (PAN-OS) / 516 (UniFi) to the vSRX test fleet + panosvm + UniFi controller.
 # Dedicated table; does not touch the default `inet filter` table.
 # The `table ... / delete table ...` prologue makes reloads idempotent.
 
@@ -14,8 +14,11 @@ table inet ssdf_ingest {
         # Allowed syslog senders: vSRX test fleet + panosvm (198.51.100.220-.242).
         udp dport { 514, 515 } ip saddr 198.51.100.220-198.51.100.242 accept
 
-        # UniFi Gateway Max (M9): IPS alerts + flows on UDP 516 from the gateway.
-        udp dport 516 ip saddr 198.51.100.1 accept
+        # UniFi (M9): CEF "Threat Detected" IPS events on UDP 516. The UniFi
+        # SIEM export is forwarded by the Cloud Key controller (198.51.100.30),
+        # NOT the Gateway Max itself (198.51.100.1, which only emits plain
+        # RFC3164 system-log noise that the unifi_cef_threat filter drops).
+        udp dport 516 ip saddr 198.51.100.30 accept
 
         # Everything else hitting the ingest ports is dropped.
         udp dport { 514, 515, 516 } drop
