@@ -24,6 +24,15 @@ mode = "udp"
 address = "0.0.0.0:516"
 max_length = 102400
 
+# Proxmox (M11) — the pve3 hypervisor host forwards auth + admin-action syslog
+# (pvedaemon/pveproxy/sshd) via rsyslog on a separate UDP port. RFC5424 framing
+# (PRI + ISO-8601 offset timestamp), so the transform uses parse_syslog.
+[sources.proxmox_syslog]
+type = "socket"
+mode = "udp"
+address = "0.0.0.0:517"
+max_length = 102400
+
 [transforms.srx_ecs]
 type = "remap"
 inputs = ["srx_syslog"]
@@ -502,6 +511,92 @@ if cerr != null {
 }
 '''
 
+# Keep only the known Proxmox security lines (pvedaemon/pveproxy auth+task, sshd
+# logins); drop systemd/pvescheduler/kernel noise so ssdf.events is not flooded.
+# parse_syslog runs here too because appname lives inside the raw RFC5424 line.
+[transforms.proxmox_sec]
+type = "filter"
+inputs = ["proxmox_syslog"]
+condition.type = "vrl"
+condition.source = '''
+result = false
+parsed, err = parse_syslog(string(.message) ?? "")
+if err == null {
+    app = downcase(string(parsed.appname) ?? "")
+    msg = string(parsed.message) ?? ""
+    is_app = app == "pvedaemon" || app == "pveproxy" || app == "sshd"
+    is_sec = contains(msg, "successful auth for user") ||
+        contains(msg, "authentication failure") ||
+        contains(msg, "starting task UPID:") ||
+        contains(msg, "end task UPID:") ||
+        starts_with(msg, "Accepted ") ||
+        starts_with(msg, "Failed password for ")
+    result = is_app && is_sec
+}
+result
+'''
+
+# Parse the Proxmox security line -> ECS subset. event_provider="proxmox".
+# observer_hostname stays empty (it is the firewall-provenance field, P0/H2);
+# the node name rides ext.proxmox.node. Per-message regexes are NOT $-anchored,
+# so the socket trailing newline is a non-issue (parse_syslog frames the datagram).
+[transforms.proxmox_ecs]
+type = "remap"
+inputs = ["proxmox_sec"]
+source = '''
+raw = string(.message) ?? ""
+parsed, perr = parse_syslog(raw)
+
+ev = {}
+ev.event_id = uuid_v4()
+ev.tenant_id = "t_main"
+ev.event_provider = "proxmox"
+ev.event_kind = "event"
+ev.event_category = ["host"]
+ev.event_action = "unknown"
+ev.event_outcome = "unknown"
+ev.observer_hostname = ""
+ev.user_name = ""
+ev.raw = raw
+
+ext = {}
+
+if perr != null {
+    ev.timestamp = now()
+    ev.event_action = "parse_error"
+    ev.ext = ext
+    . = ev
+} else {
+    ts = parsed.timestamp
+    if ts != null { ev.timestamp = ts } else { ev.timestamp = now() }
+
+    appname = downcase(string(parsed.appname) ?? "")
+    msg = string(parsed.message) ?? ""
+    ext = set!(ext, ["proxmox.appname"], appname)
+    node = string(parsed.hostname) ?? ""
+    if node != "" { ext = set!(ext, ["proxmox.node"], node) }
+
+    # pvedaemon/pveproxy auth success: "<root@pam> successful auth for user 'root@pam'"
+    # Use split on the quote delimiter rather than a regex containing single-quotes
+    # (TOML triple-single-quote block makes embedded single quotes ambiguous to VRL).
+    if contains(msg, "successful auth for user") {
+        parts = split(msg, "successful auth for user ")
+        if length(parts) > 1 {
+            got, _uge = get(parts, [1])
+            user_raw = string(got) ?? ""
+            user_trimmed = replace(strip_whitespace(user_raw), "'", "")
+            ev.event_category = ["authentication"]
+            ev.event_action = "auth_success"
+            ev.event_outcome = "success"
+            ev.user_name = user_trimmed
+        }
+    }
+
+    ev.ext = ext
+    . = ev
+}
+'''
+
 # L1 (CH TLS): the endpoint is env-overridable so the live host can flip to
 # https without a config fork — set CH_PROTO=https + CH_HTTP_PORT=8443 in the
 # Vector env drop-in. With only CH_HOST set (the historical env), this resolves
@@ -957,3 +1052,25 @@ no_outputs_from = ["unifi_cef_threat"]
 insert_at = "unifi_cef_threat"
 type = "raw"
 value = 'Jun 14 19:49:51 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|402|WiFi Client Roamed|1|UNIFIcategory=Client Devices UNIFIhost=UCK G2 Plus HarmanHoldfast'
+
+# ---------------- Proxmox (M11) unit tests ----------------
+
+[[tests]]
+name = "proxmox_pvedaemon_auth_success"
+[[tests.inputs]]
+insert_at = "proxmox_ecs"
+type = "raw"
+value = "<86>1 2026-06-14T20:00:00.123456+00:00 pve3 pvedaemon 1234 - - <root@pam> successful auth for user 'root@pam'"
+[[tests.outputs]]
+extract_from = "proxmox_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_provider, "proxmox")
+assert_eq!(.event_category, ["authentication"])
+assert_eq!(.event_action, "auth_success")
+assert_eq!(.event_outcome, "success")
+assert_eq!(.user_name, "root@pam")
+assert_eq!(.ext."proxmox.node", "pve3")
+assert_eq!(.ext."proxmox.appname", "pvedaemon")
+'''
