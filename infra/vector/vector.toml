@@ -512,8 +512,19 @@ if cerr != null {
 '''
 
 # Keep only the known Proxmox security lines (pvedaemon/pveproxy auth+task, sshd
-# logins); drop systemd/pvescheduler/kernel noise so ssdf.events is not flooded.
-# parse_syslog runs here too because appname lives inside the raw RFC5424 line.
+# logins, CLI admin tasks); drop systemd/pvescheduler/kernel noise so ssdf.events
+# is not flooded. parse_syslog runs here too because appname lives inside the raw
+# RFC5424 line.
+# Live-found (2026-06-14): admin tasks driven from the CLI/API (pct/qm/pvesh) log
+# their "starting|end task UPID:" lines under their OWN appname, NOT pvedaemon —
+# and on this SSH/CLI/MCP-driven host those ARE the majority of the admin-action
+# audit surface this milestone exists to capture, so the app gate includes them.
+# The is_sec gate still restricts pct/qm/pvesh to task lines only (no flood).
+# The auth-failure gate is anchored to "authentication failure; rhost=" (the
+# pvedaemon pam format) so the sshd pam_unix line ("...failure; logname=...
+# rhost=...") is dropped as redundant — the companion "Failed password for" line
+# already carries that auth_failure, and the pam line would otherwise emit an
+# unparseable event_action="unknown" row.
 [transforms.proxmox_sec]
 type = "filter"
 inputs = ["proxmox_syslog"]
@@ -524,9 +535,11 @@ parsed, err = parse_syslog(string(.message) ?? "")
 if err == null {
     app = downcase(string(parsed.appname) ?? "")
     msg = string(parsed.message) ?? ""
-    is_app = app == "pvedaemon" || app == "pveproxy" || starts_with(app, "sshd")
+    is_app = app == "pvedaemon" || app == "pveproxy" ||
+        app == "pct" || app == "qm" || app == "pvesh" ||
+        starts_with(app, "sshd")
     is_sec = contains(msg, "successful auth for user") ||
-        contains(msg, "authentication failure") ||
+        contains(msg, "authentication failure; rhost=") ||
         contains(msg, "starting task UPID:") ||
         contains(msg, "end task UPID:") ||
         starts_with(msg, "Accepted ") ||
@@ -1291,3 +1304,38 @@ assert_eq!(.source_ip, "198.51.100.7")
 assert_eq!(.source_port, 52001)
 assert_eq!(.ext."proxmox.appname", "sshd-session")
 '''
+
+# Live-found (2026-06-14): CLI/API admin tasks log "starting|end task UPID:"
+# under the pct/qm/pvesh appname (not pvedaemon). The filter must keep them and
+# the transform must map them like any other task line. Full pipeline from
+# proxmox_sec so the broadened app gate is exercised.
+[[tests]]
+name = "proxmox_cli_task_via_pvesh_through_filter"
+[[tests.inputs]]
+insert_at = "proxmox_sec"
+type = "raw"
+value = "<30>1 2026-06-14T20:08:00.000000+00:00 pve3 pvesh 1354321 - - <root@pam> starting task UPID:pve3:0014AA53:01172F0E:6A2F32DB:vzsnapshot:701:root@pam:"
+[[tests.outputs]]
+extract_from = "proxmox_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_category, ["configuration"])
+assert_eq!(.event_action, "task_vzsnapshot")
+assert_eq!(.user_name, "root@pam")
+assert_eq!(.ext."proxmox.appname", "pvesh")
+assert_eq!(.ext."proxmox.task_type", "vzsnapshot")
+assert_eq!(.ext."proxmox.vmid", "701")
+'''
+
+# Live-found (2026-06-14): a failed SSH login emits BOTH a "Failed password for"
+# line (parsed to auth_failure) AND a redundant sshd pam_unix line
+# ("...authentication failure; logname=... rhost=..."). The rhost-anchored gate
+# drops the pam line so it does not surface as an unparseable unknown row.
+[[tests]]
+name = "proxmox_sshd_pam_authfailure_line_dropped"
+no_outputs_from = ["proxmox_sec"]
+[[tests.inputs]]
+insert_at = "proxmox_sec"
+type = "raw"
+value = "<85>1 2026-06-14T20:09:00.000000+00:00 pve3 sshd-session 1353695 - -  pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=198.51.100.100"
