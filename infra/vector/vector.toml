@@ -524,7 +524,7 @@ parsed, err = parse_syslog(string(.message) ?? "")
 if err == null {
     app = downcase(string(parsed.appname) ?? "")
     msg = string(parsed.message) ?? ""
-    is_app = app == "pvedaemon" || app == "pveproxy" || app == "sshd"
+    is_app = app == "pvedaemon" || app == "pveproxy" || starts_with(app, "sshd")
     is_sec = contains(msg, "successful auth for user") ||
         contains(msg, "authentication failure") ||
         contains(msg, "starting task UPID:") ||
@@ -579,7 +579,9 @@ if perr != null {
     node = string(parsed.hostname) ?? ""
     if node != "" { ext = set!(ext, ["proxmox.node"], node) }
 
-    if appname == "sshd" {
+    if starts_with(appname, "sshd") {
+        # OpenSSH 9.8+ (Debian 13) splits per-connection logging into the
+        # "sshd-session" appname; match the whole sshd* family, not just "sshd".
         # "Accepted publickey for root from 198.51.100.5 port 51000 ssh2: ..."
         am, amerr = parse_regex(msg, r'Accepted \S+ for (?P<user>\S+) from (?P<ip>\S+) port (?P<port>\d+)')
         if amerr == null {
@@ -1267,4 +1269,25 @@ source = '''
 assert_eq!(.event_action, "auth_success")
 assert_eq!(.source_ip, "198.51.100.6")
 assert_eq!(.source_port, 51999)
+'''
+
+# Live-found (OpenSSH 9.8+ / Debian 13): per-connection auth lines carry the
+# "sshd-session" appname, not "sshd". The sshd branch matches starts_with "sshd",
+# so the whole family is handled — and proxmox_sec must keep it (full pipeline).
+[[tests]]
+name = "proxmox_sshd_session_accepted_through_filter"
+[[tests.inputs]]
+insert_at = "proxmox_sec"
+type = "raw"
+value = "<38>1 2026-06-14T20:07:00.000000+00:00 pve3 sshd-session 9001 - - Accepted publickey for root from 198.51.100.7 port 52001 ssh2: ED25519 SHA256:xyz"
+[[tests.outputs]]
+extract_from = "proxmox_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "auth_success")
+assert_eq!(.user_name, "root")
+assert_eq!(.source_ip, "198.51.100.7")
+assert_eq!(.source_port, 52001)
+assert_eq!(.ext."proxmox.appname", "sshd-session")
 '''
