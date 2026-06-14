@@ -21,6 +21,10 @@ class _FakeStore:
     def configured_policies_for_firewalls(self, names):
         return []
 
+    def alerts_for_pair(self, ips, since_iso):
+        self.alerts_ips = ips
+        return getattr(self, "_alerts", [])
+
 
 class _FakeTopo:
     def __init__(self, firewalls, path):
@@ -112,6 +116,9 @@ class _StoreWithConfigured:
 
     def configured_policies_for_firewalls(self, names):
         return self._configured
+
+    def alerts_for_pair(self, ips, since_iso):
+        return []
 
 
 class _TopoOneFw:
@@ -268,3 +275,73 @@ def test_explain_access_provenance_normalizes_panos_fqdn():
 ])
 def test_short_host(raw, expected):
     assert _short_host(raw) == expected
+
+
+def test_detections_populated_from_unifi_alerts():
+    ents = _client_server()
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "3", "bytes": "100",
+                                        "ports": "443", "providers": "unifi",
+                                        "transports": "tcp"}}]
+    store = _FakeStore(ents, comm, [])
+    store._alerts = [{"timestamp": "2026-06-13 12:00:00.000",
+                      "source_ip": "10.64.0.5", "destination_ip": "8.8.8.8",
+                      "signature": "ET POLICY Suspicious TLS", "signature_id": "2027865",
+                      "category": "Potentially Bad Traffic", "severity": "2"}]
+    topo = _FakeTopo([], {"found": False})
+    out = AccessTools(store, topo).explain_access("10.64.0.5", "8.8.8.8")
+    assert len(out["detections"]) == 1
+    det = out["detections"][0]
+    assert det["signature"] == "ET POLICY Suspicious TLS"
+    assert det["signature_id"] == "2027865"
+    assert det["category"] == "Potentially Bad Traffic"
+    assert det["severity"] == "2"
+
+
+def test_detections_empty_when_no_alerts():
+    ents = _client_server()
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "1", "bytes": "1",
+                                        "ports": "443", "providers": "unifi", "transports": "tcp"}}]
+    store = _FakeStore(ents, comm, [])   # no _alerts attribute -> []
+    topo = _FakeTopo([], {"found": False})
+    out = AccessTools(store, topo).explain_access("10.64.0.5", "8.8.8.8")
+    assert out["detections"] == []
+
+
+def test_detections_candidate_ips_include_entity_identifiers():
+    # Entities with extra IPv4 identifiers — expansion must add them to alert_ips.
+    # A non-IPv4 identifier (MAC) must be excluded (not a valid IPv4Address).
+    ents = {
+        "10.64.0.5": {
+            "entity_id": "C",
+            "name": "10.64.0.5",
+            "identity_basis": "mac",
+            "identifiers": {
+                "ip": "10.64.0.5",
+                "ip2": "10.64.1.50",            # extra IPv4 — must appear in alert_ips
+                "mac": "aa:bb:cc:dd:ee:ff",    # non-IPv4 — must NOT appear
+            },
+        },
+        "8.8.8.8": {
+            "entity_id": "S",
+            "name": "8.8.8.8",
+            "identity_basis": "ip_only",
+            "identifiers": {"ip": "8.8.8.8"},
+        },
+    }
+    comm = [{"edge_id": "E1", "attrs": {"sessions": "1", "bytes": "1",
+                                        "ports": "443", "providers": "unifi",
+                                        "transports": "tcp"}}]
+    store = _FakeStore(ents, comm, [])
+    topo = _FakeTopo([], {"found": False})
+    AccessTools(store, topo).explain_access("10.64.0.5", "8.8.8.8")
+
+    recorded = store.alerts_ips
+    # (a) extra identifier IP included
+    assert "10.64.1.50" in recorded
+    # (b) lookup args included
+    assert "10.64.0.5" in recorded
+    assert "8.8.8.8" in recorded
+    # (c) MAC excluded
+    assert "aa:bb:cc:dd:ee:ff" not in recorded
+    # (d) result is sorted
+    assert recorded == sorted(recorded)

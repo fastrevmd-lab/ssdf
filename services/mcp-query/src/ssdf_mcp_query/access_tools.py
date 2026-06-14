@@ -104,6 +104,29 @@ class AccessTools:
                     "firewall_basis": firewall_basis,
                 })
 
+        # M9: UniFi IPS detections touching either endpoint, same window. Candidate IPs
+        # come from the lookup args + entity identifiers (IPv4 only — events are IPv4).
+        alert_ips: set[str] = set()
+        for candidate in (client, server,
+                          *client_entity.get("identifiers", {}).values(),
+                          *server_entity.get("identifiers", {}).values()):
+            try:
+                ipaddress.IPv4Address(candidate)
+                alert_ips.add(candidate)
+            except (ipaddress.AddressValueError, ValueError):
+                continue
+        detections = []
+        for alert in self._store.alerts_for_pair(sorted(alert_ips), _since(window)):
+            detections.append({
+                "timestamp": alert.get("timestamp", ""),
+                "signature": alert.get("signature", ""),
+                "signature_id": alert.get("signature_id", ""),
+                "category": alert.get("category", ""),
+                "severity": alert.get("severity", ""),
+                "source_ip": alert.get("source_ip", ""),
+                "destination_ip": alert.get("destination_ip", ""),
+            })
+
         return {
             "client": {"entity_id": client_entity["entity_id"],
                        "name": client_entity.get("name", ""),
@@ -115,6 +138,7 @@ class AccessTools:
                                "ports": sorted(int(p) for p in ports),
                                "providers": sorted(providers), "window_hours": window},
             "controls": controls,
+            "detections": detections,
             "configured_controls": configured_controls,
             "configured_basis": configured_basis,
             "firewalls": firewalls,
