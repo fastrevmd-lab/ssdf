@@ -35,7 +35,9 @@ def _select_pair(edges: list[dict], client_ids: set[str], server_ids: set[str],
     carry firewall provenance (non-empty ``observer_hosts``) wins over one without —
     M6a twin-splitting can leave a stale un-stamped twin-pair holding more accumulated
     sessions than the correctly-stamped pair, so most-sessions alone loses the
-    provenance. Subsequent tiebreaks: greatest summed sessions, then greatest edge
+    provenance. A pair counts as provenance-bearing if ANY of its edges carries
+    observer_hosts (matching the downstream observer_hosts union). Subsequent
+    tiebreaks: greatest summed sessions, then greatest edge
     last_seen, then lexicographic (client_id, server_id) for determinism. Returns
     (client_id, server_id, edges_for_pair), or None when no edge qualifies — an edge is
     skipped when neither endpoint maps to a client/server pair, or when both endpoints
