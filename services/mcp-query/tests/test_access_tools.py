@@ -375,6 +375,20 @@ def test_select_pair_most_sessions_wins():
     assert [e["dst_id"] for e in picked] == ["Sb"]
 
 
+def test_select_pair_provenance_beats_more_sessions():
+    # the live M6a-twin case: a stale un-stamped pair has MORE sessions, but the
+    # correctly-stamped (observer_hosts) pair must win so SRX provenance surfaces.
+    edges = [
+        {"src_id": "C", "dst_id": "Sa", "last_seen": "2026-06-15 10:00:00",
+         "attrs": {"sessions": "1812", "observer_hosts": ""}},
+        {"src_id": "C", "dst_id": "Sb", "last_seen": "2026-06-15 12:00:00",
+         "attrs": {"sessions": "352", "observer_hosts": "vSRX-Production"}},
+    ]
+    client_id, server_id, picked = _select_pair(edges, {"C"}, {"Sa", "Sb"})
+    assert (client_id, server_id) == ("C", "Sb")
+    assert [e["dst_id"] for e in picked] == ["Sb"]
+
+
 def test_select_pair_last_seen_breaks_session_tie():
     edges = [
         {"src_id": "C", "dst_id": "Sa", "last_seen": "2026-06-15 10:00:00",

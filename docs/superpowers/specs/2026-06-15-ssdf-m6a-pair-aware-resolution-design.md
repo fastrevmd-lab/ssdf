@@ -83,8 +83,13 @@ Replace the two `find_entity` calls + single `communicated_edges` call with:
    (an edge from the multi-query always has exactly one end in each set by construction; if
    an edge's ends both fall in the same set — only possible when the two identifiers resolve
    to overlapping candidate sets — skip it).
-5. **Select** the pair with the greatest summed `sessions`; tiebreak by greatest edge
-   `last_seen`, then lexicographic `(client_id, server_id)` for determinism. Set
+5. **Select** the pair preferring firewall provenance — a pair whose edges carry a
+   non-empty `observer_hosts` wins over one without (live-found 2026-06-15: M6a
+   twin-splitting can leave a stale un-stamped twin-pair holding *more* accumulated
+   sessions than the correctly-stamped pair, so most-sessions alone loses the
+   provenance the goal exists to surface). Then by greatest summed `sessions`, tiebreak
+   by greatest edge `last_seen`, then lexicographic `(client_id, server_id)` for
+   determinism. Set
    `client_entity` / `server_entity` to the candidates with those ids and `comm_edges` to
    that pair's edge list.
 6. **Fallback:** if no pair has edges, `client_entity = client_cands[0]`,
@@ -139,7 +144,8 @@ The CH client's `result_overflow_mode="throw"` / row caps are unaffected (IN-lis
   `server_cands[0]`, `sessions:0`, `firewall_basis:no_path_firewall` (today's behavior).
 - `single_twin_each_side_unchanged`: 1 entity per side with an edge (panosvm-style) → same
   result as the pre-change path (regression guard).
-- `_select_pair` direct unit tests: most-sessions wins; last_seen tiebreak; empty → `None`.
+- `_select_pair` direct unit tests: provenance beats more-sessions; most-sessions wins
+  (no provenance on either side); last_seen tiebreak; empty → `None`.
 
 **Unit — `tests/test_entitystore.py`**:
 - `build_entities_match_sql` omits `LIMIT 1`, keeps the `confidence DESC, last_seen DESC`

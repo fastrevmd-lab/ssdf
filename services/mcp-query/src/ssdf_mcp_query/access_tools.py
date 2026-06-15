@@ -28,14 +28,18 @@ def _short_host(name: str) -> str:
 
 def _select_pair(edges: list[dict], client_ids: set[str], server_ids: set[str],
                  ) -> tuple[str, str, list[dict]] | None:
-    """Pick the (client_id, server_id) pair with the most summed sessions.
+    """Pick the (client_id, server_id) pair, preferring provenance-bearing edges.
 
     Groups edges onto the pair whose client end is in client_ids and server end in
-    server_ids (mapping either edge direction). Tiebreak: greatest summed sessions,
-    then greatest edge last_seen, then lexicographic (client_id, server_id) for
-    determinism. Returns (client_id, server_id, edges_for_pair), or None when no edge
-    qualifies — an edge is skipped when neither endpoint maps to a client/server pair,
-    or when both endpoints fall in the same candidate set.
+    server_ids (mapping either edge direction). Selection order: a pair whose edges
+    carry firewall provenance (non-empty ``observer_hosts``) wins over one without —
+    M6a twin-splitting can leave a stale un-stamped twin-pair holding more accumulated
+    sessions than the correctly-stamped pair, so most-sessions alone loses the
+    provenance. Subsequent tiebreaks: greatest summed sessions, then greatest edge
+    last_seen, then lexicographic (client_id, server_id) for determinism. Returns
+    (client_id, server_id, edges_for_pair), or None when no edge qualifies — an edge is
+    skipped when neither endpoint maps to a client/server pair, or when both endpoints
+    fall in the same candidate set.
     """
     pairs: dict[tuple[str, str], dict] = {}
     for edge in edges:
@@ -46,9 +50,12 @@ def _select_pair(edges: list[dict], client_ids: set[str], server_ids: set[str],
             key = (dst, src)
         else:
             continue  # both ends in the same candidate set: ambiguous, skip
-        bucket = pairs.setdefault(key, {"edges": [], "sessions": 0, "last_seen": ""})
+        bucket = pairs.setdefault(
+            key, {"edges": [], "sessions": 0, "last_seen": "", "has_prov": False})
         bucket["edges"].append(edge)
         bucket["sessions"] += int(edge.get("attrs", {}).get("sessions", "0") or 0)
+        if edge.get("attrs", {}).get("observer_hosts", ""):
+            bucket["has_prov"] = True
         last_seen = edge.get("last_seen", "")
         if last_seen > bucket["last_seen"]:
             bucket["last_seen"] = last_seen
@@ -56,7 +63,8 @@ def _select_pair(edges: list[dict], client_ids: set[str], server_ids: set[str],
         return None
     (client_id, server_id), bucket = max(
         pairs.items(),
-        key=lambda item: (item[1]["sessions"], item[1]["last_seen"], item[0]))
+        key=lambda item: (item[1]["has_prov"], item[1]["sessions"],
+                          item[1]["last_seen"], item[0]))
     return client_id, server_id, bucket["edges"]
 
 
