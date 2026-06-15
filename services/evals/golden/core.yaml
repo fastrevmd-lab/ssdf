@@ -32,7 +32,7 @@
   predicate:
     type: reference_sql
     sql: >-
-      SELECT DISTINCT observer_hostname FROM ssdf.events
+      SELECT DISTINCT splitByChar('.', observer_hostname)[1] FROM ssdf.events
       WHERE source_ip = toIPv6('10.74.11.20')
         AND destination_ip = toIPv6('198.51.100.1') AND observer_hostname != ''
     match: exact
