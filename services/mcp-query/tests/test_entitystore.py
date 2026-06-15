@@ -153,3 +153,30 @@ def test_build_comm_edges_multi_sql_in_lists_both_directions():
     assert params["b"] == ["B1"]
     assert params["since"] == "2026-06-15T00:00:00.000"
     assert params["tenant"] == "t_main"
+
+
+def test_store_find_entities_returns_all_rows():
+    ch = _FakeCH([[{"entity_id": "x"}, {"entity_id": "y"}]])
+    store = ClickHouseEntityStore(ch, tenant="t_main")
+    assert store.find_entities("8.8.8.8") == [{"entity_id": "x"}, {"entity_id": "y"}]
+
+
+def test_store_find_entities_empty_when_none():
+    store = ClickHouseEntityStore(_FakeCH([[]]), tenant="t_main")
+    assert store.find_entities("nope") == []
+
+
+def test_store_communicated_edges_multi_skips_query_when_either_list_empty():
+    ch = _FakeCH([])  # no batches queued: any run() call would IndexError
+    store = ClickHouseEntityStore(ch, tenant="t_main")
+    assert store.communicated_edges_multi([], ["B"], "2026-06-15T00:00:00.000") == []
+    assert store.communicated_edges_multi(["A"], [], "2026-06-15T00:00:00.000") == []
+    assert ch.calls == []
+
+
+def test_store_communicated_edges_multi_runs_query():
+    ch = _FakeCH([[{"edge_id": "E1"}]])
+    store = ClickHouseEntityStore(ch, tenant="t_main")
+    assert store.communicated_edges_multi(["A"], ["B"], "2026-06-15T00:00:00.000") == [
+        {"edge_id": "E1"}]
+    assert len(ch.calls) == 1

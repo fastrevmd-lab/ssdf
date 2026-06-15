@@ -137,6 +137,9 @@ def build_alerts_for_pair_sql(ips: list[str], since_iso: str,
 class EntityStore(Protocol):
     def find_entity(self, identifier: str) -> dict | None: ...
     def communicated_edges(self, a_id: str, b_id: str, since_iso: str) -> list[dict]: ...
+    def find_entities(self, identifier: str) -> list[dict]: ...
+    def communicated_edges_multi(self, a_ids: list[str], b_ids: list[str],
+                                 since_iso: str) -> list[dict]: ...
     def governed_policies(self, comm_edge_ids: list[str]) -> list[dict]: ...
     def configured_policies_for_firewalls(self, firewall_names: list[str]) -> list[dict]: ...
     def alerts_for_pair(self, ips: list[str], since_iso: str) -> list[dict]: ...
@@ -156,6 +159,17 @@ class ClickHouseEntityStore:
 
     def communicated_edges(self, a_id: str, b_id: str, since_iso: str) -> list[dict]:
         sql, params = build_comm_edges_sql(a_id, b_id, since_iso, self._tenant)
+        return self._ch.run(sql, params)["rows"]
+
+    def find_entities(self, identifier: str) -> list[dict]:
+        sql, params = build_entities_match_sql(identifier, self._tenant)
+        return self._ch.run(sql, params)["rows"]
+
+    def communicated_edges_multi(self, a_ids: list[str], b_ids: list[str],
+                                 since_iso: str) -> list[dict]:
+        if not a_ids or not b_ids:
+            return []
+        sql, params = build_comm_edges_multi_sql(a_ids, b_ids, since_iso, self._tenant)
         return self._ch.run(sql, params)["rows"]
 
     def governed_policies(self, comm_edge_ids: list[str]) -> list[dict]:
