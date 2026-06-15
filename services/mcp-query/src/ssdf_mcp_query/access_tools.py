@@ -26,6 +26,38 @@ def _short_host(name: str) -> str:
         return name.split(".", 1)[0]
 
 
+def _select_pair(edges: list[dict], client_ids: set[str], server_ids: set[str]):
+    """Pick the (client_id, server_id) pair with the most summed sessions.
+
+    Groups edges onto the pair whose client end is in client_ids and server end in
+    server_ids (mapping either edge direction). Tiebreak: greatest summed sessions,
+    then greatest edge last_seen, then lexicographic (client_id, server_id) for
+    determinism. Returns (client_id, server_id, edges_for_pair), or None when no edge
+    maps cleanly onto exactly one client id + one server id.
+    """
+    pairs: dict[tuple[str, str], dict] = {}
+    for edge in edges:
+        src, dst = edge.get("src_id"), edge.get("dst_id")
+        if src in client_ids and dst in server_ids:
+            key = (src, dst)
+        elif dst in client_ids and src in server_ids:
+            key = (dst, src)
+        else:
+            continue  # both ends in the same candidate set: ambiguous, skip
+        bucket = pairs.setdefault(key, {"edges": [], "sessions": 0, "last_seen": ""})
+        bucket["edges"].append(edge)
+        bucket["sessions"] += int(edge.get("attrs", {}).get("sessions", "0") or 0)
+        last_seen = edge.get("last_seen", "")
+        if last_seen > bucket["last_seen"]:
+            bucket["last_seen"] = last_seen
+    if not pairs:
+        return None
+    (client_id, server_id), bucket = max(
+        pairs.items(),
+        key=lambda item: (item[1]["sessions"], item[1]["last_seen"], item[0]))
+    return client_id, server_id, bucket["edges"]
+
+
 class AccessTools:
     """Stateless access-explanation tool bound to an EntityStore + M4 TopoTools."""
 
