@@ -69,15 +69,27 @@ class AccessTools:
         self._window = default_window_hours
 
     def explain_access(self, client: str, server: str, since_hours: int | None = None) -> dict:
-        client_entity = self._store.find_entity(client)
-        server_entity = self._store.find_entity(server)
-        if not client_entity or not server_entity:
-            missing = client if not client_entity else server
+        client_cands = self._store.find_entities(client)
+        server_cands = self._store.find_entities(server)
+        if not client_cands or not server_cands:
+            missing = client if not client_cands else server
             return {"error": "not_found", "detail": f"no entity matches '{missing}'"}
 
         window = since_hours or self._window
-        comm_edges = self._store.communicated_edges(
-            client_entity["entity_id"], server_entity["entity_id"], _since(window))
+        client_ids = [c["entity_id"] for c in client_cands]
+        server_ids = [s["entity_id"] for s in server_cands]
+        edges = self._store.communicated_edges_multi(client_ids, server_ids, _since(window))
+
+        selected = _select_pair(edges, set(client_ids), set(server_ids))
+        if selected is not None:
+            client_id, server_id, comm_edges = selected
+            client_entity = next(c for c in client_cands if c["entity_id"] == client_id)
+            server_entity = next(s for s in server_cands if s["entity_id"] == server_id)
+        else:
+            # no candidate pair has an edge: confidence-first single pick, sessions:0
+            client_entity = client_cands[0]
+            server_entity = server_cands[0]
+            comm_edges = []
 
         sessions = bytes_total = 0
         ports: set[str] = set()
