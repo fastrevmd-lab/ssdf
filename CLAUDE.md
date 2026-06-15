@@ -195,11 +195,22 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
   `local` is the only backup-capable storage on pve3 (host's own disk) — covers container
   loss/fat-fingers, NOT host-disk loss. Schedule times are pve3-host-local. Verify:
   `pvesh get /cluster/backup` / restore drill to a SCRATCH VMID only, never ct104 itself.
-- **Lab transit traffic (P2):** ct115 `ssdf-labgen` (Alpine, 10.74.11.20 on panosvm trust
-  VLAN 103) runs `scripts/labgen_transit.sh` via 15-min cron so PAN-OS TRAFFIC ingest +
-  the M6c-B provenance bridge stay continuously live-proven. Runbook:
-  `onboarding/panos/transit-traffic.md`. Do not destroy ct115 without replacing the source.
-  ct115 is deliberately NOT in the weekly backup job — it is fully reproducible from the runbook.
+- **Lab transit traffic (Phase 2, 2026-06-15):** TWO Alpine endpoints run the shared
+  `scripts/labgen_endpoint.sh` daemon (OpenRC service `labgen`, not cron — it self-loops
+  ~30s jittered) so BOTH firewalls stay continuously live-proven as SSDF transit sources:
+  ct198 `ssdf-ep-srx` (10.74.12.20/24, gw 10.74.12.1) behind vSRX-Production trust VLAN 198,
+  and ct199 `ssdf-ep-panos` (10.74.11.20/24, gw 10.74.11.1) behind panosvm trust VLAN 199.
+  Trust VLANs are Proxmox-only bridge tags on vmbr1 (VLAN id = endpoint CTID, no UniFi net
+  object). The generator produces permitted internet egress PLUS a deliberate denied DNS
+  attempt (firewalls allow DNS only to approved resolvers 198.51.100.1/1.1.1.2/1.0.0.2;
+  endpoints query 8.8.8.8 → deny event on both vendors). Runbooks:
+  `onboarding/srx/transit-endpoint.md`, `onboarding/panos/transit-traffic.md`. Do not destroy
+  ct198/ct199 without replacing the source; neither is in the weekly backup job (reproducible
+  from the runbooks). The old single-vendor ct115 (`labgen_transit.sh`, cron) was retired.
+- **H2 device gate broadened (Phase 2):** the `infra/vector/vector.toml` observer_hostname
+  gate now accepts `^vsrx-(test\d|production)` (was test-fleet-only), so vSRX-Production's
+  RT_FLOW events carry `observer_hostname=vSRX-Production` (original case preserved for the
+  `explain_access` `device:vSRX-Production` provenance bridge). Unknown hosts still blank.
 
 ### M8 (agent evals — services/evals, SSDF side only)
 - Unit tests + corpus lint: `cd services/evals && uv run pytest -m "not integration"`
