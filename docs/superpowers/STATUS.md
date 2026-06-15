@@ -269,6 +269,14 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   tool-checks and that no single model is load-bearing.
   Specs: `specs/2026-06-12-ssdf-m8-eval-harness-design.md` (harness),
   `specs/2026-06-12-ssdf-m8-external-eval-runner-design.md` (runner).
+  **Corpus fix 2026-06-15 (`3cf1263`):** `reach-firewall-attribution`'s `reference_sql`
+  returned the raw `observer_hostname` FQDN (`panosvm.example.com`), but `explain_access`
+  normalizes firewalls to the first DNS label via `_short_host` (`panosvm`), so
+  `match:exact` could never pass. Reference now extracts the short label
+  (`splitByChar('.', observer_hostname)[1]` — a no-op for dot-free `vSRX-Production`),
+  live-verified on ct104. Re-ran claude sovereign post-fix: **15/22** (`aa1d8e6`); the
+  question's remaining miss is agent-side (model answered the vendor `paloalto` and
+  skipped `explain_access`), not a corpus defect.
 - **M9 — UniFi Suricata IPS ingest.** ✅ Done 2026-06-14 (merged `818a984`; see as-built
   row above). First detection-class source via the established Vector→ClickHouse pattern.
   **Charter correction proven on the wire:** the source is **CEF from the Cloud Key
