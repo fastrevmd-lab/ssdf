@@ -26,14 +26,16 @@ def _short_host(name: str) -> str:
         return name.split(".", 1)[0]
 
 
-def _select_pair(edges: list[dict], client_ids: set[str], server_ids: set[str]):
+def _select_pair(edges: list[dict], client_ids: set[str], server_ids: set[str],
+                 ) -> tuple[str, str, list[dict]] | None:
     """Pick the (client_id, server_id) pair with the most summed sessions.
 
     Groups edges onto the pair whose client end is in client_ids and server end in
     server_ids (mapping either edge direction). Tiebreak: greatest summed sessions,
     then greatest edge last_seen, then lexicographic (client_id, server_id) for
     determinism. Returns (client_id, server_id, edges_for_pair), or None when no edge
-    maps cleanly onto exactly one client id + one server id.
+    qualifies — an edge is skipped when neither endpoint maps to a client/server pair,
+    or when both endpoints fall in the same candidate set.
     """
     pairs: dict[tuple[str, str], dict] = {}
     for edge in edges:

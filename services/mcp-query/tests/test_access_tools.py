@@ -387,3 +387,17 @@ def test_select_pair_skips_edges_with_both_ends_in_one_set():
     edges = [{"src_id": "C1", "dst_id": "C2", "last_seen": "",
               "attrs": {"sessions": "3"}}]
     assert _select_pair(edges, {"C1", "C2"}, {"S"}) is None
+
+
+def test_select_pair_accumulates_multiple_edges_for_same_pair():
+    # one forward (C->S) and one reversed (S->C) edge for the same logical pair
+    # must land in the same bucket: sessions sum and both edges are returned.
+    edges = [
+        {"src_id": "C", "dst_id": "S", "last_seen": "2026-06-15 10:00:00",
+         "attrs": {"sessions": "3"}},
+        {"src_id": "S", "dst_id": "C", "last_seen": "2026-06-15 11:00:00",
+         "attrs": {"sessions": "4"}},
+    ]
+    client_id, server_id, picked = _select_pair(edges, {"C"}, {"S"})
+    assert (client_id, server_id) == ("C", "S")
+    assert len(picked) == 2
