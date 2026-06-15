@@ -281,7 +281,13 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   strong; the 7B text-emits tool calls so it makes few real MCP calls and fails the
   audit tool-checks, the harness fail-closing as designed). The `reach-firewall-attribution`
   miss this run is agent-side (model answered the vendor `paloalto` and skipped
-  `explain_access`), not a corpus defect.
+  `explain_access`), not a corpus defect. **Regress gate flags accepted as variance:**
+  the gate (baseline = the committed `results/` "ever-passed" set) exits 1 on claude
+  sovereign (`flows-paloalto-actions-7d`, `reach-configured-policy-count-panosvm`,
+  `reach-rule-trust-untrust`) and qwen sovereign (`honesty-device-metrics`,
+  `honesty-identity-user`); both public runs exit 0. All flags are run-to-run model
+  nondeterminism / live-data drift (skipped tool calls, a wrong count, refusal
+  flip-flops at 7B), not corpus or fix-caused regressions — accepted, no action.
 - **M9 — UniFi Suricata IPS ingest.** ✅ Done 2026-06-14 (merged `818a984`; see as-built
   row above). First detection-class source via the established Vector→ClickHouse pattern.
   **Charter correction proven on the wire:** the source is **CEF from the Cloud Key
