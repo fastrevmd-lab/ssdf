@@ -31,6 +31,19 @@ def build_entity_match_sql(value: str, tenant: str) -> tuple[str, dict]:
     return sql, {"tenant": tenant, "val": _normalize_identifier(value)}
 
 
+def build_entities_match_sql(value: str, tenant: str) -> tuple[str, dict]:
+    # Identical match to build_entity_match_sql WITHOUT LIMIT 1: returns every
+    # candidate twin for the identifier. Order is preserved (confidence DESC,
+    # last_seen DESC) so row 0 is the same entity find_entity returns today.
+    sql = (
+        f"SELECT {_ENTITY_COLS} FROM ssdf.entities FINAL "
+        "WHERE tenant_id = {tenant:String} AND ("
+        "entity_id = {val:String} OR has(mapValues(identifiers), {val:String})) "
+        "ORDER BY confidence DESC, entities.last_seen DESC"
+    )
+    return sql, {"tenant": tenant, "val": _normalize_identifier(value)}
+
+
 def build_comm_edges_sql(a_id: str, b_id: str, since_iso: str,
                          tenant: str) -> tuple[str, dict]:
     # `entity_edges.last_seen` is qualified per the alias-shadowing note above:
@@ -44,6 +57,21 @@ def build_comm_edges_sql(a_id: str, b_id: str, since_iso: str,
         "(src_id = {b:String} AND dst_id = {a:String}))"
     )
     return sql, {"tenant": tenant, "a": a_id, "b": b_id, "since": since_iso}
+
+
+def build_comm_edges_multi_sql(a_ids: list[str], b_ids: list[str], since_iso: str,
+                               tenant: str) -> tuple[str, dict]:
+    # Same shape as build_comm_edges_sql but with IN-lists on both directions, so
+    # candidate twin sets on each side are matched in one query. `entity_edges.last_seen`
+    # is qualified per the alias-shadowing note above (unqualified binds the String alias).
+    sql = (
+        f"SELECT {_EDGE_COLS} FROM ssdf.entity_edges FINAL "
+        "WHERE tenant_id = {tenant:String} AND edge_type = 'communicated_with' "
+        "AND entity_edges.last_seen >= {since:String} AND ("
+        "(src_id IN {a:Array(String)} AND dst_id IN {b:Array(String)}) OR "
+        "(src_id IN {b:Array(String)} AND dst_id IN {a:Array(String)}))"
+    )
+    return sql, {"tenant": tenant, "a": a_ids, "b": b_ids, "since": since_iso}
 
 
 def build_governed_by_sql(comm_edge_ids: list[str], tenant: str) -> tuple[str, dict]:
@@ -109,6 +137,9 @@ def build_alerts_for_pair_sql(ips: list[str], since_iso: str,
 class EntityStore(Protocol):
     def find_entity(self, identifier: str) -> dict | None: ...
     def communicated_edges(self, a_id: str, b_id: str, since_iso: str) -> list[dict]: ...
+    def find_entities(self, identifier: str) -> list[dict]: ...
+    def communicated_edges_multi(self, a_ids: list[str], b_ids: list[str],
+                                 since_iso: str) -> list[dict]: ...
     def governed_policies(self, comm_edge_ids: list[str]) -> list[dict]: ...
     def configured_policies_for_firewalls(self, firewall_names: list[str]) -> list[dict]: ...
     def alerts_for_pair(self, ips: list[str], since_iso: str) -> list[dict]: ...
@@ -128,6 +159,17 @@ class ClickHouseEntityStore:
 
     def communicated_edges(self, a_id: str, b_id: str, since_iso: str) -> list[dict]:
         sql, params = build_comm_edges_sql(a_id, b_id, since_iso, self._tenant)
+        return self._ch.run(sql, params)["rows"]
+
+    def find_entities(self, identifier: str) -> list[dict]:
+        sql, params = build_entities_match_sql(identifier, self._tenant)
+        return self._ch.run(sql, params)["rows"]
+
+    def communicated_edges_multi(self, a_ids: list[str], b_ids: list[str],
+                                 since_iso: str) -> list[dict]:
+        if not a_ids or not b_ids:
+            return []
+        sql, params = build_comm_edges_multi_sql(a_ids, b_ids, since_iso, self._tenant)
         return self._ch.run(sql, params)["rows"]
 
     def governed_policies(self, comm_edge_ids: list[str]) -> list[dict]:

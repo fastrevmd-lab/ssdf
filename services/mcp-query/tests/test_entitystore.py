@@ -1,6 +1,7 @@
 from ssdf_mcp_query.entitystore import (
     build_entity_match_sql, build_comm_edges_sql, build_governed_by_sql,
     build_entities_by_id_sql, ClickHouseEntityStore,
+    build_entities_match_sql, build_comm_edges_multi_sql,
 )
 from ssdf_mcp_query.entitystore import build_alerts_for_pair_sql
 
@@ -121,3 +122,61 @@ def test_configured_policies_for_firewalls_joins_fw_edge_policy():
 def test_configured_policies_for_firewalls_empty_input():
     store = ClickHouseEntityStore(_FakeCH([]), tenant="t_main")
     assert store.configured_policies_for_firewalls([]) == []
+
+
+def test_build_entities_match_sql_omits_limit_keeps_order():
+    # Same match as build_entity_match_sql but returns ALL twins (no LIMIT 1),
+    # keeping confidence-first order so row 0 == what find_entity returns today.
+    sql, params = build_entities_match_sql("198.51.100.150", tenant="t_main")
+    assert "ssdf.entities FINAL" in sql
+    assert "LIMIT 1" not in sql
+    assert "ORDER BY confidence DESC, entities.last_seen DESC" in sql
+    assert "has(mapValues(identifiers), {val:String})" in sql
+    assert params["val"] == "198.51.100.150"
+    assert params["tenant"] == "t_main"
+
+
+def test_build_entities_match_sql_lowercases_mac():
+    _, params = build_entities_match_sql("AA:BB:CC:DD:EE:FF", tenant="t_main")
+    assert params["val"] == "aa:bb:cc:dd:ee:ff"
+
+
+def test_build_comm_edges_multi_sql_in_lists_both_directions():
+    sql, params = build_comm_edges_multi_sql(
+        ["A1", "A2"], ["B1"], "2026-06-15T00:00:00.000", tenant="t_main")
+    assert "edge_type = 'communicated_with'" in sql
+    # qualified column so the toString(last_seen) alias doesn't lexically drop rows
+    assert "entity_edges.last_seen >= {since:String}" in sql
+    assert "src_id IN {a:Array(String)} AND dst_id IN {b:Array(String)}" in sql
+    assert "src_id IN {b:Array(String)} AND dst_id IN {a:Array(String)}" in sql
+    assert params["a"] == ["A1", "A2"]
+    assert params["b"] == ["B1"]
+    assert params["since"] == "2026-06-15T00:00:00.000"
+    assert params["tenant"] == "t_main"
+
+
+def test_store_find_entities_returns_all_rows():
+    ch = _FakeCH([[{"entity_id": "x"}, {"entity_id": "y"}]])
+    store = ClickHouseEntityStore(ch, tenant="t_main")
+    assert store.find_entities("8.8.8.8") == [{"entity_id": "x"}, {"entity_id": "y"}]
+
+
+def test_store_find_entities_empty_when_none():
+    store = ClickHouseEntityStore(_FakeCH([[]]), tenant="t_main")
+    assert store.find_entities("nope") == []
+
+
+def test_store_communicated_edges_multi_skips_query_when_either_list_empty():
+    ch = _FakeCH([])  # no batches queued: any run() call would IndexError
+    store = ClickHouseEntityStore(ch, tenant="t_main")
+    assert store.communicated_edges_multi([], ["B"], "2026-06-15T00:00:00.000") == []
+    assert store.communicated_edges_multi(["A"], [], "2026-06-15T00:00:00.000") == []
+    assert ch.calls == []
+
+
+def test_store_communicated_edges_multi_runs_query():
+    ch = _FakeCH([[{"edge_id": "E1"}]])
+    store = ClickHouseEntityStore(ch, tenant="t_main")
+    assert store.communicated_edges_multi(["A"], ["B"], "2026-06-15T00:00:00.000") == [
+        {"edge_id": "E1"}]
+    assert len(ch.calls) == 1

@@ -26,6 +26,50 @@ def _short_host(name: str) -> str:
         return name.split(".", 1)[0]
 
 
+def _select_pair(edges: list[dict], client_ids: set[str], server_ids: set[str],
+                 ) -> tuple[str, str, list[dict]] | None:
+    """Pick the (client_id, server_id) pair, preferring provenance-bearing edges.
+
+    Groups edges onto the pair whose client end is in client_ids and server end in
+    server_ids (mapping either edge direction). Selection order: a pair whose edges
+    carry firewall provenance (non-empty ``observer_hosts``) wins over one without —
+    M6a twin-splitting can leave a stale un-stamped twin-pair holding more accumulated
+    sessions than the correctly-stamped pair, so most-sessions alone loses the
+    provenance. A pair counts as provenance-bearing if ANY of its edges carries
+    observer_hosts (matching the downstream observer_hosts union). Subsequent
+    tiebreaks: greatest summed sessions, then greatest edge
+    last_seen, then lexicographic (client_id, server_id) for determinism. Returns
+    (client_id, server_id, edges_for_pair), or None when no edge qualifies — an edge is
+    skipped when neither endpoint maps to a client/server pair, or when both endpoints
+    fall in the same candidate set.
+    """
+    pairs: dict[tuple[str, str], dict] = {}
+    for edge in edges:
+        src, dst = edge.get("src_id"), edge.get("dst_id")
+        if src in client_ids and dst in server_ids:
+            key = (src, dst)
+        elif dst in client_ids and src in server_ids:
+            key = (dst, src)
+        else:
+            continue  # both ends in the same candidate set: ambiguous, skip
+        bucket = pairs.setdefault(
+            key, {"edges": [], "sessions": 0, "last_seen": "", "has_prov": False})
+        bucket["edges"].append(edge)
+        bucket["sessions"] += int(edge.get("attrs", {}).get("sessions", "0") or 0)
+        if edge.get("attrs", {}).get("observer_hosts", ""):
+            bucket["has_prov"] = True
+        last_seen = edge.get("last_seen", "")
+        if last_seen > bucket["last_seen"]:
+            bucket["last_seen"] = last_seen
+    if not pairs:
+        return None
+    (client_id, server_id), bucket = max(
+        pairs.items(),
+        key=lambda item: (item[1]["has_prov"], item[1]["sessions"],
+                          item[1]["last_seen"], item[0]))
+    return client_id, server_id, bucket["edges"]
+
+
 class AccessTools:
     """Stateless access-explanation tool bound to an EntityStore + M4 TopoTools."""
 
@@ -35,15 +79,27 @@ class AccessTools:
         self._window = default_window_hours
 
     def explain_access(self, client: str, server: str, since_hours: int | None = None) -> dict:
-        client_entity = self._store.find_entity(client)
-        server_entity = self._store.find_entity(server)
-        if not client_entity or not server_entity:
-            missing = client if not client_entity else server
+        client_cands = self._store.find_entities(client)
+        server_cands = self._store.find_entities(server)
+        if not client_cands or not server_cands:
+            missing = client if not client_cands else server
             return {"error": "not_found", "detail": f"no entity matches '{missing}'"}
 
         window = since_hours or self._window
-        comm_edges = self._store.communicated_edges(
-            client_entity["entity_id"], server_entity["entity_id"], _since(window))
+        client_ids = [c["entity_id"] for c in client_cands]
+        server_ids = [s["entity_id"] for s in server_cands]
+        edges = self._store.communicated_edges_multi(client_ids, server_ids, _since(window))
+
+        selected = _select_pair(edges, set(client_ids), set(server_ids))
+        if selected is not None:
+            client_id, server_id, comm_edges = selected
+            client_entity = next(c for c in client_cands if c["entity_id"] == client_id)
+            server_entity = next(s for s in server_cands if s["entity_id"] == server_id)
+        else:
+            # no candidate pair has an edge: confidence-first single pick, sessions:0
+            client_entity = client_cands[0]
+            server_entity = server_cands[0]
+            comm_edges = []
 
         sessions = bytes_total = 0
         ports: set[str] = set()

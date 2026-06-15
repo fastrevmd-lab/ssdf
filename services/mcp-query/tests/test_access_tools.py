@@ -1,6 +1,6 @@
 import pytest
 
-from ssdf_mcp_query.access_tools import AccessTools, _short_host
+from ssdf_mcp_query.access_tools import AccessTools, _short_host, _select_pair
 
 
 class _FakeStore:
@@ -24,6 +24,16 @@ class _FakeStore:
     def alerts_for_pair(self, ips, since_iso):
         self.alerts_ips = ips
         return getattr(self, "_alerts", [])
+
+    def find_entities(self, identifier):
+        ent = self._entities.get(identifier)
+        return [ent] if ent else []
+
+    def communicated_edges_multi(self, a_ids, b_ids, since_iso):
+        # legacy fixtures omit src_id/dst_id; stamp the top candidate of each side
+        # so _select_pair maps them onto the (client, server) pair under test.
+        # An edge that already carries src_id/dst_id keeps its own (explicit override).
+        return [{"src_id": a_ids[0], "dst_id": b_ids[0], **edge} for edge in self._comm]
 
 
 class _FakeTopo:
@@ -118,6 +128,12 @@ class _StoreWithConfigured:
         return self._configured
 
     def alerts_for_pair(self, ips, since_iso):
+        return []
+
+    def find_entities(self, ident):
+        return [self.find_entity(ident)]
+
+    def communicated_edges_multi(self, a_ids, b_ids, since_iso):
         return []
 
 
@@ -345,3 +361,170 @@ def test_detections_candidate_ips_include_entity_identifiers():
     assert "aa:bb:cc:dd:ee:ff" not in recorded
     # (d) result is sorted
     assert recorded == sorted(recorded)
+
+
+def test_select_pair_most_sessions_wins():
+    edges = [
+        {"src_id": "C", "dst_id": "Sa", "last_seen": "2026-06-15 10:00:00",
+         "attrs": {"sessions": "2"}},
+        {"src_id": "C", "dst_id": "Sb", "last_seen": "2026-06-15 09:00:00",
+         "attrs": {"sessions": "9"}},
+    ]
+    client_id, server_id, picked = _select_pair(edges, {"C"}, {"Sa", "Sb"})
+    assert (client_id, server_id) == ("C", "Sb")
+    assert [e["dst_id"] for e in picked] == ["Sb"]
+
+
+def test_select_pair_provenance_beats_more_sessions():
+    # the live M6a-twin case: a stale un-stamped pair has MORE sessions, but the
+    # correctly-stamped (observer_hosts) pair must win so SRX provenance surfaces.
+    edges = [
+        {"src_id": "C", "dst_id": "Sa", "last_seen": "2026-06-15 10:00:00",
+         "attrs": {"sessions": "1812", "observer_hosts": ""}},
+        {"src_id": "C", "dst_id": "Sb", "last_seen": "2026-06-15 12:00:00",
+         "attrs": {"sessions": "352", "observer_hosts": "vSRX-Production"}},
+    ]
+    client_id, server_id, picked = _select_pair(edges, {"C"}, {"Sa", "Sb"})
+    assert (client_id, server_id) == ("C", "Sb")
+    assert [e["dst_id"] for e in picked] == ["Sb"]
+
+
+def test_select_pair_last_seen_breaks_session_tie():
+    edges = [
+        {"src_id": "C", "dst_id": "Sa", "last_seen": "2026-06-15 10:00:00",
+         "attrs": {"sessions": "5"}},
+        {"src_id": "C", "dst_id": "Sb", "last_seen": "2026-06-15 11:00:00",
+         "attrs": {"sessions": "5"}},
+    ]
+    client_id, server_id, _ = _select_pair(edges, {"C"}, {"Sa", "Sb"})
+    assert (client_id, server_id) == ("C", "Sb")
+
+
+def test_select_pair_maps_reversed_direction():
+    # edge stored server->client must still resolve to (client, server)
+    edges = [{"src_id": "S", "dst_id": "C", "last_seen": "",
+              "attrs": {"sessions": "3"}}]
+    client_id, server_id, _ = _select_pair(edges, {"C"}, {"S"})
+    assert (client_id, server_id) == ("C", "S")
+
+
+def test_select_pair_none_when_no_edges():
+    assert _select_pair([], {"C"}, {"S"}) is None
+
+
+def test_select_pair_skips_edges_with_both_ends_in_one_set():
+    # both ends fall in the client set -> ambiguous -> skipped -> None
+    edges = [{"src_id": "C1", "dst_id": "C2", "last_seen": "",
+              "attrs": {"sessions": "3"}}]
+    assert _select_pair(edges, {"C1", "C2"}, {"S"}) is None
+
+
+def test_select_pair_accumulates_multiple_edges_for_same_pair():
+    # one forward (C->S) and one reversed (S->C) edge for the same logical pair
+    # must land in the same bucket: sessions sum and both edges are returned.
+    edges = [
+        {"src_id": "C", "dst_id": "S", "last_seen": "2026-06-15 10:00:00",
+         "attrs": {"sessions": "3"}},
+        {"src_id": "S", "dst_id": "C", "last_seen": "2026-06-15 11:00:00",
+         "attrs": {"sessions": "4"}},
+    ]
+    client_id, server_id, picked = _select_pair(edges, {"C"}, {"S"})
+    assert (client_id, server_id) == ("C", "S")
+    assert len(picked) == 2
+
+
+class _PairStore:
+    """EntityStore double returning explicit candidate twin sets + explicit edges.
+
+    find_entities maps the literal "client"/"server" lookup strings to the two
+    candidate lists; communicated_edges_multi returns the scripted edges verbatim
+    (they already carry real src_id/dst_id).
+    """
+
+    def __init__(self, client_cands, server_cands, edges, configured=None):
+        self._client_cands = client_cands
+        self._server_cands = server_cands
+        self._edges = edges
+        self._configured = configured or []
+
+    def find_entities(self, identifier):
+        if identifier == "client":
+            return self._client_cands
+        if identifier == "server":
+            return self._server_cands
+        return []
+
+    def communicated_edges_multi(self, a_ids, b_ids, since_iso):
+        return self._edges
+
+    def governed_policies(self, ids):
+        return []
+
+    def configured_policies_for_firewalls(self, names):
+        return self._configured
+
+    def alerts_for_pair(self, ips, since_iso):
+        return []
+
+
+def _ent(entity_id, basis="ip_only"):
+    return {"entity_id": entity_id, "name": "8.8.8.8", "identity_basis": basis,
+            "identifiers": {}}
+
+
+def test_server_two_twins_picks_edge_bearing():
+    client_cands = [_ent("C", basis="mac")]
+    server_cands = [_ent("Sa"), _ent("Sb")]   # Sa has no edge; Sb does
+    edges = [{"edge_id": "E1", "src_id": "C", "dst_id": "Sb",
+              "last_seen": "2026-06-15 11:22:12",
+              "attrs": {"sessions": "4", "bytes": "100", "ports": "53",
+                        "providers": "juniper", "observer_hosts": "vSRX-Production"}}]
+    out = AccessTools(_PairStore(client_cands, server_cands, edges),
+                      _FakeTopo(["fwX"], {"found": True})).explain_access("client", "server")
+    assert out["server"]["entity_id"] == "Sb"
+    assert out["observed_flows"]["sessions"] == 4
+    assert out["firewall_basis"] == "provenance"
+    assert out["firewalls"] == ["vSRX-Production"]
+
+
+def test_mac_vs_iponly_picks_edge_bearing():
+    client_cands = [_ent("C", basis="mac")]
+    # confidence-first order puts the MAC twin first, but the edge points to the ip_only twin
+    server_cands = [_ent("Smac", basis="mac"), _ent("Sip", basis="ip_only")]
+    edges = [{"edge_id": "E1", "src_id": "C", "dst_id": "Sip",
+              "last_seen": "2026-06-15 11:22:12",
+              "attrs": {"sessions": "2", "bytes": "10", "ports": "53",
+                        "providers": "juniper", "observer_hosts": "vSRX-Production"}}]
+    out = AccessTools(_PairStore(client_cands, server_cands, edges),
+                      _FakeTopo(["fwX"], {"found": True})).explain_access("client", "server")
+    assert out["server"]["entity_id"] == "Sip"
+    assert out["firewall_basis"] == "provenance"
+    assert out["firewalls"] == ["vSRX-Production"]
+
+
+def test_no_edge_falls_back_confidence_first():
+    client_cands = [_ent("C", basis="mac")]
+    server_cands = [_ent("Sa"), _ent("Sb")]
+    out = AccessTools(_PairStore(client_cands, server_cands, []),
+                      _FakeTopo([], {"found": False})).explain_access("client", "server")
+    assert out["client"]["entity_id"] == "C"
+    assert out["server"]["entity_id"] == "Sa"        # candidates[0]
+    assert out["observed_flows"]["sessions"] == 0
+    assert out["firewall_basis"] == "no_path_firewall"
+    assert out["coverage"]["observed"] is False
+
+
+def test_single_twin_each_side_unchanged():
+    # regression guard: one entity per side with an edge (panosvm-style) behaves as before
+    client_cands = [_ent("C", basis="mac")]
+    server_cands = [_ent("S")]
+    edges = [{"edge_id": "E1", "src_id": "C", "dst_id": "S",
+              "last_seen": "2026-06-15 11:22:12",
+              "attrs": {"sessions": "7", "bytes": "100", "ports": "53",
+                        "providers": "paloalto", "observer_hosts": "panosvm.example.com"}}]
+    out = AccessTools(_PairStore(client_cands, server_cands, edges),
+                      _FakeTopo(["fwX"], {"found": True})).explain_access("client", "server")
+    assert out["server"]["entity_id"] == "S"
+    assert out["observed_flows"]["sessions"] == 7
+    assert out["firewall_basis"] == "provenance"
+    assert out["firewalls"] == ["panosvm"]
