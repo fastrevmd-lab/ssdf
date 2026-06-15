@@ -274,9 +274,14 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   normalizes firewalls to the first DNS label via `_short_host` (`panosvm`), so
   `match:exact` could never pass. Reference now extracts the short label
   (`splitByChar('.', observer_hostname)[1]` — a no-op for dot-free `vSRX-Production`),
-  live-verified on ct104. Re-ran claude sovereign post-fix: **15/22** (`aa1d8e6`); the
-  question's remaining miss is agent-side (model answered the vendor `paloalto` and
-  skipped `explain_access`), not a corpus defect.
+  live-verified on ct104. **Full 2026-06-15 matrix re-run** (2 models × 2 tiers, serial
+  per principal so audit windows don't overlap; `aa1d8e6` + `76fb12b`):
+  **claude-sonnet-4-6** sovereign **15/22** + public **4/6**; **qwen2.5-coder:7b**
+  sovereign **3/22** + public **2/6** — same shape as the 2026-06-13 baseline (claude
+  strong; the 7B text-emits tool calls so it makes few real MCP calls and fails the
+  audit tool-checks, the harness fail-closing as designed). The `reach-firewall-attribution`
+  miss this run is agent-side (model answered the vendor `paloalto` and skipped
+  `explain_access`), not a corpus defect.
 - **M9 — UniFi Suricata IPS ingest.** ✅ Done 2026-06-14 (merged `818a984`; see as-built
   row above). First detection-class source via the established Vector→ClickHouse pattern.
   **Charter correction proven on the wire:** the source is **CEF from the Cloud Key
