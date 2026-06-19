@@ -131,11 +131,20 @@ class TopoTools:
                 "zones": sorted(z for z in zones if z)}
 
     def topology_snapshot(self, layer: str | None = None,
-                          since_hours: int | None = None) -> dict:
+                          since_hours: int | None = None,
+                          role: str | None = None,
+                          kind: str | None = None) -> dict:
         nodes, edges = self._store.load_subgraph(_since(since_hours or self._window),
                                                  limit=MAX_NODES)
         if layer:
             edges = [e for e in edges if e.get("layer") == layer]
+        if role is not None:
+            nodes = [n for n in nodes if n.get("attrs", {}).get("role") == role]
+        if kind is not None:
+            nodes = [n for n in nodes if n.get("kind") == kind]
+        if role is not None or kind is not None:
+            keep = {n["node_id"] for n in nodes}
+            edges = [e for e in edges if e["src_id"] in keep and e["dst_id"] in keep]
         truncated = len(nodes) >= MAX_NODES
         return {"nodes": nodes, "edges": edges, "node_count": len(nodes),
                 "edge_count": len(edges), "truncated": truncated}

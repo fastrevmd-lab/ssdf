@@ -75,3 +75,26 @@ def test_topology_snapshot_bounded():
     out = tools().topology_snapshot()
     assert out["node_count"] == len(NODES)
     assert out["truncated"] is False
+
+
+def test_topology_snapshot_role_filters_to_firewalls():
+    out = tools().topology_snapshot(role="firewall")
+    names = {n["name"] for n in out["nodes"]}
+    assert names == {"fw1"}              # only the role=firewall node survives
+    assert out["node_count"] == 1
+    # edges are pruned to those between surviving nodes
+    for e in out["edges"]:
+        assert e["src_id"] in {n["node_id"] for n in out["nodes"]}
+        assert e["dst_id"] in {n["node_id"] for n in out["nodes"]}
+
+
+def test_topology_snapshot_kind_filters_to_devices():
+    out = tools().topology_snapshot(kind="device")
+    kinds = {n["kind"] for n in out["nodes"]}
+    assert kinds == {"device"}           # sw1 + fw1
+    assert out["node_count"] == 2
+
+
+def test_topology_snapshot_no_filter_unchanged():
+    out = tools().topology_snapshot()
+    assert out["node_count"] == len(NODES)
