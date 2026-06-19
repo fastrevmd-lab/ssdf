@@ -131,9 +131,22 @@ class TopoTools:
                 "zones": sorted(z for z in zones if z)}
 
     def topology_snapshot(self, layer: str | None = None,
-                          since_hours: int | None = None) -> dict:
-        nodes, edges = self._store.load_subgraph(_since(since_hours or self._window),
+                          since_hours: int | None = None,
+                          role: str | None = None,
+                          kind: str | None = None) -> dict:
+        if role is not None or kind is not None:
+            # Inventory query: select nodes directly from graph_nodes by attr,
+            # NOT from the edge-derived subgraph — firewall device nodes are
+            # isolated (no edges) and would otherwise be invisible. Edges are
+            # then restricted to those among the selected nodes (within window).
+            nodes = self._store.nodes_by_attr(role=role, kind=kind, limit=MAX_NODES)
+            _, edges = self._store.load_subgraph(_since(since_hours or self._window),
                                                  limit=MAX_NODES)
+            keep = {n["node_id"] for n in nodes}
+            edges = [e for e in edges if e["src_id"] in keep and e["dst_id"] in keep]
+        else:
+            nodes, edges = self._store.load_subgraph(_since(since_hours or self._window),
+                                                     limit=MAX_NODES)
         if layer:
             edges = [e for e in edges if e.get("layer") == layer]
         truncated = len(nodes) >= MAX_NODES

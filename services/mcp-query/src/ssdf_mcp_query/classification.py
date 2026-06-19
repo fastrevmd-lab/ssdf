@@ -35,6 +35,8 @@ TOOL_DATA_CLASSES: dict[str, frozenset[str]] = {
     "explain_access": frozenset(
         {"security_log", "topology", "identity", "firewall_config"}
     ),
+    "configured_policies": frozenset({"firewall_config"}),
+    "observed_by": frozenset({"security_log"}),
 }
 
 

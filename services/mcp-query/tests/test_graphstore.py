@@ -77,3 +77,24 @@ def test_store_threads_schema_into_queries():
     store = ClickHouseGraphStore(fake, tenant="t_main", schema="ssdf_public")
     store.find_node("10.64.0.5")
     assert any("ssdf_public.graph_nodes" in sql for sql, _ in fake.calls)
+
+
+def test_nodes_by_attr_sql_selects_directly_by_role_no_window():
+    from ssdf_mcp_query.graphstore import build_nodes_by_attr_sql
+
+    sql, params = build_nodes_by_attr_sql(role="firewall", kind=None, tenant="t_main")
+    assert "ssdf.graph_nodes FINAL" in sql       # latest version per node_id
+    assert "attrs['role'] = {role:String}" in sql
+    assert "last_seen >=" not in sql             # inventory = current-state, unwindowed
+    assert params == {"tenant": "t_main", "role": "firewall"}
+
+
+def test_nodes_by_attr_sql_combines_role_and_kind():
+    from ssdf_mcp_query.graphstore import build_nodes_by_attr_sql
+
+    sql, params = build_nodes_by_attr_sql(
+        role="firewall", kind="device", tenant="t_main", schema="ssdf_public")
+    assert "ssdf_public.graph_nodes FINAL" in sql
+    assert "attrs['role'] = {role:String}" in sql
+    assert "kind = {kind:String}" in sql
+    assert params == {"tenant": "t_main", "role": "firewall", "kind": "device"}

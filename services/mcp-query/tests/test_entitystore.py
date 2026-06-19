@@ -180,3 +180,49 @@ def test_store_communicated_edges_multi_runs_query():
     assert store.communicated_edges_multi(["A"], ["B"], "2026-06-15T00:00:00.000") == [
         {"edge_id": "E1"}]
     assert len(ch.calls) == 1
+
+
+def test_build_observers_for_ips_sql():
+    from ssdf_mcp_query.entitystore import build_observers_for_ips_sql
+
+    sql, params = build_observers_for_ips_sql(
+        ["10.74.11.20", "198.51.100.1"], "2026-06-18T00:00:00.000+00:00", "t_main")
+    assert "observer_hostname" in sql
+    assert "ssdf.events" in sql
+    assert "observer_hostname != ''" in sql
+    assert "toString(source_ip) IN {ips:Array(String)}" in sql
+    assert "toString(destination_ip) IN {ips:Array(String)}" in sql
+    # events.timestamp is DateTime64(3,'UTC') and rejects a raw ISO +00:00 String
+    # cast, so the window bound must be parsed explicitly (live-found 2026-06-19).
+    assert "timestamp >= parseDateTimeBestEffort({since:String})" in sql
+    assert params == {"tenant": "t_main", "ips": ["10.74.11.20", "198.51.100.1"],
+                      "since": "2026-06-18T00:00:00.000+00:00"}
+
+
+def test_observers_for_ips_method_runs_builder_and_returns_rows():
+    from ssdf_mcp_query.entitystore import ClickHouseEntityStore
+
+    class _FakeCH:
+        def __init__(self):
+            self.calls = []
+
+        def run(self, sql, params):
+            self.calls.append((sql, params))
+            return {"rows": [{"observer_hostname": "panosvm.example.com"}]}
+
+    ch = _FakeCH()
+    store = ClickHouseEntityStore(ch, tenant="t_main")
+    rows = store.observers_for_ips(["10.74.11.20"], "2026-06-18T00:00:00.000+00:00")
+    assert rows == [{"observer_hostname": "panosvm.example.com"}]
+    assert ch.calls and ch.calls[0][1]["ips"] == ["10.74.11.20"]
+
+
+def test_observers_for_ips_empty_ips_short_circuits():
+    from ssdf_mcp_query.entitystore import ClickHouseEntityStore
+
+    class _BoomCH:
+        def run(self, sql, params):
+            raise AssertionError("must not query CH with no IPs")
+
+    store = ClickHouseEntityStore(_BoomCH(), tenant="t_main")
+    assert store.observers_for_ips([], "2026-06-18T00:00:00.000+00:00") == []

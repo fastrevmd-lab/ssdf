@@ -19,6 +19,8 @@ EXPECTED = {
     "enforcement_points": {"topology", "firewall_config"},
     "topology_snapshot": {"topology"},
     "explain_access": {"security_log", "topology", "identity", "firewall_config"},
+    "configured_policies": {"firewall_config"},
+    "observed_by": {"security_log"},
 }
 
 
@@ -153,3 +155,18 @@ def test_both_flips_expose_five_tools_and_not_run_sql():
 def test_is_tool_shareable_false_for_unknown_tool():
     classification = _classification(topology="shareable", identity="shareable")
     assert is_tool_shareable(classification, "made_up_tool") is False
+
+
+def test_new_m12_tools_are_classified_and_never_shareable():
+    from ssdf_mcp_query.classification import (
+        classes_for_tool, is_tool_shareable, Classification)
+
+    assert classes_for_tool("configured_policies") == frozenset({"firewall_config"})
+    assert classes_for_tool("observed_by") == frozenset({"security_log"})
+
+    # even with topology+identity flipped shareable (the public config), neither
+    # tool is shareable: firewall_config + security_log are not configurable.
+    cls = Classification(labels={"security_log": "sovereign", "firewall_config": "sovereign",
+                                 "topology": "shareable", "identity": "shareable"})
+    assert is_tool_shareable(cls, "configured_policies") is False
+    assert is_tool_shareable(cls, "observed_by") is False

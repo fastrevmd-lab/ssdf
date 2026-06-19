@@ -21,7 +21,8 @@ PUBLIC_TOOLS = frozenset(
 )
 SOVEREIGN_TOOLS = PUBLIC_TOOLS | frozenset(
     {"describe_schema", "enforcement_points", "explain_access",
-     "query_flows", "run_sql", "top_talkers"}
+     "query_flows", "run_sql", "top_talkers",
+     "configured_policies", "observed_by"}
 )
 
 TIERS = ("sovereign", "public", "both")

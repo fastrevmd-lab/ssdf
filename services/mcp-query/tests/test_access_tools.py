@@ -528,3 +528,98 @@ def test_single_twin_each_side_unchanged():
     assert out["observed_flows"]["sessions"] == 7
     assert out["firewall_basis"] == "provenance"
     assert out["firewalls"] == ["panosvm"]
+
+
+class _StoreObservers:
+    """EntityStore double for observed_by: resolves one entity, scripts observers."""
+
+    def __init__(self, entity, observers):
+        self._entity = entity
+        self._observers = observers
+        self.seen_ips = None
+
+    def find_entities(self, identifier):
+        return [self._entity] if self._entity else []
+
+    def observers_for_ips(self, ips, since_iso):
+        self.seen_ips = ips
+        return self._observers
+
+    def find_entity(self, identifier):
+        return self._entity
+
+    def communicated_edges(self, a, b, since):
+        return []
+
+    def communicated_edges_multi(self, a_ids, b_ids, since_iso):
+        return []
+
+    def governed_policies(self, ids):
+        return []
+
+    def configured_policies_for_firewalls(self, names):
+        return []
+
+    def alerts_for_pair(self, ips, since_iso):
+        return []
+
+
+def test_observed_by_normalizes_and_dedupes_firewalls():
+    ent = {"entity_id": "A", "name": "ep-panos",
+           "identifiers": {"ip": "10.74.11.20", "mac": "aa:bb:cc:dd:ee:ff"}}
+    store = _StoreObservers(ent, [{"observer_hostname": "panosvm.example.com"},
+                                  {"observer_hostname": "panosvm.example.com"},
+                                  {"observer_hostname": "vSRX-Production"}])
+    out = AccessTools(store, _FakeTopo([], {"found": False})).observed_by("10.74.11.20")
+    assert out["entity"]["entity_id"] == "A"
+    assert out["firewalls"] == ["panosvm", "vSRX-Production"]
+    assert "10.74.11.20" in store.seen_ips
+    assert "aa:bb:cc:dd:ee:ff" not in store.seen_ips
+
+
+def test_observed_by_not_found():
+    store = _StoreObservers(None, [])
+    out = AccessTools(store, _FakeTopo([], {"found": False})).observed_by("nope")
+    assert out["error"] == "not_found"
+
+
+def test_observed_by_no_observers_returns_empty_list():
+    ent = {"entity_id": "A", "name": "x", "identifiers": {"ip": "10.64.0.9"}}
+    store = _StoreObservers(ent, [])
+    out = AccessTools(store, _FakeTopo([], {"found": False})).observed_by("10.64.0.9")
+    assert out["firewalls"] == []
+
+
+def test_configured_policies_groups_dedupes_and_counts():
+    rows = [
+        {"firewall": "panosvm",
+         "policy": {"entity_id": "p1", "name": "allow-web",
+                    "attrs": {"action": "allow", "from_zone": "trust",
+                              "to_zone": "untrust", "position": "0", "enabled": "true"}}},
+        {"firewall": "panosvm",
+         "policy": {"entity_id": "p1", "name": "allow-web",
+                    "attrs": {"action": "allow", "from_zone": "trust",
+                              "to_zone": "untrust", "position": "0", "enabled": "true"}}},
+        {"firewall": "panosvm",
+         "policy": {"entity_id": "p2", "name": "deny-all",
+                    "attrs": {"action": "deny", "from_zone": "any",
+                              "to_zone": "any", "position": "1", "enabled": "false"}}},
+    ]
+    access = AccessTools(_StoreWithConfigured(rows), _TopoOneFw())
+    out = access.configured_policies("panosvm")
+    assert len(out["firewalls"]) == 1
+    fw = out["firewalls"][0]
+    assert fw["firewall"] == "panosvm"
+    assert fw["count"] == 2
+    names = sorted(r["rule"] for r in fw["rules"])
+    assert names == ["allow-web", "deny-all"]
+    web = next(r for r in fw["rules"] if r["rule"] == "allow-web")
+    assert web["action"] == "allow" and web["enabled"] is True and web["source"] == "configured"
+    deny = next(r for r in fw["rules"] if r["rule"] == "deny-all")
+    assert deny["enabled"] is False
+
+
+def test_configured_policies_accepts_list_and_unknown_firewall_is_empty():
+    access = AccessTools(_StoreWithConfigured([]), _TopoOneFw())
+    out = access.configured_policies(["nope"])
+    assert out["firewalls"] == []

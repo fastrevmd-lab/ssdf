@@ -51,9 +51,37 @@ def build_nodes_by_id_sql(
     return sql, {"tenant": tenant, "ids": node_ids}
 
 
+def build_nodes_by_attr_sql(
+    role: str | None, kind: str | None, tenant: str, limit: int = 5000,
+    schema: str = "ssdf",
+) -> tuple[str, dict]:
+    # Inventory selection by current node state (FINAL = latest version per
+    # node_id), NOT edge-derived: firewall device_inventory nodes are isolated
+    # (no edges), so an edge-first subgraph can never surface them. No time
+    # window — "which devices are firewalls" is a current-state question, and a
+    # node lingering stale (collector lull) is still part of the inventory.
+    clauses = ["tenant_id = {tenant:String}"]
+    params: dict = {"tenant": tenant}
+    if role is not None:
+        clauses.append("attrs['role'] = {role:String}")
+        params["role"] = role
+    if kind is not None:
+        clauses.append("kind = {kind:String}")
+        params["kind"] = kind
+    sql = (
+        "SELECT node_id, kind, name, identifiers, toString(first_seen) AS first_seen, "
+        f"toString(last_seen) AS last_seen, attrs FROM {schema}.graph_nodes FINAL "
+        "WHERE " + " AND ".join(clauses) +
+        f" ORDER BY last_seen DESC LIMIT {int(limit)}"
+    )
+    return sql, params
+
+
 class GraphStore(Protocol):
     def find_node(self, identifier: str) -> dict | None: ...
     def load_subgraph(self, since_iso: str, limit: int = 5000) -> tuple[list[dict], list[dict]]: ...
+    def nodes_by_attr(self, role: str | None = None, kind: str | None = None,
+                      limit: int = 5000) -> list[dict]: ...
 
 
 class ClickHouseGraphStore:
@@ -82,3 +110,10 @@ class ClickHouseGraphStore:
             )
             nodes = self._ch.run(node_sql, node_params)["rows"]
         return nodes, edges
+
+    def nodes_by_attr(self, role: str | None = None, kind: str | None = None,
+                      limit: int = 5000) -> list[dict]:
+        sql, params = build_nodes_by_attr_sql(
+            role, kind, self._tenant, limit, schema=self._schema
+        )
+        return self._ch.run(sql, params)["rows"]

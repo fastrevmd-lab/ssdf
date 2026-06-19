@@ -134,6 +134,26 @@ def build_alerts_for_pair_sql(ips: list[str], since_iso: str,
     return sql, {"tenant": tenant, "ips": ips, "since": since_iso}
 
 
+def build_observers_for_ips_sql(ips: list[str], since_iso: str,
+                                tenant: str) -> tuple[str, dict]:
+    # Distinct firewall observer_hostname values that LOGGED a flow touching any of
+    # the given IPs in-window (provenance: the firewall that logged a flow is on its
+    # path). source_ip/destination_ip are IPv6-typed; toString yields the dotted-quad
+    # for IPv4-mapped values (same pattern as build_alerts_for_pair_sql). Both flow
+    # directions match (a firewall observes the IP as src OR dst).
+    # `since_iso` carries an ISO-8601 +00:00 offset; events.timestamp is
+    # DateTime64(3,'UTC') and rejects a direct String cast of that form, so parse
+    # it explicitly with parseDateTimeBestEffort (live-found 2026-06-19).
+    sql = (
+        "SELECT DISTINCT observer_hostname FROM ssdf.events "
+        "WHERE tenant_id = {tenant:String} AND observer_hostname != '' "
+        "AND timestamp >= parseDateTimeBestEffort({since:String}) AND ("
+        "toString(source_ip) IN {ips:Array(String)} OR "
+        "toString(destination_ip) IN {ips:Array(String)})"
+    )
+    return sql, {"tenant": tenant, "ips": ips, "since": since_iso}
+
+
 class EntityStore(Protocol):
     def find_entity(self, identifier: str) -> dict | None: ...
     def communicated_edges(self, a_id: str, b_id: str, since_iso: str) -> list[dict]: ...
@@ -143,6 +163,7 @@ class EntityStore(Protocol):
     def governed_policies(self, comm_edge_ids: list[str]) -> list[dict]: ...
     def configured_policies_for_firewalls(self, firewall_names: list[str]) -> list[dict]: ...
     def alerts_for_pair(self, ips: list[str], since_iso: str) -> list[dict]: ...
+    def observers_for_ips(self, ips: list[str], since_iso: str) -> list[dict]: ...
 
 
 class ClickHouseEntityStore:
@@ -220,4 +241,10 @@ class ClickHouseEntityStore:
         if not ips:
             return []
         sql, params = build_alerts_for_pair_sql(ips, since_iso, self._tenant)
+        return self._ch.run(sql, params)["rows"]
+
+    def observers_for_ips(self, ips: list[str], since_iso: str) -> list[dict]:
+        if not ips:
+            return []
+        sql, params = build_observers_for_ips_sql(ips, since_iso, self._tenant)
         return self._ch.run(sql, params)["rows"]
