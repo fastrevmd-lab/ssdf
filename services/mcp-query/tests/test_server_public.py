@@ -9,6 +9,7 @@ SOVEREIGN_TOOLS = {
     "query_flows", "describe_schema", "top_talkers", "run_sql", "get_entity",
     "locate", "neighbors", "find_path", "enforcement_points",
     "topology_snapshot", "explain_access", "configured_policies", "observed_by",
+    "metric_timeseries", "top_series", "entity_metric_timeseries", "reidentify",
 }
 
 
@@ -139,3 +140,15 @@ def test_public_build_uses_public_schema(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "ClickHouseGraphStore", _spy)
     server.build_app(tier="public")
     assert captured["schema"] == "ssdf_public"
+
+
+def test_public_build_metrics_config_exposes_only_metrics(monkeypatch, tmp_path):
+    import ssdf_mcp_query.server as server
+    _patch_ch(monkeypatch, server)
+    monkeypatch.setenv("MCP_CLASSIFICATION_FILE",
+                       _classification_file(tmp_path, metrics="shareable"))
+    app = server.build_app(tier="public")
+    assert _names(app) == {
+        "metric_timeseries", "top_series", "entity_metric_timeseries",
+    }
+    assert "reidentify" not in _names(app)  # sovereign-only, never a public candidate

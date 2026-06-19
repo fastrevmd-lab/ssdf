@@ -30,10 +30,12 @@ class Measure:
 
 
 CATALOG: list[Measure] = [
-    # Tier 1 — shareable volume/activity
+    # Tier 1 — shareable volume/activity. Only `bytes` carries a per-entity
+    # (top-N talker) breakdown; flows/connections are aggregate-only. Every
+    # measure still emits its aggregate metric_timeseries series regardless.
     Measure("bytes", True, True, "aggregate"),
-    Measure("flows", True, True, "aggregate"),
-    Measure("connections", True, True, "aggregate"),
+    Measure("flows", True, False, "aggregate"),
+    Measure("connections", True, False, "aggregate"),
     # Tier 2 — normalized stance indices (ratio-to-baseline only)
     Measure("deny_rate_index", True, False, "index"),
     Measure("ips_volume_index", True, False, "index"),

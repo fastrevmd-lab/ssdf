@@ -23,6 +23,8 @@ from .graphstore import ClickHouseGraphStore
 from .topo_tools import TopoTools
 from .entitystore import ClickHouseEntityStore
 from .access_tools import AccessTools
+from .metrics_store import MetricsStore
+from .metric_tools import MetricTools
 
 
 def build_app(tier: str = "sovereign") -> FastMCP:
@@ -41,6 +43,9 @@ def build_app(tier: str = "sovereign") -> FastMCP:
     if tier != "public":
         entity_store = ClickHouseEntityStore(client, tenant="t_main")
         access = AccessTools(entity_store, topo)
+
+    metrics_store = MetricsStore(client, tenant="t_main")
+    metrics = MetricTools(metrics_store)
 
     verifier_tokens: dict[str, dict] = {}
     for token, tp in config.tokens.items():
@@ -141,6 +146,36 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         for "which firewall sees/observes traffic from X", NOT locate (which is L2 attach)."""
         return access.observed_by(identifier, since_hours=since_hours)
 
+    def metric_timeseries(metric: str, since: str | None = None,
+                          until: str | None = None) -> dict:
+        """De-identified AGGREGATE time series for one metric (no per-entity detail).
+        metric is one of the catalog names: bytes|flows|connections (Tier 1) or the
+        normalized indices deny_rate_index|ips_volume_index (ratio-to-baseline, NOT
+        absolute counts). Window via since/until (ISO-8601 or "now-1h"; default 24h).
+        Returns 5-minute buckets {bucket_start, value}. Carries NO IP/MAC/topology."""
+        return metrics.metric_timeseries(metric, since=since, until=until)
+
+    def top_series(metric: str, since: str | None = None, limit: int = 10) -> dict:
+        """Top-N de-identified entities (opaque surrogates, e.g. "h_3f9a") for a
+        per-entity metric over a window, ranked by total. Surrogates are stable across
+        calls but irreversible on this tier. Use entity_metric_timeseries(surrogate,...)
+        to trend one. Returns {rows:[{surrogate, value}]}. NO real IP/MAC is exposed."""
+        return metrics.top_series(metric, since=since, limit=limit)
+
+    def entity_metric_timeseries(surrogate: str, metric: str,
+                                 since: str | None = None,
+                                 until: str | None = None) -> dict:
+        """Per-bucket time series for ONE de-identified surrogate + metric over a window.
+        Pass a surrogate from top_series. Returns 5-minute buckets {bucket_start, value}
+        for predictive trending. The surrogate cannot be reversed on this tier."""
+        return metrics.entity_metric_timeseries(surrogate, metric, since=since, until=until)
+
+    def reidentify(surrogate: str) -> dict:
+        """SOVEREIGN-ONLY: map a public surrogate back to its real value via
+        ssdf.pseudonym_map. Returns {surrogate, entity:{kind, real_value}} or
+        entity:null. Never registered on the public tier."""
+        return metrics.reidentify(surrogate)
+
     raw_tools = {
         "query_flows": query_flows,
         "describe_schema": describe_schema,
@@ -152,11 +187,15 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         "find_path": find_path,
         "enforcement_points": enforcement_points,
         "topology_snapshot": topology_snapshot,
+        "metric_timeseries": metric_timeseries,
+        "top_series": top_series,
+        "entity_metric_timeseries": entity_metric_timeseries,
     }
     if access is not None:  # sovereign-only (L5): never a candidate on public
         raw_tools["explain_access"] = explain_access
         raw_tools["configured_policies"] = configured_policies
         raw_tools["observed_by"] = observed_by
+        raw_tools["reidentify"] = reidentify
     if tier == "public":
         selected = public_tool_names(classification, list(raw_tools))
         if not selected:
