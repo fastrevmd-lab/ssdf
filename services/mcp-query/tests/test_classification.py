@@ -21,6 +21,10 @@ EXPECTED = {
     "explain_access": {"security_log", "topology", "identity", "firewall_config"},
     "configured_policies": {"firewall_config"},
     "observed_by": {"security_log"},
+    "metric_timeseries": {"metrics"},
+    "top_series": {"metrics"},
+    "entity_metric_timeseries": {"metrics"},
+    "reidentify": {"identity"},
 }
 
 
@@ -170,3 +174,25 @@ def test_new_m12_tools_are_classified_and_never_shareable():
                                  "topology": "shareable", "identity": "shareable"})
     assert is_tool_shareable(cls, "configured_policies") is False
     assert is_tool_shareable(cls, "observed_by") is False
+
+
+def test_metrics_class_is_configurable_and_tools_classed():
+    from ssdf_mcp_query.classification import (
+        DATA_CLASSES, CONFIGURABLE_CLASSES, classes_for_tool,
+    )
+    assert "metrics" in DATA_CLASSES
+    assert "metrics" in CONFIGURABLE_CLASSES
+    assert classes_for_tool("metric_timeseries") == frozenset({"metrics"})
+    assert classes_for_tool("top_series") == frozenset({"metrics"})
+    assert classes_for_tool("entity_metric_timeseries") == frozenset({"metrics"})
+    assert classes_for_tool("reidentify") == frozenset({"identity"})
+
+
+def test_metrics_can_be_flipped_shareable(tmp_path):
+    import json
+    from ssdf_mcp_query.classification import load_classification, is_tool_shareable
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps({"metrics": "shareable"}))
+    c = load_classification(str(path))
+    assert is_tool_shareable(c, "metric_timeseries") is True
+    assert is_tool_shareable(c, "reidentify") is False  # identity stays sovereign
