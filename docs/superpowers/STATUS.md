@@ -310,6 +310,37 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   the unifi-mcp flow API which 404s on this controller). ~~Proxmox~~ ✅ done as M11
   (host auth+task audit via rsyslog RFC5424; the PVE-API poller was considered and
   rejected as a heavier pattern). Remaining: Okta/Wazuh (same connector pattern).
+- **M7c — public de-identified metrics tier.** 🔨 In progress (brainstorm → spec →
+  plan). Pivots the public tier (ct113) from "anonymized topology" to a **de-identified
+  metrics/time-series surface for predictive analysis** — the reason to use a *public*
+  (frontier) LLM is heavier predictive reasoning ("look at the trend and tell me when
+  this becomes a problem"); the sovereign/local LLMs already handle factual Q&A. A new
+  sovereign `public-metrics` resolver (4th ct109 role) reads raw `ssdf.events`,
+  pre-aggregates bucketed series, and writes (a) system-wide aggregate series + (b)
+  per-**surrogate** entity series into new `ssdf_public.*` tables, plus a **sovereign-only**
+  keyed real↔surrogate map (`sipHash64Keyed`, key held only on ct109). Public MCP gains
+  `metric_timeseries`/`top_series` (new `metrics` shareable class); sovereign MCP gains
+  `reidentify(surrogate)`. Extends the M7b grant hard-floor (public reader can name only
+  the new metric tables — never base `ssdf.*`, never the pseudonym map). Measure scope:
+  volume/activity series shareable; deny-rate + IPS volume exposed as **normalized trend
+  indices only** (no absolute counts); real identifiers, rule names/actions, IPS signature
+  detail, and hardware specs stay sovereign. **Prerequisite lockdown (phase 0):** the
+  current public topology/identity surface leaks MAC/IP/VLAN/port/VMID/links and must be
+  flipped sovereign (or identifier-stripped) regardless. Catalog built **extensible** so
+  M13's health signals slot in with no redesign.
+- **M13 — operational-health telemetry ingest (PLANNED, big series).** 📋 Planned —
+  the prerequisite for *operational* prediction (memory pressure, CPU pressure, interface
+  errors increasing, port flap/bounce, protocol-adjacency bounce). SSDF ingests **none**
+  of these today (flows + IPS + Proxmox audit only) — which is exactly why the
+  `honesty-device-metrics` eval question is a *refusal*. This is a new ingest workstream
+  upstream of M7c's health-signal prediction: device/interface/protocol telemetry
+  (SNMP polling / streaming telemetry / link-state & protocol syslog from firewalls,
+  switches, and hosts) normalized at ingest into `ssdf.events`. Likely sub-milestones —
+  **M13a** host resource pressure (mem/CPU utilization %, NOT absolute = spec-safe),
+  **M13b** interface counters/error-rates, **M13c** link/protocol flap events. Spec'd
+  separately (its own brainstorm → spec → plan) once M7c lands. Distinction to preserve:
+  hardware **specs** (RAM size, CPU model, link speed) stay sovereign; operational
+  **utilization/trend** is shareable de-identified.
 
 ## Cross-cutting seams (kept clean, watch when extending)
 
