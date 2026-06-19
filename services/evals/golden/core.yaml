@@ -44,7 +44,7 @@
   category: reachability
   difficulty: hard
   answer_format: 'Answer with JSON: {"count": <int>}'
-  required_tools: [explain_access]
+  required_tools: [configured_policies]
   predicate:
     type: reference_sql
     sql: >-
