@@ -141,10 +141,13 @@ def build_observers_for_ips_sql(ips: list[str], since_iso: str,
     # path). source_ip/destination_ip are IPv6-typed; toString yields the dotted-quad
     # for IPv4-mapped values (same pattern as build_alerts_for_pair_sql). Both flow
     # directions match (a firewall observes the IP as src OR dst).
+    # `since_iso` carries an ISO-8601 +00:00 offset; events.timestamp is
+    # DateTime64(3,'UTC') and rejects a direct String cast of that form, so parse
+    # it explicitly with parseDateTimeBestEffort (live-found 2026-06-19).
     sql = (
         "SELECT DISTINCT observer_hostname FROM ssdf.events "
         "WHERE tenant_id = {tenant:String} AND observer_hostname != '' "
-        "AND timestamp >= {since:String} AND ("
+        "AND timestamp >= parseDateTimeBestEffort({since:String}) AND ("
         "toString(source_ip) IN {ips:Array(String)} OR "
         "toString(destination_ip) IN {ips:Array(String)})"
     )

@@ -192,7 +192,9 @@ def test_build_observers_for_ips_sql():
     assert "observer_hostname != ''" in sql
     assert "toString(source_ip) IN {ips:Array(String)}" in sql
     assert "toString(destination_ip) IN {ips:Array(String)}" in sql
-    assert "{since:String}" in sql
+    # events.timestamp is DateTime64(3,'UTC') and rejects a raw ISO +00:00 String
+    # cast, so the window bound must be parsed explicitly (live-found 2026-06-19).
+    assert "timestamp >= parseDateTimeBestEffort({since:String})" in sql
     assert params == {"tenant": "t_main", "ips": ["10.74.11.20", "198.51.100.1"],
                       "since": "2026-06-18T00:00:00.000+00:00"}
 

@@ -40,6 +40,15 @@ class FakeStore:
         return None
     def load_subgraph(self, since_iso, limit=5000):
         return NODES, EDGES
+    def nodes_by_attr(self, role=None, kind=None, limit=5000):
+        # Mirrors ClickHouseGraphStore: select nodes directly (NOT edge-derived),
+        # so isolated role/kind nodes are reachable.
+        out = NODES
+        if role is not None:
+            out = [n for n in out if n.get("attrs", {}).get("role") == role]
+        if kind is not None:
+            out = [n for n in out if n.get("kind") == kind]
+        return out
 
 def tools(): return TopoTools(FakeStore())
 
@@ -98,3 +107,23 @@ def test_topology_snapshot_kind_filters_to_devices():
 def test_topology_snapshot_no_filter_unchanged():
     out = tools().topology_snapshot()
     assert out["node_count"] == len(NODES)
+
+
+def test_topology_snapshot_role_surfaces_isolated_nodes():
+    # Regression (live-found 2026-06-19): firewall device_inventory nodes are
+    # isolated (no edges). The edge-derived subgraph excludes them, so the
+    # role-filter path MUST query nodes directly. Here load_subgraph yields an
+    # empty subgraph yet the firewall must still appear.
+    iso_fw = {"node_id": "fwX", "kind": "device", "name": "panosvm",
+              "identifiers": {"name": "panosvm"}, "first_seen": "x",
+              "last_seen": "y", "attrs": {"role": "firewall"}}
+
+    class IsolatedStore:
+        def find_node(self, identifier): return None
+        def load_subgraph(self, since_iso, limit=5000): return [], []
+        def nodes_by_attr(self, role=None, kind=None, limit=5000):
+            return [iso_fw] if role == "firewall" else []
+
+    out = TopoTools(IsolatedStore()).topology_snapshot(role="firewall")
+    assert {n["name"] for n in out["nodes"]} == {"panosvm"}
+    assert out["edges"] == []
