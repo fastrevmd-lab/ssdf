@@ -205,7 +205,11 @@
 
 - id: topo-firewall-inventory
   question: Which devices in the topology are firewalls?
-  tier: both
+  # sovereign-only: firewall role-attribution is a sovereign capability. The public
+  # graph carries no role=firewall device nodes (only pve hypervisors as devices);
+  # firewall-named Proxmox guests appear as host nodes, so the question is
+  # structurally unanswerable on the public tier. See 2026-06-19 3-model matrix.
+  tier: sovereign
   category: topology
   difficulty: medium
   answer_format: 'Answer with JSON: {"firewalls": ["<name>", ...]}'
