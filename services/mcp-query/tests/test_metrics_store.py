@@ -45,3 +45,24 @@ def test_reidentify_unknown_surrogate_returns_null_entity():
     store = MetricsStore(fake)
     out = store.reidentify("h_nope")
     assert out["entity"] is None
+
+
+def test_relative_since_resolved_to_absolute_iso():
+    # parseDateTimeBestEffort can't read 'now-...'; the store must resolve
+    # relative/default windows to an absolute ISO timestamp before binding.
+    fake = _FakeClient([])
+    store = MetricsStore(fake)
+    store.metric_timeseries("bytes", since="now-1h", until=None)
+    params = fake.calls[0][1]
+    assert not params["since"].startswith("now")
+    assert params["since"].startswith("20")  # ISO-8601 absolute
+    assert params["until"] == ""             # unset upper bound stays empty
+
+
+def test_default_since_resolved_not_passed_through():
+    fake = _FakeClient([])
+    store = MetricsStore(fake)
+    store.top_series("bytes")  # since defaults internally
+    params = fake.calls[0][1]
+    assert not params["since"].startswith("now")
+    assert params["since"].startswith("20")

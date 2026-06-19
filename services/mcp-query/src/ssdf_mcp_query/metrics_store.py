@@ -2,12 +2,14 @@
 
 Reads the public metric tables (always in the ``ssdf_public`` schema) and, for
 re-identification only, the sovereign ``ssdf.pseudonym_map``. Returns plain dicts
-shaped like the other store seams (``{rows, row_count, elapsed_ms, truncated}``).
+shaped like the other store seams (``{columns, rows, row_count}``).
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from .timeparse import parse_time
 
 _METRIC_TABLE = "ssdf_public.metric_timeseries"
 _ENTITY_TABLE = "ssdf_public.entity_series"
@@ -33,7 +35,7 @@ class MetricsStore:
             "ORDER BY bucket_start"
         )
         params = {"tenant": self._tenant, "metric": metric,
-                  "since": _norm_since(since), "until": until or ""}
+                  "since": _resolve_since(since), "until": _resolve_until(until)}
         return self._client.run(sql, params)
 
     def top_series(self, metric: str, since: str | None = None,
@@ -47,7 +49,7 @@ class MetricsStore:
             "GROUP BY surrogate ORDER BY value DESC LIMIT {limit:UInt32}"
         )
         params = {"tenant": self._tenant, "metric": metric,
-                  "since": _norm_since(since), "limit": int(limit)}
+                  "since": _resolve_since(since), "limit": int(limit)}
         return self._client.run(sql, params)
 
     def entity_metric_timeseries(self, surrogate: str, metric: str,
@@ -63,7 +65,7 @@ class MetricsStore:
             "ORDER BY bucket_start"
         )
         params = {"tenant": self._tenant, "surrogate": surrogate, "metric": metric,
-                  "since": _norm_since(since), "until": until or ""}
+                  "since": _resolve_since(since), "until": _resolve_until(until)}
         return self._client.run(sql, params)
 
     def reidentify(self, surrogate: str) -> dict:
@@ -77,6 +79,15 @@ class MetricsStore:
         return {"surrogate": surrogate, "entity": rows[0] if rows else None}
 
 
-def _norm_since(since: str | None) -> str:
-    """Default the lookback window to 24h when unset (mirrors the other tools)."""
-    return since if since else "now-24h"
+def _resolve_since(since: str | None) -> str:
+    """Resolve the lookback bound (default 24h) to an absolute UTC ISO string.
+
+    ClickHouse ``parseDateTimeBestEffort`` cannot read relative expressions like
+    ``now-24h``, so relative/ISO inputs are resolved in Python first — mirroring
+    the other store seams (see ``timeparse.parse_time``)."""
+    return parse_time(since or "now-24h").isoformat()
+
+
+def _resolve_until(until: str | None) -> str:
+    """Resolve an optional upper bound to absolute UTC ISO, or '' when unset."""
+    return parse_time(until).isoformat() if until else ""
