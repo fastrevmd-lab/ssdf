@@ -310,24 +310,31 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   the unifi-mcp flow API which 404s on this controller). ~~Proxmox~~ ✅ done as M11
   (host auth+task audit via rsyslog RFC5424; the PVE-API poller was considered and
   rejected as a heavier pattern). Remaining: Okta/Wazuh (same connector pattern).
-- **M7c — public de-identified metrics tier.** 🔨 In progress (brainstorm → spec →
-  plan). Pivots the public tier (ct113) from "anonymized topology" to a **de-identified
+- **M7c — public de-identified metrics tier.** ✅ Built (code + tests on branch
+  `m7c-public-metrics`; awaiting operator deployment — apply `013_public_metrics.sql`,
+  provision the 4th ct109 resolver role, flip ct113's classification). **Supersedes M7b's
+  public topology graph** (which both leaked sovereign identifiers AND was useless for
+  prediction). Pivots the public tier (ct113) from "anonymized topology" to a **de-identified
   metrics/time-series surface for predictive analysis** — the reason to use a *public*
   (frontier) LLM is heavier predictive reasoning ("look at the trend and tell me when
   this becomes a problem"); the sovereign/local LLMs already handle factual Q&A. A new
-  sovereign `public-metrics` resolver (4th ct109 role) reads raw `ssdf.events`,
-  pre-aggregates bucketed series, and writes (a) system-wide aggregate series + (b)
-  per-**surrogate** entity series into new `ssdf_public.*` tables, plus a **sovereign-only**
-  keyed real↔surrogate map (`sipHash64Keyed`, key held only on ct109). Public MCP gains
-  `metric_timeseries`/`top_series` (new `metrics` shareable class); sovereign MCP gains
-  `reidentify(surrogate)`. Extends the M7b grant hard-floor (public reader can name only
-  the new metric tables — never base `ssdf.*`, never the pseudonym map). Measure scope:
-  volume/activity series shareable; deny-rate + IPS volume exposed as **normalized trend
-  indices only** (no absolute counts); real identifiers, rule names/actions, IPS signature
-  detail, and hardware specs stay sovereign. **Prerequisite lockdown (phase 0):** the
-  current public topology/identity surface leaks MAC/IP/VLAN/port/VMID/links and must be
-  flipped sovereign (or identifier-stripped) regardless. Catalog built **extensible** so
-  M13's health signals slot in with no redesign.
+  sovereign `public-metrics` resolver (4th ct109 role, `services/public-metrics`) reads raw
+  `ssdf.events`, pre-aggregates bucketed series, and writes (a) system-wide aggregate series
+  (`ssdf_public.metric_timeseries`) + (b) per-**surrogate** top-N entity series
+  (`ssdf_public.entity_series`), plus a **sovereign-only** keyed real↔surrogate map
+  (`ssdf.pseudonym_map`; HMAC-SHA256 keyed pseudonym, key held only on ct109 via systemd
+  `LoadCredential` — chose Python stdlib HMAC over the spec's illustrative `sipHash64Keyed`
+  since the resolver hashes in Python). Public MCP exposes the 3 metric tools
+  (`metric_timeseries`/`top_series`/`entity_metric_timeseries`, new `metrics` shareable
+  class); sovereign MCP gains `reidentify(surrogate)` (classed `identity`, sovereign-only).
+  Extends the M7b grant hard-floor (public reader can name only the 2 metric tables — never
+  base `ssdf.*`, never the pseudonym map). Measure scope: volume/activity series shareable;
+  deny-rate + IPS volume exposed as **normalized trend indices only** (no absolute counts);
+  real identifiers, rule names/actions, IPS signature detail, and hardware specs stay
+  sovereign. **Prerequisite lockdown (phase 0):** the current public topology/identity
+  surface leaks MAC/IP/VLAN/port/VMID/links and is flipped sovereign by the public-metrics
+  classification example. Catalog (`measures.py`) built **extensible** so M13's Tier-3 health
+  signals slot in as enabled measures with no redesign.
 - **M13 — operational-health telemetry ingest (PLANNED, big series).** 📋 Planned —
   the prerequisite for *operational* prediction (memory pressure, CPU pressure, interface
   errors increasing, port flap/bounce, protocol-adjacency bounce). SSDF ingests **none**
