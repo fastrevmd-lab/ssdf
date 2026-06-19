@@ -49,11 +49,18 @@ def fetch_tools(client, principal: str, started: datetime, finished: datetime,
 
 
 def check_tools(question: Question, observed: list[str], tier: str) -> ToolCheckResult:
-    """required_tools ⊆ observed; public runs must stay inside PUBLIC_TOOLS."""
-    missing = sorted(set(question.required_tools) - set(observed))
-    if missing:
+    """Any-of routing proof: at least one required_tool must appear in observed;
+    public runs must stay inside PUBLIC_TOOLS.
+
+    `required_tools` lists the tools that each independently prove the model used the
+    fabric to reach the answer. Using any one of them passes — so a question with two
+    equally-valid routes (e.g. explain_access OR observed_by) accepts either.
+    """
+    required = set(question.required_tools)
+    if required and not (required & set(observed)):
+        accepted = sorted(required)
         return ToolCheckResult(False, list(observed),
-                               f"required tools not observed in audit: {missing}")
+                               f"none of the accepted tools observed in audit: {accepted}")
     if tier == "public":
         outside = sorted(set(observed) - PUBLIC_TOOLS)
         if outside:

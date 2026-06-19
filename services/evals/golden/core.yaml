@@ -28,7 +28,7 @@
   category: reachability
   difficulty: medium
   answer_format: 'Answer with JSON: {"firewalls": ["<name>", ...]}'
-  required_tools: [explain_access]
+  required_tools: [explain_access, observed_by]
   predicate:
     type: reference_sql
     sql: >-

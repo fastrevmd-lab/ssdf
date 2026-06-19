@@ -6,7 +6,7 @@
   "tier": "sovereign",
   "principal": "eval-claude",
   "corpus_version": "6368d1aa2b66d7497abd251a9f20fc1b96f36556",
-  "scored_at": "2026-06-19T17:56:33Z",
+  "scored_at": "2026-06-19T18:09:02Z",
   "questions": [
     {
       "id": "reach-rule-trust-untrust",
@@ -29,10 +29,8 @@
     },
     {
       "id": "reach-firewall-attribution",
-      "pass": false,
-      "reasons": [
-        "tools: required tools not observed in audit: ['explain_access']"
-      ],
+      "pass": true,
+      "reasons": [],
       "predicate_detail": {
         "agent": [
           "panosvm"
@@ -107,8 +105,8 @@
       "reasons": [],
       "predicate_detail": {
         "agent": 13905.0,
-        "reference": 14270.0,
-        "allowed": 1427.0
+        "reference": 14505.0,
+        "allowed": 1450.5
       },
       "tools_observed": [
         "describe_schema",
@@ -233,8 +231,8 @@
       "reasons": [],
       "predicate_detail": {
         "agent": 54461204.0,
-        "reference": 54813029.0,
-        "allowed": 8221954.35
+        "reference": 54907722.0,
+        "allowed": 8236158.3
       },
       "tools_observed": [
         "describe_schema",
@@ -357,7 +355,7 @@
       "reasons": [],
       "predicate_detail": {
         "agent": 1781890632.0,
-        "reference": 1781891744.0,
+        "reference": 1781892526.0,
         "allowed": 3600.0
       },
       "tools_observed": [
@@ -413,11 +411,11 @@
   ],
   "rollups": {
     "total": 22,
-    "passed": 19,
+    "passed": 20,
     "by_category": {
       "reachability": {
         "total": 4,
-        "passed": 3
+        "passed": 4
       },
       "flows": {
         "total": 6,
@@ -439,7 +437,7 @@
     "by_difficulty": {
       "medium": {
         "total": 9,
-        "passed": 7
+        "passed": 8
       },
       "hard": {
         "total": 5,
@@ -453,7 +451,7 @@
     "by_tier": {
       "sovereign": {
         "total": 18,
-        "passed": 16
+        "passed": 17
       },
       "both": {
         "total": 4,

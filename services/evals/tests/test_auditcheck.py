@@ -1,4 +1,4 @@
-"""ssdf.audit tool-usage checks: required ⊆ observed; public-tier surface guard."""
+"""ssdf.audit tool-usage checks: any-of required tools; public-tier surface guard."""
 
 from datetime import datetime, timedelta, timezone
 
@@ -75,6 +75,20 @@ def test_missing_required_tool_fails():
                          tier="sovereign")
     assert not result.passed
     assert "explain_access" in result.reason
+
+
+def test_any_of_required_tools_passes_with_one():
+    """Listing multiple required tools means any one is a valid route (any-of)."""
+    result = check_tools(make_question(["explain_access", "observed_by"]),
+                         ["observed_by", "run_sql"], tier="sovereign")
+    assert result.passed
+
+
+def test_any_of_required_tools_fails_when_none_present():
+    result = check_tools(make_question(["explain_access", "observed_by"]),
+                         ["run_sql"], tier="sovereign")
+    assert not result.passed
+    assert "explain_access" in result.reason and "observed_by" in result.reason
 
 
 def test_no_required_tools_always_passes():
