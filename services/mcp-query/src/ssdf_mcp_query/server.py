@@ -63,11 +63,11 @@ def build_app(tier: str = "sovereign") -> FastMCP:
                     outcome: str | None = None, provider: str | None = None,
                     zone: str | None = None, since: str | None = None,
                     until: str | None = None, limit: int = 100) -> dict:
-        """Query normalized security flow events with optional filters and a time window.
-
-        Times accept ISO-8601 or relative ("now-1h"). Default window is the last 24h.
-        Returns rows plus {row_count, truncated, elapsed_ms} or {error, detail}.
-        """
+        """Query RAW normalized flow events (one row per event) with optional filters and a
+        time window. `provider` is a VENDOR string (e.g. "paloalto"/"juniper"), NOT a
+        firewall device identity — for "which firewall" questions use explain_access or
+        observed_by. Times accept ISO-8601 or relative ("now-1h"); default window 24h.
+        Returns rows plus {row_count, truncated, elapsed_ms} or {error, detail}."""
         return tools.query_flows(src_ip=src_ip, dst_ip=dst_ip, dst_port=dst_port,
                                  action=action, outcome=outcome, provider=provider,
                                  zone=zone, since=since, until=until, limit=limit)
@@ -90,12 +90,16 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         return topo.get_entity(identifier)
 
     def locate(identifier: str) -> dict:
-        """Where does an entity attach? Returns switch/AP (or hypervisor bridge), port, and VLAN."""
+        """Where an entity is ATTACHED at L2: switch/AP (or hypervisor bridge), port, VLAN.
+        This is physical attachment, NOT firewall observation — for "which firewall sees
+        this IP" use observed_by."""
         return topo.locate(identifier)
 
     def neighbors(identifier: str, layer: str | None = None, depth: int = 1,
                   since_hours: int | None = None) -> dict:
-        """Adjacent nodes/edges around an entity, optionally filtered by layer (l2|l3|flow|virt)."""
+        """L2/L3-adjacent nodes/edges around an entity, optionally filtered by layer
+        (l2|l3|flow|virt). Adjacency only — for firewall attribution use explain_access
+        (which rule/firewall) or observed_by (which firewall logged it)."""
         return topo.neighbors(identifier, layer=layer, depth=depth, since_hours=since_hours)
 
     def find_path(src: str, dst: str, layer: str = "any") -> dict:
@@ -106,17 +110,36 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         """Read-only: firewall device(s), zone(s), and rule(s) governing traffic between two entities."""
         return topo.enforcement_points(src, dst)
 
-    def topology_snapshot(layer: str | None = None, since_hours: int | None = None) -> dict:
-        """Bounded nodes+edges subgraph for visualization/LLM context; reports truncation."""
-        return topo.topology_snapshot(layer=layer, since_hours=since_hours)
+    def topology_snapshot(layer: str | None = None, since_hours: int | None = None,
+                          role: str | None = None, kind: str | None = None) -> dict:
+        """Bounded nodes+edges subgraph for visualization/LLM context; reports truncation.
+        Filter with `role` (e.g. "firewall") or `kind` (e.g. "device") to enumerate just
+        those nodes — use role="firewall" to list the firewalls in the topology."""
+        return topo.topology_snapshot(layer=layer, since_hours=since_hours,
+                                      role=role, kind=kind)
 
     def explain_access(client: str, server: str, since_hours: int | None = None) -> dict:
-        """End-to-end view: observed flows + observed controls + CONFIGURED rules (from each
-        firewall's ruleset) + topology path between a client and a server. Accepts ip/mac/name.
-        `configured_controls` lists rules on the path firewalls (no match-scoring); `coverage`
-        reports observed (bool) and configured (rule count). Firewall attribution is from
-        topology; `configured_basis` flags no_path_firewall / firewall_name_unmatched."""
+        """End-to-end view for a client->server pair: observed flows + observed controls +
+        CONFIGURED rules + topology path. Owns "which rule / which firewall" questions; its
+        `firewalls` are DEVICE NAMES (not vendor strings). `configured_controls` lists rules
+        on the path firewalls (no match-scoring); `coverage` reports observed (bool) and
+        configured (rule count); `firewall_basis` is provenance|topology|no_path_firewall.
+        Accepts ip/mac/name."""
         return access.explain_access(client, server, since_hours=since_hours)
+
+    def configured_policies(firewall) -> dict:
+        """Configured security rules on the named firewall(s) (e.g. "panosvm" or a list).
+        Returns {firewalls:[{firewall, rules:[{rule,action,from_zone,to_zone,position,
+        enabled,source}], count}]}. `count` is the de-duplicated configured-policy count
+        for that firewall — use this to answer "how many rules does firewall X have"."""
+        return access.configured_policies(firewall)
+
+    def observed_by(identifier: str, since_hours: int | None = None) -> dict:
+        """Which firewall(s) actually LOGGED traffic for this IP/asset (L3 provenance).
+        Accepts ip/mac/name. Returns {entity, firewalls:[<device names>]} — device names,
+        not vendor strings, and multiple when several firewalls observed the flow. Use this
+        for "which firewall sees/observes traffic from X", NOT locate (which is L2 attach)."""
+        return access.observed_by(identifier, since_hours=since_hours)
 
     raw_tools = {
         "query_flows": query_flows,
@@ -132,6 +155,8 @@ def build_app(tier: str = "sovereign") -> FastMCP:
     }
     if access is not None:  # sovereign-only (L5): never a candidate on public
         raw_tools["explain_access"] = explain_access
+        raw_tools["configured_policies"] = configured_policies
+        raw_tools["observed_by"] = observed_by
     if tier == "public":
         selected = public_tool_names(classification, list(raw_tools))
         if not selected:

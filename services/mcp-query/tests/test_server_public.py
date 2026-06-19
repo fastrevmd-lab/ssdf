@@ -8,7 +8,7 @@ os.environ.setdefault("MCP_AUTH_TOKEN", "t")
 SOVEREIGN_TOOLS = {
     "query_flows", "describe_schema", "top_talkers", "run_sql", "get_entity",
     "locate", "neighbors", "find_path", "enforcement_points",
-    "topology_snapshot", "explain_access",
+    "topology_snapshot", "explain_access", "configured_policies", "observed_by",
 }
 
 
