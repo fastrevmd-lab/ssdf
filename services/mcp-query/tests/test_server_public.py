@@ -152,3 +152,15 @@ def test_public_build_metrics_config_exposes_only_metrics(monkeypatch, tmp_path)
         "metric_timeseries", "top_series", "entity_metric_timeseries",
     }
     assert "reidentify" not in _names(app)  # sovereign-only, never a public candidate
+
+
+def test_public_metrics_example_config_is_metrics_only(monkeypatch):
+    import ssdf_mcp_query.server as server
+    _patch_ch(monkeypatch, server)
+    monkeypatch.setenv(
+        "MCP_CLASSIFICATION_FILE",
+        "infra/classification.public.metrics.example.json")
+    app = server.build_app(tier="public")
+    assert _names(app) == {
+        "metric_timeseries", "top_series", "entity_metric_timeseries",
+    }

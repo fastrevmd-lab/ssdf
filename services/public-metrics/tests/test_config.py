@@ -36,3 +36,14 @@ def test_load_config_defaults(monkeypatch):
     assert cfg.top_n == 20
     assert cfg.key_version == 1
     assert cfg.pseudonym_key == bytes.fromhex("00112233445566778899aabbccddeeff")
+
+
+def test_load_config_reads_key_from_file(tmp_path, monkeypatch):
+    key_path = tmp_path / "pseudonym.key"
+    key_path.write_text("00112233445566778899aabbccddeeff\n")
+    monkeypatch.delenv("PUBLIC_PSEUDONYM_KEY", raising=False)
+    monkeypatch.setenv("PUBLIC_PSEUDONYM_KEY_FILE", str(key_path))
+    monkeypatch.setenv("CH_PASSWORD", "x")
+    from ssdf_pubmetrics.config import load_config
+    config = load_config()
+    assert config.pseudonym_key == bytes.fromhex("00112233445566778899aabbccddeeff")

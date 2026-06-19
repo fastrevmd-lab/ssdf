@@ -1,0 +1,24 @@
+[Unit]
+Description=SSDF public-metrics resolver (de-identified metrics aggregation)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+EnvironmentFile=/etc/ssdf-public-metrics/ENV.local
+LoadCredential=pseudonym_key:/etc/ssdf-public-metrics/pseudonym.key
+Environment=PUBLIC_PSEUDONYM_KEY_FILE=%d/pseudonym_key
+WorkingDirectory=/opt/ssdf-public-metrics
+ExecStart=/opt/ssdf-public-metrics/bin/python -m ssdf_pubmetrics.resolve
+# hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=yes
+MemoryDenyWriteExecute=yes

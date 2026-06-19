@@ -37,8 +37,12 @@ def load_config() -> Config:
     if password is None:
         raise ConfigError("CH_PASSWORD is required")
     raw_key = os.environ.get("PUBLIC_PSEUDONYM_KEY")
+    key_file = os.environ.get("PUBLIC_PSEUDONYM_KEY_FILE")
+    if not raw_key and key_file:
+        with open(key_file, "r", encoding="utf-8") as handle:
+            raw_key = handle.read().strip()
     if not raw_key:
-        raise ConfigError("PUBLIC_PSEUDONYM_KEY is required")
+        raise ConfigError("PUBLIC_PSEUDONYM_KEY or PUBLIC_PSEUDONYM_KEY_FILE is required")
     try:
         key = bytes.fromhex(raw_key)
     except ValueError as exc:
