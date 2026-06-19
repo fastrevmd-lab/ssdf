@@ -178,15 +178,15 @@
 # ---- topology ----
 - id: topo-locate-labgen
   question: Which firewall(s) observe traffic from IP 10.74.11.20?
-  tier: both
+  tier: sovereign
   category: topology
   difficulty: easy
   answer_format: 'Answer with JSON: {"firewalls": ["<name>", ...]}'
-  required_tools: [locate]
+  required_tools: [observed_by]
   predicate:
     type: reference_sql
     sql: >-
-      SELECT DISTINCT observer_hostname FROM ssdf.events
+      SELECT DISTINCT splitByChar('.', observer_hostname)[1] FROM ssdf.events
       WHERE source_ip = toIPv6('10.74.11.20') AND observer_hostname != ''
     match: set_overlap
     answer_key: firewalls
