@@ -14,7 +14,10 @@ DENY_ACTIONS = ["deny", "drop", "block", "reject"]
 INDEX_METRICS: set[str] = {"deny_rate_index", "ips_volume_index"}
 
 AGG_VALUE_EXPR: dict[str, str] = {
-    "bytes": "sum(network_bytes)",
+    # network_bytes is Nullable in ssdf.events (detection/audit sources carry no
+    # bytes); ifNull keeps sum() from returning NULL for an all-NULL group, which
+    # would otherwise surface as a None value the resolver can't float().
+    "bytes": "sum(ifNull(network_bytes, 0))",
     "flows": "count()",
     "connections": ("uniqExact((source_ip, source_port, destination_ip, "
                     "destination_port, network_transport))"),

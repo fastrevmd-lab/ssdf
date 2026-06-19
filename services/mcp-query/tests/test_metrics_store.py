@@ -66,3 +66,16 @@ def test_default_since_resolved_not_passed_through():
     params = fake.calls[0][1]
     assert not params["since"].startswith("now")
     assert params["since"].startswith("20")
+
+
+def test_unset_until_uses_or_null_to_avoid_empty_string_parse():
+    # ClickHouse constant-folds BOTH sides of the OR, so the empty-until guard
+    # must use parseDateTimeBestEffortOrNull — parseDateTimeBestEffort('') throws
+    # CANNOT_PARSE_DATETIME even when {until} = '' short-circuits logically.
+    fake = _FakeClient([])
+    store = MetricsStore(fake)
+    store.metric_timeseries("bytes", since="now-1h", until=None)
+    sql = fake.calls[0][0]
+    assert "parseDateTimeBestEffortOrNull({until:String})" in sql
+    store.entity_metric_timeseries("h_abc", "bytes", since="now-1h", until=None)
+    assert "parseDateTimeBestEffortOrNull({until:String})" in fake.calls[1][0]

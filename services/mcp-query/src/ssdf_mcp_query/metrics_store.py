@@ -31,7 +31,7 @@ class MetricsStore:
             "WHERE tenant_id = {tenant:String} AND metric = {metric:String} "
             "AND dim = '' "
             "AND bucket_start >= parseDateTimeBestEffort({since:String}) "
-            "AND ({until:String} = '' OR bucket_start <= parseDateTimeBestEffort({until:String})) "
+            "AND ({until:String} = '' OR bucket_start <= parseDateTimeBestEffortOrNull({until:String})) "
             "ORDER BY bucket_start"
         )
         params = {"tenant": self._tenant, "metric": metric,
@@ -61,7 +61,7 @@ class MetricsStore:
             "WHERE tenant_id = {tenant:String} AND surrogate = {surrogate:String} "
             "AND metric = {metric:String} "
             "AND bucket_start >= parseDateTimeBestEffort({since:String}) "
-            "AND ({until:String} = '' OR bucket_start <= parseDateTimeBestEffort({until:String})) "
+            "AND ({until:String} = '' OR bucket_start <= parseDateTimeBestEffortOrNull({until:String})) "
             "ORDER BY bucket_start"
         )
         params = {"tenant": self._tenant, "surrogate": surrogate, "metric": metric,

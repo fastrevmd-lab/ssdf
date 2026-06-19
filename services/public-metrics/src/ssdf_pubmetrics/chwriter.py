@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Iterable
 
 import clickhouse_connect
@@ -13,9 +14,21 @@ METRIC_COLUMNS = ["bucket_start", "metric", "dim", "value", "tenant_id"]
 ENTITY_COLUMNS = ["bucket_start", "surrogate", "metric", "value", "tenant_id"]
 MAP_COLUMNS = ["kind", "real_value", "surrogate", "key_version", "first_seen", "last_seen"]
 
+# DateTime/DateTime64 columns: clickhouse_connect's insert serializer calls
+# value.timestamp(), so ISO strings (the resolver's index + map rows) must be
+# parsed to datetime first. Values read back from ClickHouse are already
+# datetime objects and pass through untouched.
+_DATETIME_COLUMNS = {"bucket_start", "first_seen", "last_seen"}
+
+
+def _coerce(column: str, value):
+    if column in _DATETIME_COLUMNS and isinstance(value, str):
+        return datetime.fromisoformat(value)
+    return value
+
 
 def _rows(items: Iterable[dict], columns: list[str]) -> list[list]:
-    return [[item[c] for c in columns] for item in items]
+    return [[_coerce(c, item[c]) for c in columns] for item in items]
 
 
 class MetricsWriter:
