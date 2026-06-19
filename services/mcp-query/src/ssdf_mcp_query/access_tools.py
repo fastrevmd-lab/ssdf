@@ -202,3 +202,46 @@ class AccessTools:
             "topology_path": self._topo.find_path(client, server),
             "coverage": {"observed": sessions > 0, "configured": len(configured_controls)},
         }
+
+    def observed_by(self, identifier: str, since_hours: int | None = None) -> dict:
+        """Firewalls that LOGGED traffic for an IP/asset (L3 provenance, multi-FW aware)."""
+        cands = self._store.find_entities(identifier)
+        if not cands:
+            return {"error": "not_found", "detail": f"no entity matches '{identifier}'"}
+        entity = cands[0]
+        window = since_hours or self._window
+        candidate_ips: set[str] = set()
+        for value in (identifier, *entity.get("identifiers", {}).values()):
+            try:
+                ipaddress.ip_address(value)
+                candidate_ips.add(value)
+            except (ValueError, TypeError):
+                continue
+        rows = self._store.observers_for_ips(sorted(candidate_ips), _since(window))
+        firewalls = sorted({_short_host(r["observer_hostname"]) for r in rows
+                            if r.get("observer_hostname")})
+        return {"entity": {"entity_id": entity["entity_id"],
+                           "name": entity.get("name", "")},
+                "firewalls": firewalls}
+
+    def configured_policies(self, firewall) -> dict:
+        """Configured security rules on the named firewall(s), grouped + deduped per firewall."""
+        names = [firewall] if isinstance(firewall, str) else list(firewall)
+        by_fw: dict[str, dict] = {}
+        for item in self._store.configured_policies_for_firewalls(names):
+            policy = item["policy"]
+            attrs = policy.get("attrs", {})
+            bucket = by_fw.setdefault(item["firewall"], {})
+            bucket[policy["entity_id"]] = {  # dedup by policy entity_id
+                "rule": policy.get("name", ""),
+                "action": attrs.get("action", ""),
+                "from_zone": attrs.get("from_zone", ""),
+                "to_zone": attrs.get("to_zone", ""),
+                "position": attrs.get("position", ""),
+                "enabled": attrs.get("enabled", "") == "true",
+                "source": "configured",
+            }
+        firewalls = [{"firewall": name, "rules": list(rules.values()),
+                      "count": len(rules)}
+                     for name, rules in sorted(by_fw.items())]
+        return {"firewalls": firewalls}
