@@ -368,12 +368,24 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   hardware **specs** (RAM size, CPU model, link speed) stay sovereign; operational
   **utilization/trend** is shareable de-identified.
 
-- **M13a — host resource-pressure ingest** 🔨 Built (code + tests; pending deploy + live
-  proof on ct109). First operational-health source: CPU%/mem%/temperature across Proxmox,
-  vSRX, PAN-OS, UniFi via existing MCP op-commands (no SNMP). New EAV-style
-  `ssdf.health_metrics` table (migration 014) + `ssdf_health` user (015); `services/health`
-  poller (5th ct109 role). Sovereign-only (run_sql); public de-id + M7c catalog flip +
-  honesty-device-metrics eval update deferred as follow-ons.
+- **M13a — host resource-pressure ingest** ✅ Done (merged to `main` 2026-06-20, PR #25,
+  merge `d7c535e`; deployed + live-proven on ct109). First operational-health source:
+  CPU%/mem%/temperature across Proxmox, vSRX, PAN-OS, UniFi via existing MCP op-commands
+  (no SNMP). New EAV-style `ssdf.health_metrics` table (migration 014, TTL 30d) +
+  `ssdf_health` writer (015), both applied on ct104; `services/health` poller is ct109's
+  **5th role** (source `/opt/src/health`, editable venv `/opt/ssdf-health`, env
+  `/etc/ssdf-health/ENV.local` mode 600, `ssdf-health.timer` enabled 5-min). Sovereign-only
+  (`run_sql`/`describe_schema`, no new MCP tool); public de-id + M7c Tier-3 catalog flip +
+  `honesty-device-metrics` eval update deferred as follow-ons. 33 unit tests.
+  **Deploy-found fix (commit `47a19ed`):** proxmox-mcp returns human-formatted **text**
+  (not JSON like the other vendor MCPs), so the JSON parser `JSONDecodeError`'d and the whole
+  proxmox collector was fault-isolated/skipped (0 rows). Collector rewritten to parse the
+  displayed percentages; this MCP exposes CPU% for **containers only** (proxmox node/VM rows
+  are memory-only, no CPU fabricated), ONLINE-node / RUNNING-guest filtered. After fix: one
+  cycle = **44 gauges across all 4 providers** (cpu/mem ∈ [0,100]), verified in CH.
+  **Live dependency:** panosvm VMID 900 stopped ⇒ paloalto health rows go stale (flag the
+  operator; never start/stop VMID 900). Spec/plan
+  `docs/superpowers/{specs,plans}/2026-06-20-ssdf-m13a-host-resource-pressure-ingest*.md`.
 
 ## Cross-cutting seams (kept clean, watch when extending)
 
