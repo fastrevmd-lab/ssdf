@@ -1,13 +1,23 @@
-"""Proxmox health collector: node + guest CPU%/mem%. No temperature via this API."""
+"""Proxmox health collector: node + guest CPU%/mem% from proxmox-mcp.
+
+proxmox-mcp returns human-formatted TEXT (not JSON), so this collector parses
+the displayed percentages. Only what the MCP shows is emitted: every ONLINE
+node and RUNNING guest yields a memory gauge; CPU% is exposed for containers
+only (nodes/VMs do not expose it in this MCP), so node/VM CPU gauges are simply
+absent rather than fabricated.
+"""
 
 from __future__ import annotations
 
-import json
+import re
+from collections.abc import Iterator
 
 from ..gauge import Gauge
 from .base import register
 
-_ENVELOPE_KEYS = ("result", "data", "items")
+_MEM_PCT = re.compile(r"Memory:[^()]*\(([\d.]+)%\)")
+_CPU_PCT = re.compile(r"(?m)^\s*-\s*CPU:\s*([\d.]+)%")
+_STATUS = re.compile(r"Status:\s*(\S+)")
 
 
 def clamp_pct(value: float) -> float:
@@ -15,76 +25,79 @@ def clamp_pct(value: float) -> float:
     return max(0.0, min(100.0, value))
 
 
-def _obj(text: str) -> dict:
-    """Decode MCP text to a single dict, unwrapping a known envelope key."""
-    data = json.loads(text)
-    if isinstance(data, dict):
-        for key in _ENVELOPE_KEYS:
-            val = data.get(key)
-            if isinstance(val, dict):
-                return val
-        return data
-    return {}
+def _name_from_header(header: str) -> str:
+    """Extract a device name from a stanza header line.
+
+    Handles the three proxmox-mcp header shapes:
+      "[node] pve3", "[node] Node: pve3", "[vm] ProductionSRX (ID: 103)",
+      "ssdf-topo (ID: 109)".
+    """
+    name = re.sub(r"^\[\w+\]\s*", "", header).strip()
+    name = re.sub(r"^Node:\s*", "", name).strip()
+    name = re.sub(r"\s*\(ID:[^)]*\)\s*$", "", name).strip()
+    return name
 
 
-def _rows(text: str) -> list[dict]:
-    """Decode MCP text to a list of dicts, unwrapping a known envelope key."""
-    data = json.loads(text)
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in _ENVELOPE_KEYS:
-            val = data.get(key)
-            if isinstance(val, list):
-                return val
-    return []
+def _stanzas(text: str) -> Iterator[tuple[str, str]]:
+    """Yield (device_name, block) for each blank-line-separated stanza."""
+    for block in text.split("\n\n"):
+        block = block.strip()
+        if not block:
+            continue
+        header = block.splitlines()[0].strip()
+        yield _name_from_header(header), block
 
 
-def parse_node_status(status: dict, node: str, now: str) -> list[Gauge]:
-    """Build node-scope CPU/mem gauges from a get_node_status dict."""
+def _mem_pct(block: str) -> float | None:
+    match = _MEM_PCT.search(block)
+    return float(match.group(1)) if match else None
+
+
+def _cpu_pct(block: str) -> float | None:
+    match = _CPU_PCT.search(block)
+    return float(match.group(1)) if match else None
+
+
+def _status(block: str) -> str:
+    match = _STATUS.search(block)
+    return match.group(1) if match else ""
+
+
+def parse_nodes(text: str) -> list[Gauge]:
+    """Build node-scope memory gauges from get_nodes text (ONLINE nodes only)."""
     gauges: list[Gauge] = []
-    cpu = status.get("cpu")
-    if isinstance(cpu, (int, float)):
-        gauges.append(Gauge(
-            provider="proxmox", device=node, scope="node", metric_class="cpu",
-            sensor="", metric_name="cpu_util_pct", value=clamp_pct(float(cpu) * 100.0),
-            unit="percent", raw=f"cpu={cpu}",
-        ))
-    memory = status.get("memory") or {}
-    used, total = memory.get("used"), memory.get("total")
-    if isinstance(used, (int, float)) and isinstance(total, (int, float)) and total:
-        gauges.append(Gauge(
-            provider="proxmox", device=node, scope="node", metric_class="memory",
-            sensor="", metric_name="mem_util_pct",
-            value=clamp_pct(float(used) / float(total) * 100.0),
-            unit="percent", raw=f"mem={used}/{total}",
-        ))
+    for name, block in _stanzas(text):
+        if not name or _status(block).upper() != "ONLINE":
+            continue
+        mem = _mem_pct(block)
+        if mem is not None:
+            gauges.append(Gauge(
+                provider="proxmox", device=name, scope="node", metric_class="memory",
+                sensor="", metric_name="mem_util_pct", value=clamp_pct(mem),
+                unit="percent", raw=f"mem={mem}%",
+            ))
     return gauges
 
 
-def parse_guests(guests: list[dict], now: str) -> list[Gauge]:
-    """Build guest-scope CPU/mem gauges from a get_vms/get_containers list (running only)."""
+def parse_guests(text: str, scope: str = "guest") -> list[Gauge]:
+    """Build guest CPU/mem gauges from get_vms/get_containers text (RUNNING only)."""
     gauges: list[Gauge] = []
-    for guest in guests:
-        if str(guest.get("status") or "").lower() != "running":
+    for name, block in _stanzas(text):
+        if not name or _status(block).upper() != "RUNNING":
             continue
-        device = str(guest.get("name") or guest.get("vmid") or "").strip()
-        if not device:
-            continue
-        cpu = guest.get("cpu")
-        if isinstance(cpu, (int, float)):
+        cpu = _cpu_pct(block)
+        if cpu is not None:
             gauges.append(Gauge(
-                provider="proxmox", device=device, scope="guest", metric_class="cpu",
-                sensor="", metric_name="cpu_util_pct",
-                value=clamp_pct(float(cpu) * 100.0), unit="percent", raw=f"cpu={cpu}",
+                provider="proxmox", device=name, scope=scope, metric_class="cpu",
+                sensor="", metric_name="cpu_util_pct", value=clamp_pct(cpu),
+                unit="percent", raw=f"cpu={cpu}%",
             ))
-        mem, maxmem = guest.get("mem"), guest.get("maxmem")
-        if isinstance(mem, (int, float)) and isinstance(maxmem, (int, float)) and maxmem:
+        mem = _mem_pct(block)
+        if mem is not None:
             gauges.append(Gauge(
-                provider="proxmox", device=device, scope="guest", metric_class="memory",
-                sensor="", metric_name="mem_util_pct",
-                value=clamp_pct(float(mem) / float(maxmem) * 100.0),
-                unit="percent", raw=f"mem={mem}/{maxmem}",
+                provider="proxmox", device=name, scope=scope, metric_class="memory",
+                sensor="", metric_name="mem_util_pct", value=clamp_pct(mem),
+                unit="percent", raw=f"mem={mem}%",
             ))
     return gauges
 
@@ -97,13 +110,7 @@ class ProxmoxCollector:
 
     def collect(self, client, now: str) -> list[Gauge]:
         gauges: list[Gauge] = []
-        nodes = _rows(client.call_tool("get_nodes", {}))
-        for node in nodes:
-            node_name = str(node.get("node") or node.get("name") or "").strip()
-            if not node_name:
-                continue
-            status = _obj(client.call_tool("get_node_status", {"node": node_name}))
-            gauges.extend(parse_node_status(status, node_name, now))
-        gauges.extend(parse_guests(_rows(client.call_tool("get_vms", {})), now))
-        gauges.extend(parse_guests(_rows(client.call_tool("get_containers", {})), now))
+        gauges.extend(parse_nodes(client.call_tool("get_nodes", {})))
+        gauges.extend(parse_guests(client.call_tool("get_vms", {})))
+        gauges.extend(parse_guests(client.call_tool("get_containers", {})))
         return gauges
