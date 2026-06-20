@@ -17,12 +17,13 @@ import yaml
 # Tool surfaces as deployed (ct106 sovereign / ct113 public). Keep in sync with
 # services/mcp-query tool registration; the corpus lint depends on these.
 PUBLIC_TOOLS = frozenset(
-    {"get_entity", "locate", "neighbors", "find_path", "topology_snapshot"}
+    {"metric_timeseries", "top_series", "entity_metric_timeseries"}
 )
 SOVEREIGN_TOOLS = PUBLIC_TOOLS | frozenset(
-    {"describe_schema", "enforcement_points", "explain_access",
+    {"get_entity", "locate", "neighbors", "find_path", "topology_snapshot",
+     "enforcement_points", "describe_schema", "explain_access",
      "query_flows", "run_sql", "top_talkers",
-     "configured_policies", "observed_by"}
+     "configured_policies", "observed_by", "reidentify"}
 )
 
 TIERS = ("sovereign", "public", "both")

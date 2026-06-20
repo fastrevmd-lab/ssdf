@@ -102,4 +102,5 @@ def test_public_tier_rejects_sovereign_tool_observed():
 
 
 def test_public_tier_with_public_tools_passes():
-    assert check_tools(make_question(["locate"]), ["locate"], tier="public").passed
+    assert check_tools(
+        make_question(["top_series"]), ["top_series"], tier="public").passed
