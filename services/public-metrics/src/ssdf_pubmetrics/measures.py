@@ -42,7 +42,10 @@ CATALOG: list[Measure] = [
     # Tier 2 — normalized stance indices (ratio-to-baseline only)
     Measure("deny_rate_index", True, False, "index"),
     Measure("ips_volume_index", True, False, "index"),
-    # Tier 3 — operational health, gated on M13 ingest (disabled placeholders)
+    # Tier 3 — operational health (disabled placeholders). M13a now lands the
+    # source data in ssdf.health_metrics (NOT ssdf.events); flipping these to
+    # enabled + adding a health-table AGG_VALUE_EXPR branch + the pseudonym
+    # pipeline is the M13a -> public-metrics follow-on, deliberately deferred.
     Measure("mem_util_pct", False, False, "aggregate"),
     Measure("cpu_util_pct", False, False, "aggregate"),
     Measure("iface_error_rate", False, False, "aggregate"),

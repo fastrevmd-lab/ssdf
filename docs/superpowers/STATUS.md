@@ -368,6 +368,13 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   hardware **specs** (RAM size, CPU model, link speed) stay sovereign; operational
   **utilization/trend** is shareable de-identified.
 
+- **M13a — host resource-pressure ingest** 🔨 Built (code + tests; pending deploy + live
+  proof on ct109). First operational-health source: CPU%/mem%/temperature across Proxmox,
+  vSRX, PAN-OS, UniFi via existing MCP op-commands (no SNMP). New EAV-style
+  `ssdf.health_metrics` table (migration 014) + `ssdf_health` user (015); `services/health`
+  poller (5th ct109 role). Sovereign-only (run_sql); public de-id + M7c catalog flip +
+  honesty-device-metrics eval update deferred as follow-ons.
+
 ## Cross-cutting seams (kept clean, watch when extending)
 
 - **Storage seam:** all ClickHouse access stays in `services/mcp-query/.../clickhouse.py` and
