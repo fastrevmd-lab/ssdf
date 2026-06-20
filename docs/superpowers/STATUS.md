@@ -1,6 +1,6 @@
 # SSDF — Build Status & Milestone Ledger
 
-**Last updated:** 2026-06-15
+**Last updated:** 2026-06-20
 **Purpose:** Single source of truth for *what is actually built* vs. what the design docs
 planned. Read this first; the dated specs/plans are historical and have drifted from reality.
 
@@ -310,9 +310,28 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   the unifi-mcp flow API which 404s on this controller). ~~Proxmox~~ ✅ done as M11
   (host auth+task audit via rsyslog RFC5424; the PVE-API poller was considered and
   rejected as a heavier pattern). Remaining: Okta/Wazuh (same connector pattern).
-- **M7c — public de-identified metrics tier.** ✅ Built (code + tests on branch
-  `m7c-public-metrics`; awaiting operator deployment — apply `013_public_metrics.sql`,
-  provision the 4th ct109 resolver role, flip ct113's classification). **Supersedes M7b's
+- **M7c — public de-identified metrics tier.** ✅ Done (deployed + live-proven +
+  eval-verified 2026-06-19/20, PR #24, branch `m7c-public-metrics`). All three tiers live:
+  ct104 migration `013_public_metrics.sql` applied; ct109 4th resolver role
+  (`/opt/ssdf-public-metrics`, oneshot + 5-min timer, key via `LoadCredential`); ct113
+  classification flipped so the public tier exposes EXACTLY the 3 metrics tools; ct106
+  sovereign synced to 17 tools (adds `reidentify` + the 3 metrics tools). **4 deploy-found
+  fixes** (committed to PR #24): `sum(ifNull(network_bytes,0))` (Nullable-bytes NULL sum);
+  chwriter coerces ISO-string datetime cols→datetime before insert; systemd unit drops the
+  mount-namespace remounters that 226/NAMESPACE in the unprivileged LXC;
+  `parseDateTimeBestEffortOrNull` for the optional `until` bound (CH constant-folds both OR
+  sides). **De-id floor proven at two layers:** grant (`ssdf_public` SELECT on
+  `ssdf.pseudonym_map` → ACCESS_DENIED) and tool-registration (public `list_tools()` = the 3
+  metrics tools only). **Eval-verified (2026-06-20 matrix, corpus `61168de`, scorecards in
+  `results/2026-06-20-*`):** opus 20/23 sov + 6/7 pub, qwen 14/23 sov + 6/7 pub. M7c-specific:
+  public metrics routing opus 3/3 / qwen 2/3 (the one qwen miss is a "no JSON parsed"
+  model-output flake, not a tool/de-id failure); BOTH models correctly REFUSED topology +
+  reidentify + real-IP talkers on the public tier; BOTH PASSED sovereign
+  `identity-reidentify-busiest-surrogate` (top surrogate → reidentify → real IP,
+  ground-truthed against `ssdf.pseudonym_map`). Corpus aligned to the new surface in
+  `61168de` (PUBLIC_TOOLS → the 3 metrics tools; 2 stale topo questions re-tiered
+  both→sovereign; +3 public metrics + 2 public boundary-refusal + 1 sovereign reidentify
+  questions; 29 total). **Supersedes M7b's
   public topology graph** (which both leaked sovereign identifiers AND was useless for
   prediction). Pivots the public tier (ct113) from "anonymized topology" to a **de-identified
   metrics/time-series surface for predictive analysis** — the reason to use a *public*
