@@ -1,0 +1,21 @@
+[Unit]
+Description=SSDF M13a health poller (host/device CPU/mem/temperature -> ssdf.health_metrics)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+EnvironmentFile=/etc/ssdf-health/ENV.local
+WorkingDirectory=/opt/ssdf-health
+ExecStart=/opt/ssdf-health/bin/python -m ssdf_health.collect_main
+# hardening (subset proven to work in the unprivileged LXC on ct109 — matches the
+# sibling ssdf-topo/entity/policy/public-metrics units)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
