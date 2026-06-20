@@ -288,6 +288,39 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
   flap) — the measure catalog is built extensible so M13 health signals slot in as the
   enabled Tier-3 measures with no redesign.
 
+### M13a (host resource-pressure ingest — services/health → ssdf.health_metrics)
+- SSDF's first **operational-health** source: host/device CPU%/mem% + multi-sensor
+  temperature across Proxmox (node+guests), vSRX/Junos, PAN-OS, UniFi — all via existing
+  vendor MCP op-commands (NO SNMP, no device-side log enablement). A 5th ct109 poller role.
+- Unit tests: `cd services/health && uv run pytest -m "not integration"`; live:
+  `CH_HOST=… CH_PORT=8443 CH_SECURE=1 CH_CA_FILE=… CH_USER=ssdf_health CH_PASSWORD=<pw>
+  JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… JUNOS_DEVICES=… PANOS_MCP_URL=… PANOS_MCP_TOKEN=…
+  PROXMOX_MCP_URL=… UNIFI_MCP_URL=… UNIFI_DEVICE_MACS=… uv run pytest -m integration`.
+- One pass: `cd services/health && uv run python -m ssdf_health.collect_main`.
+- Apply migrations: `HEALTH_TTL_DAYS=30 envsubst < infra/clickhouse/014_health_metrics.sql
+  | clickhouse-client --host <ct104> --multiquery`; `HEALTH_PW=<pw> envsubst <
+  infra/clickhouse/015_health_user.sql | clickhouse-client --multiquery`.
+- **Storage:** new EAV-style table `ssdf.health_metrics` (one row per device/metric/sensor/
+  timestamp) — `metric_class` (cpu|memory|temperature) + `sensor` are the two discovery
+  axes, so a new sensor lands as new rows with NO schema change. Typed `metric_value Float64`
+  (NOT the ext Map) so M7c's catalog can aggregate it. TTL 30d default (`HEALTH_TTL_DAYS`).
+- **Collectors (`services/health`, mirrors services/topo):** `Gauge` normalized unit; thin
+  per-vendor modules (proxmox/junos/panos/unifi) each return `list[Gauge]`; `run_collectors`
+  catches+skips a failing collector (one flaky MCP can't zero the pass). Device names match
+  topo/policy so a future health↔topology join bridges by name.
+- **Per-vendor paths:** Proxmox `get_node_status`/`get_vms`/`get_containers` (cpu fraction →
+  %); Junos `show chassis routing-engine` (mem %, cpu=100−idle) + `show chassis environment`
+  (per-sensor temps); PAN-OS `<show><system><resources>` (top idle/MiB Mem) +
+  `<environmentals>` (thermal entries); UniFi `get_device_by_mac` `system-stats.cpu/.mem` +
+  `temperatures[]` (the legacy stat path — integration `get_device_statistics` returns null).
+- **Sovereign-only:** queryable immediately via the generic `run_sql`/`describe_schema`
+  tools (M11 precedent — no new MCP tool). Public de-id exposure + flipping the M7c
+  `mem_util_pct`/`cpu_util_pct` placeholders + the `honesty-device-metrics` eval update are
+  deliberate follow-ons (NOT M13a). **Live dependency:** panosvm VMID 900 stopped ⇒ panos
+  health rows go stale (flag the operator; do not start/stop VMID 900).
+- Deploy: rsync `services/health` to ct109 venv `/opt/ssdf-health`, env
+  `/etc/ssdf-health/ENV.local` (mode 600), install `ssdf-health.{service,timer}`, enable timer.
+
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems
