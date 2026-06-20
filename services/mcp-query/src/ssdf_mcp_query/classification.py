@@ -15,9 +15,9 @@ from pathlib import Path
 from .config import ConfigError
 
 DATA_CLASSES: frozenset[str] = frozenset(
-    {"security_log", "firewall_config", "topology", "identity"}
+    {"security_log", "firewall_config", "topology", "identity", "metrics"}
 )
-CONFIGURABLE_CLASSES: frozenset[str] = frozenset({"topology", "identity"})
+CONFIGURABLE_CLASSES: frozenset[str] = frozenset({"topology", "identity", "metrics"})
 LABELS: frozenset[str] = frozenset({"sovereign", "shareable"})
 
 # Single source of truth: the data classes each tool's output can contain.
@@ -37,6 +37,10 @@ TOOL_DATA_CLASSES: dict[str, frozenset[str]] = {
     ),
     "configured_policies": frozenset({"firewall_config"}),
     "observed_by": frozenset({"security_log"}),
+    "metric_timeseries": frozenset({"metrics"}),
+    "top_series": frozenset({"metrics"}),
+    "entity_metric_timeseries": frozenset({"metrics"}),
+    "reidentify": frozenset({"identity"}),
 }
 
 

@@ -253,6 +253,41 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
 - **Corpus follow-through (`services/evals`):** `configured_policies`+`observed_by` added to `corpus.py` `SOVEREIGN_TOOLS`; `golden/core.yaml` re-points `topo-locate-labgen` to `observed_by` (short-label reference SQL) and `reach-configured-policy-count-panosvm` `required_tools` to `[configured_policies]` (its predicate already matched; only the tool-check needed updating once the model correctly routed to the new tool). `topo-firewall-inventory` expectation `[panosvm, vSRX-test10]` was live-verified correct and kept UNCHANGED (the original spec premise that vSRX-Production should appear was wrong — only those two are `kind=device, attrs.role=firewall`).
 - Deploy = sync `services/mcp-query/src` to ct106 `/opt/src/mcp-query/src` + `systemctl restart ssdf-mcp-query.service` (editable install). Backup before: ct106 `/root/m12-backup-*`.
 
+### M7c (public de-identified metrics tier — services/public-metrics + metric MCP tools)
+- Replaces M7b's anonymized topology graph on the public tier with a keyed-pseudonymized
+  metrics/time-series surface for predictive analysis. Public tier now exposes ONLY 3
+  metrics tools (`metric_timeseries`, `top_series`, `entity_metric_timeseries`); the 5 M7b
+  topology/identity tools are dropped via the phase-0 classification lockdown.
+- **Resolver (4th ct109 role):** `services/public-metrics` (venv `/opt/ssdf-public-metrics`,
+  env `/etc/ssdf-public-metrics/ENV.local` mode 600) on a ~5-min `ssdf-public-metrics.timer`
+  oneshot; writes CH ct104 as `ssdf_pubmetrics` into `ssdf_public.metric_timeseries` (aggregate)
+  + `ssdf_public.entity_series` (per-surrogate, top-N) and the sovereign `ssdf.pseudonym_map`.
+- Unit tests: `cd services/public-metrics && uv run pytest -m "not integration"`; live:
+  `CH_HOST=… CH_PORT=8443 CH_SECURE=1 CH_CA_FILE=… CH_PASSWORD=<pubmetrics_pw>
+  CH_PUBLIC_PASSWORD=<public_pw> PUBLIC_PSEUDONYM_KEY=<hex> uv run pytest -m integration`.
+- Apply migration: `PUBMETRICS_PW=<pw> envsubst < infra/clickhouse/013_public_metrics.sql |
+  clickhouse-client --host <ct104> --multiquery`.
+- **Measure catalog (`measures.py`, declarative + extensible):** Tier-1 volume (`bytes`/`flows`/
+  `connections`, all enabled — every measure emits the aggregate `metric_timeseries` series;
+  only `bytes` ALSO emits a top-N per-surrogate `entity_series` breakdown), Tier-2 normalized
+  stance indices (`deny_rate_index`/`ips_volume_index` = ratio-to-baseline, NO absolute counts),
+  Tier-3 health placeholders (`mem_util_pct`/`cpu_util_pct`/`iface_error_rate`/`port_flap_count`/
+  `proto_flap_count`) DISABLED until M13. Events read with `parseDateTimeBestEffort({since:String})`
+  (the M12 DateTime64 cast trap).
+- **Pseudonymization:** Python stdlib HMAC-SHA256 (no SipHash-keyed primitive in stdlib),
+  per-kind prefix (host=`h_`), 10-hex surrogate, lengthen-on-collision. Key held ONLY on ct109
+  via systemd `LoadCredential` (`PUBLIC_PSEUDONYM_KEY_FILE=%d/pseudonym_key`); `config.py` also
+  accepts the raw hex `PUBLIC_PSEUDONYM_KEY`. Runbook: `onboarding/public-metrics/key-management.md`.
+- **Hard floor:** `ssdf_public` granted SELECT on the 2 metric tables ONLY; `ssdf.pseudonym_map`
+  granted to `ssdf_ro` (sovereign `reidentify`) + `ssdf_pubmetrics` (writer), NEVER `ssdf_public`.
+- **Tools:** the 3 read tools are classed `metrics` (new configurable class) ⇒ public candidates;
+  `reidentify` is classed `identity` and wired sovereign-only. Public lockdown config:
+  `services/mcp-query/infra/classification.public.metrics.example.json` (`topology`+`identity`
+  back to sovereign, `metrics` shareable).
+- **M13 (planned):** operational-health telemetry ingest (mem/CPU util %, iface error-rate,
+  flap) — the measure catalog is built extensible so M13 health signals slot in as the
+  enabled Tier-3 measures with no redesign.
+
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems

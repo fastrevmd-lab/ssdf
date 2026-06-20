@@ -1,0 +1,25 @@
+[Unit]
+Description=SSDF public-metrics resolver (de-identified metrics aggregation)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+EnvironmentFile=/etc/ssdf-public-metrics/ENV.local
+LoadCredential=pseudonym_key:/etc/ssdf-public-metrics/pseudonym.key
+Environment=PUBLIC_PSEUDONYM_KEY_FILE=%d/pseudonym_key
+WorkingDirectory=/opt/ssdf-public-metrics
+ExecStart=/opt/ssdf-public-metrics/bin/python -m ssdf_pubmetrics.resolve
+# hardening (subset proven to work in the unprivileged LXC on ct109 —
+# the mount-namespace remounters PrivateDevices/ProtectKernelTunables/
+# ProtectControlGroups fail with 226/NAMESPACE inside the container, so they
+# are omitted to match the sibling ssdf-policy/entity/topo units)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes

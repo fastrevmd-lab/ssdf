@@ -1,6 +1,6 @@
 # SSDF — Build Status & Milestone Ledger
 
-**Last updated:** 2026-06-15
+**Last updated:** 2026-06-20
 **Purpose:** Single source of truth for *what is actually built* vs. what the design docs
 planned. Read this first; the dated specs/plans are historical and have drifted from reality.
 
@@ -310,6 +310,63 @@ sufficing and the graph become load-bearing?" Answer so far: it still suffices.
   the unifi-mcp flow API which 404s on this controller). ~~Proxmox~~ ✅ done as M11
   (host auth+task audit via rsyslog RFC5424; the PVE-API poller was considered and
   rejected as a heavier pattern). Remaining: Okta/Wazuh (same connector pattern).
+- **M7c — public de-identified metrics tier.** ✅ Done (deployed + live-proven +
+  eval-verified 2026-06-19/20, PR #24, branch `m7c-public-metrics`). All three tiers live:
+  ct104 migration `013_public_metrics.sql` applied; ct109 4th resolver role
+  (`/opt/ssdf-public-metrics`, oneshot + 5-min timer, key via `LoadCredential`); ct113
+  classification flipped so the public tier exposes EXACTLY the 3 metrics tools; ct106
+  sovereign synced to 17 tools (adds `reidentify` + the 3 metrics tools). **4 deploy-found
+  fixes** (committed to PR #24): `sum(ifNull(network_bytes,0))` (Nullable-bytes NULL sum);
+  chwriter coerces ISO-string datetime cols→datetime before insert; systemd unit drops the
+  mount-namespace remounters that 226/NAMESPACE in the unprivileged LXC;
+  `parseDateTimeBestEffortOrNull` for the optional `until` bound (CH constant-folds both OR
+  sides). **De-id floor proven at two layers:** grant (`ssdf_public` SELECT on
+  `ssdf.pseudonym_map` → ACCESS_DENIED) and tool-registration (public `list_tools()` = the 3
+  metrics tools only). **Eval-verified (2026-06-20 matrix, corpus `61168de`, scorecards in
+  `results/2026-06-20-*`):** opus 20/23 sov + 6/7 pub, qwen 14/23 sov + 6/7 pub. M7c-specific:
+  public metrics routing opus 3/3 / qwen 2/3 (the one qwen miss is a "no JSON parsed"
+  model-output flake, not a tool/de-id failure); BOTH models correctly REFUSED topology +
+  reidentify + real-IP talkers on the public tier; BOTH PASSED sovereign
+  `identity-reidentify-busiest-surrogate` (top surrogate → reidentify → real IP,
+  ground-truthed against `ssdf.pseudonym_map`). Corpus aligned to the new surface in
+  `61168de` (PUBLIC_TOOLS → the 3 metrics tools; 2 stale topo questions re-tiered
+  both→sovereign; +3 public metrics + 2 public boundary-refusal + 1 sovereign reidentify
+  questions; 29 total). **Supersedes M7b's
+  public topology graph** (which both leaked sovereign identifiers AND was useless for
+  prediction). Pivots the public tier (ct113) from "anonymized topology" to a **de-identified
+  metrics/time-series surface for predictive analysis** — the reason to use a *public*
+  (frontier) LLM is heavier predictive reasoning ("look at the trend and tell me when
+  this becomes a problem"); the sovereign/local LLMs already handle factual Q&A. A new
+  sovereign `public-metrics` resolver (4th ct109 role, `services/public-metrics`) reads raw
+  `ssdf.events`, pre-aggregates bucketed series, and writes (a) system-wide aggregate series
+  (`ssdf_public.metric_timeseries`) + (b) per-**surrogate** top-N entity series
+  (`ssdf_public.entity_series`), plus a **sovereign-only** keyed real↔surrogate map
+  (`ssdf.pseudonym_map`; HMAC-SHA256 keyed pseudonym, key held only on ct109 via systemd
+  `LoadCredential` — chose Python stdlib HMAC over the spec's illustrative `sipHash64Keyed`
+  since the resolver hashes in Python). Public MCP exposes the 3 metric tools
+  (`metric_timeseries`/`top_series`/`entity_metric_timeseries`, new `metrics` shareable
+  class); sovereign MCP gains `reidentify(surrogate)` (classed `identity`, sovereign-only).
+  Extends the M7b grant hard-floor (public reader can name only the 2 metric tables — never
+  base `ssdf.*`, never the pseudonym map). Measure scope: volume/activity series shareable;
+  deny-rate + IPS volume exposed as **normalized trend indices only** (no absolute counts);
+  real identifiers, rule names/actions, IPS signature detail, and hardware specs stay
+  sovereign. **Prerequisite lockdown (phase 0):** the current public topology/identity
+  surface leaks MAC/IP/VLAN/port/VMID/links and is flipped sovereign by the public-metrics
+  classification example. Catalog (`measures.py`) built **extensible** so M13's Tier-3 health
+  signals slot in as enabled measures with no redesign.
+- **M13 — operational-health telemetry ingest (PLANNED, big series).** 📋 Planned —
+  the prerequisite for *operational* prediction (memory pressure, CPU pressure, interface
+  errors increasing, port flap/bounce, protocol-adjacency bounce). SSDF ingests **none**
+  of these today (flows + IPS + Proxmox audit only) — which is exactly why the
+  `honesty-device-metrics` eval question is a *refusal*. This is a new ingest workstream
+  upstream of M7c's health-signal prediction: device/interface/protocol telemetry
+  (SNMP polling / streaming telemetry / link-state & protocol syslog from firewalls,
+  switches, and hosts) normalized at ingest into `ssdf.events`. Likely sub-milestones —
+  **M13a** host resource pressure (mem/CPU utilization %, NOT absolute = spec-safe),
+  **M13b** interface counters/error-rates, **M13c** link/protocol flap events. Spec'd
+  separately (its own brainstorm → spec → plan) once M7c lands. Distinction to preserve:
+  hardware **specs** (RAM size, CPU model, link speed) stay sovereign; operational
+  **utilization/trend** is shareable de-identified.
 
 ## Cross-cutting seams (kept clean, watch when extending)
 
