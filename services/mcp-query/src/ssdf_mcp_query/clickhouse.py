@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import ipaddress as _ip
+import threading
 from typing import Any
 
 import clickhouse_connect
@@ -28,22 +29,45 @@ def jsonify(value: Any) -> Any:
 
 
 class ClickHouseClient:
-    """Thin read-only client. All queries run as the configured (read-only) CH user."""
+    """Thin read-only client. All queries run as the configured (read-only) CH user.
+
+    A ``clickhouse_connect`` client owns a single HTTP session and the driver
+    rejects concurrent queries on it ("Attempt to execute concurrent queries
+    within the same session"). FastMCP dispatches sync tool calls on a worker
+    thread pool, so sibling tool invocations run on different threads. We
+    therefore keep one underlying driver client per thread (``threading.local``)
+    rather than sharing a single instance across threads.
+    """
 
     def __init__(self, config: Config):
         self._config = config
-        self._client = clickhouse_connect.get_client(
-            host=config.ch_host,
-            port=config.ch_port,
-            username=config.ch_user,
-            password=config.ch_password,
-            database=config.ch_database,
-            **ch_tls_kwargs(config),
+        self._local = threading.local()
+        # Connect eagerly on the constructing thread so misconfiguration or an
+        # unreachable ClickHouse fails fast at startup; worker threads create
+        # their own client lazily on first use.
+        self._connect()
+
+    def _connect(self):
+        client = clickhouse_connect.get_client(
+            host=self._config.ch_host,
+            port=self._config.ch_port,
+            username=self._config.ch_user,
+            password=self._config.ch_password,
+            database=self._config.ch_database,
+            **ch_tls_kwargs(self._config),
         )
+        self._local.client = client
+        return client
+
+    def _client_for_thread(self):
+        client = getattr(self._local, "client", None)
+        if client is None:
+            client = self._connect()
+        return client
 
     def run(self, sql: str, params: dict | None = None) -> dict:
         """Execute a read query; return {columns, rows, row_count}. Rows are dicts."""
-        result = self._client.query(
+        result = self._client_for_thread().query(
             sql,
             parameters=params or {},
             settings={

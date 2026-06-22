@@ -1,6 +1,7 @@
 # tests/test_clickhouse.py
 import datetime as dt
 import ipaddress
+import threading
 from ssdf_mcp_query.clickhouse import jsonify
 
 def test_jsonify_datetime_to_iso():
@@ -61,3 +62,70 @@ def test_run_passes_query_settings(monkeypatch):
     assert settings["max_result_rows"] == 222
     assert settings["max_memory_usage"] == 333
     assert settings["result_overflow_mode"] == "throw"
+
+
+class _ThreadTrackingClient:
+    """Fake driver client that records the thread id of each query call."""
+
+    def __init__(self):
+        self.thread_ids = []
+
+    def query(self, sql, parameters=None, settings=None):
+        self.thread_ids.append(threading.get_ident())
+        return _FakeResult()
+
+
+def test_no_underlying_client_shared_across_threads(monkeypatch):
+    """clickhouse_connect clients hold a single session and reject concurrent
+    queries across threads; ClickHouseClient must hand each thread its own."""
+    created = []
+    lock = threading.Lock()
+
+    def fake_get_client(**kw):
+        with lock:
+            inst = _ThreadTrackingClient()
+            created.append(inst)
+        return inst
+
+    monkeypatch.setattr(
+        "ssdf_mcp_query.clickhouse.clickhouse_connect.get_client", fake_get_client
+    )
+    client = ClickHouseClient(_config())
+
+    barrier = threading.Barrier(2)
+
+    def worker():
+        barrier.wait()  # release both threads together to force contention
+        for _ in range(5):
+            client.run("SELECT 1")
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    # No single underlying client may be touched by more than one thread.
+    for inst in created:
+        assert len(set(inst.thread_ids)) <= 1
+    # The two worker threads must have used two distinct underlying clients.
+    worker_clients = [inst for inst in created if inst.thread_ids]
+    assert len({inst.thread_ids[0] for inst in worker_clients}) == 2
+
+
+def test_reuses_one_client_within_a_thread(monkeypatch):
+    created = []
+
+    def fake_get_client(**kw):
+        inst = _ThreadTrackingClient()
+        created.append(inst)
+        return inst
+
+    monkeypatch.setattr(
+        "ssdf_mcp_query.clickhouse.clickhouse_connect.get_client", fake_get_client
+    )
+    client = ClickHouseClient(_config())
+    client.run("SELECT 1")
+    client.run("SELECT 2")
+    # Constructing thread reuses a single underlying client across calls.
+    assert len(created) == 1
