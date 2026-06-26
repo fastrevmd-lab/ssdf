@@ -15,9 +15,10 @@ table inet ssdf_ingest {
         udp dport { 514, 515 } ip saddr 198.51.100.220-198.51.100.242 accept
 
         # vSRX test-fleet DATA-PLANE source range (added 2026-06-26). Stream-mode
-        # security logs egress from ge-0/0/0 (198.51.100.150-.170), NOT fxp0, so the
+        # security logs egress from ge-0/0/0 (198.51.100.150-.175), NOT fxp0, so the
         # full fleet (not just devices renumbered into .220-.242) reaches Vector.
-        udp dport { 514, 515 } ip saddr 198.51.100.150-198.51.100.170 accept
+        # .171-.175 cover the 5 isolated devices given a new vmbr0 data-plane vNIC.
+        udp dport { 514, 515 } ip saddr 198.51.100.150-198.51.100.175 accept
 
         # UniFi (M9): CEF "Threat Detected" IPS events on UDP 516. The UniFi
         # SIEM export is forwarded by the Cloud Key controller (198.51.100.30),
