@@ -160,7 +160,10 @@ class JunosCollector:
 
             # Reachable -> record as a firewall, then collect the rest best-effort.
             observations.append(firewall_inventory("junos", dev, now))
-            observations.extend(parse_lldp_neighbors(lldp_text, dev, now))
+            try:
+                observations.extend(parse_lldp_neighbors(lldp_text, dev, now))
+            except Exception:
+                logger.warning("junos %r: lldp parse failed; continuing", dev, exc_info=True)
             for cmd, parser in (
                 ("show ethernet-switching table", parse_mac_table),
                 ("show arp no-resolve", parse_arp),
