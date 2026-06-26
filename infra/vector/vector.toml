@@ -98,7 +98,7 @@ if err != null {
     _obs_short = downcase(string(_obs_parts[0]) ?? "")
     _obs_known = false
     if _obs_short == "panosvm" { _obs_known = true }
-    _om, _oe = parse_regex(_obs_short, r'^vsrx-(test\d|production)')
+    _om, _oe = parse_regex(_obs_short, r'^vsrx-(test\d|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)')
     if _oe == null { _obs_known = true }
     if !_obs_known { obs_host = "" }
 
@@ -233,7 +233,7 @@ _obs_parts = split(obs_host, ".")
 _obs_short = downcase(string(_obs_parts[0]) ?? "")
 _obs_known = false
 if _obs_short == "panosvm" { _obs_known = true }
-_om, _oe = parse_regex(_obs_short, r'^vsrx-(test\d|production)')
+_om, _oe = parse_regex(_obs_short, r'^vsrx-(test\d|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)')
 if _oe == null { _obs_known = true }
 if !_obs_known { obs_host = "" }
 ev.observer_hostname = obs_host
@@ -849,6 +849,20 @@ type = "vrl"
 source = '''
 assert_eq!(.observer_hostname, "vSRX-Production")
 assert_eq!(.rule_name, "baseline-permit(global)")
+'''
+
+[[tests]]
+name = "srx_observer_hostname_fleet_name_is_known"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-06-08T12:00:00.000Z vSRX-twin RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.observer_hostname, "vSRX-twin")
 '''
 
 [[tests]]
