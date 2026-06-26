@@ -68,3 +68,35 @@ def test_collect_emits_firewall_inventory_per_device():
     assert all(o.attrs["role"] == "firewall" for o in inv)
     assert all(o.collector == "junos" for o in inv)
     assert len(inv) == 2
+
+
+def test_collect_skips_unreachable_device_without_aborting():
+    from ssdf_topo.collectors.junos import JunosCollector
+
+    class _OneBadClient:
+        """Reachable for every device except 'vSRX-bad', which raises (unreachable)."""
+        def call_tool(self, name, args=None):
+            if (args or {}).get("router_name") == "vSRX-bad":
+                raise RuntimeError("connect failed: netconf transport error: No route to host")
+            return ""
+
+    obs = JunosCollector(["vSRX-test10", "vSRX-bad", "vSRX-test11"]).collect(_OneBadClient(), NOW)
+    inv = {o.source_device for o in obs if o.observation_type == "device_inventory"}
+    # The unreachable device is skipped entirely; the reachable ones still inventory.
+    assert inv == {"vSRX-test10", "vSRX-test11"}
+
+
+def test_collect_emits_inventory_when_secondary_command_fails():
+    from ssdf_topo.collectors.junos import JunosCollector
+
+    class _LldpOnlyClient:
+        """Device is reachable (lldp ok) but rejects the other commands."""
+        def call_tool(self, name, args=None):
+            if (args or {}).get("command") == "show lldp neighbors":
+                return ""
+            raise RuntimeError("error: command is not valid on the mx/srx in this mode")
+
+    obs = JunosCollector(["vSRX-test10"]).collect(_LldpOnlyClient(), NOW)
+    inv = [o for o in obs if o.observation_type == "device_inventory"]
+    # Reachable device is still recorded as a firewall despite the secondary failures.
+    assert len(inv) == 1 and inv[0].source_device == "vSRX-test10"
