@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import logging
 import re
 
 from ..models import Observation
 from .base import firewall_inventory, register
+
+logger = logging.getLogger(__name__)
 
 _MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", re.IGNORECASE)
 
@@ -137,25 +140,41 @@ class JunosCollector:
         self.devices = devices or []
 
     def collect(self, client, now: str) -> list[Observation]:
-        """Pull topology facts from each configured Junos device via the MCP client."""
+        """Pull topology facts from each configured Junos device via the MCP client.
+
+        Per-device resilient: a device that fails its first probe is logged and
+        skipped (no inventory node -> it ages to 'down' via stale last_seen, never
+        falsely 'up'). A reachable device is recorded as a firewall and its
+        remaining commands run best-effort so one unsupported command can't drop it.
+        """
         observations: list[Observation] = []
         for dev in self.devices:
-            lldp_text = client.call_tool(
-                "execute_junos_command",
-                {"router_name": dev, "command": "show lldp neighbors"},
-            )
-            observations.extend(parse_lldp_neighbors(lldp_text, dev, now))
+            try:
+                lldp_text = client.call_tool(
+                    "execute_junos_command",
+                    {"router_name": dev, "command": "show lldp neighbors"},
+                )
+            except Exception:
+                logger.warning("junos device %r unreachable; skipping", dev, exc_info=True)
+                continue
 
-            mac_text = client.call_tool(
-                "execute_junos_command",
-                {"router_name": dev, "command": "show ethernet-switching table"},
-            )
-            observations.extend(parse_mac_table(mac_text, dev, now))
-
-            arp_text = client.call_tool(
-                "execute_junos_command",
-                {"router_name": dev, "command": "show arp no-resolve"},
-            )
-            observations.extend(parse_arp(arp_text, dev, now))
+            # Reachable -> record as a firewall, then collect the rest best-effort.
             observations.append(firewall_inventory("junos", dev, now))
+            try:
+                observations.extend(parse_lldp_neighbors(lldp_text, dev, now))
+            except Exception:
+                logger.warning("junos %r: lldp parse failed; continuing", dev, exc_info=True)
+            for cmd, parser in (
+                ("show ethernet-switching table", parse_mac_table),
+                ("show arp no-resolve", parse_arp),
+            ):
+                try:
+                    text = client.call_tool(
+                        "execute_junos_command", {"router_name": dev, "command": cmd}
+                    )
+                    observations.extend(parser(text, dev, now))
+                except Exception:
+                    logger.warning(
+                        "junos %r: command %r failed; continuing", dev, cmd, exc_info=True
+                    )
         return observations
