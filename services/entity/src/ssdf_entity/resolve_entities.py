@@ -28,9 +28,17 @@ def normalize_segment(name: str | None) -> str:
 
 def build_binding_map(bindings: list[dict]) -> tuple[dict[tuple[str, str], str], set[tuple[str, str]]]:
     """Build {(segment, ip) -> mac} (latest observation wins) and the set of
-    (segment, ip) keys claimed by >1 MAC (genuine same-segment IP conflicts)."""
+    (segment, ip) keys claimed by >1 MAC (genuine same-segment IP conflicts).
+
+    Conflict is detected two ways: across rows sharing a (segment, ip) whose
+    per-vantage MACs disagree (``macs_seen``), and within a single row whose
+    ``mac_count`` (from the server-side argMax aggregation, issue #28) is >1 —
+    i.e. one vantage saw multiple MACs for the IP over the window and argMax
+    kept only the latest.
+    """
     latest: dict[tuple[str, str], tuple[str, str]] = {}   # key -> (observed_at, mac)
     macs_seen: dict[tuple[str, str], set[str]] = {}
+    conflicts: set[tuple[str, str]] = set()
     for binding in bindings:
         segment = normalize_segment(binding.get("source_device"))
         ip = binding.get("ip") or ""
@@ -39,12 +47,14 @@ def build_binding_map(bindings: list[dict]) -> tuple[dict[tuple[str, str], str],
             continue
         key = (segment, ip)
         macs_seen.setdefault(key, set()).add(mac)
+        if int(binding.get("mac_count") or 1) > 1:
+            conflicts.add(key)
         observed_at = binding.get("observed_at") or ""
         if key not in latest or observed_at > latest[key][0]:
             latest[key] = (observed_at, mac)
     binding_map = {key: value[1] for key, value in latest.items()}
-    conflict = {key for key, macs in macs_seen.items() if len(macs) > 1}
-    return binding_map, conflict
+    conflicts.update(key for key, macs in macs_seen.items() if len(macs) > 1)
+    return binding_map, conflicts
 
 
 

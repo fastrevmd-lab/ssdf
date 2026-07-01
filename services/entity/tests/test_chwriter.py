@@ -67,13 +67,26 @@ def test_binding_sql_reads_arp_entries_with_source_device():
     assert "observation_type = 'arp_entry'" in sql
     assert "source_device" in sql
     assert "replaceOne(subj_id, 'ip:', '') AS ip" in sql
-    assert "replaceOne(obj_id, 'mac:', '') AS mac" in sql
     assert "{lookback_hours:UInt32}" in sql
     # Must qualify the column: the toString(observed_at) alias otherwise shadows
     # the DateTime column, making the window filter a String/DateTime compare
     # (NO_COMMON_TYPE) that fails the read outright.
     assert "topo_observations.observed_at >= now() - INTERVAL {lookback_hours:UInt32} HOUR" in sql
     assert params == {"tenant": "t_main", "lookback_hours": 168}
+
+
+def test_binding_sql_aggregates_latest_mac_per_device_ip():
+    """The binding query MUST aggregate server-side (leak fix, issue #28): a raw
+    read of every arp_entry observation over the lookback window pulls ~1M rows
+    into Python and OOM-kills the resolver. GROUP BY (source_device, ip) with
+    argMax collapses it to one row per binding; uniqExact(obj_id) carries the
+    conflict signal that build_binding_map otherwise loses to argMax."""
+    sql, _ = build_binding_sql(lookback_hours=168, tenant="t_main")
+    # Ordering column is qualified so the `AS observed_at` alias can't shadow it
+    # into an illegal aggregate-inside-aggregate.
+    assert "argMax(replaceOne(obj_id, 'mac:', ''), topo_observations.observed_at) AS mac" in sql
+    assert "uniqExact(obj_id) AS mac_count" in sql
+    assert "GROUP BY source_device, subj_id" in sql
 
 
 

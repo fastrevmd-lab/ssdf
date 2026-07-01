@@ -57,25 +57,38 @@ def build_flow_agg_sql(window_hours: int, tenant: str) -> tuple[str, dict]:
 
 
 def build_binding_sql(lookback_hours: int, tenant: str) -> tuple[str, dict]:
-    """Read M4 arp_entry observations as (source_device, ip, mac, observed_at).
+    """Read M4 arp_entry bindings aggregated to one row per (source_device, ip).
 
     Reads topo_observations (which retains source_device, unlike the flattened
     graph_nodes) over a lookback window so a transient single-pass binding drop
     does not orphan a host. subj_id is 'ip:<ip>', obj_id is 'mac:<mac>'.
+
+    Aggregates server-side (issue #28 leak fix): a raw read of every arp_entry
+    observation over the window returns ~1M rows (topo polls every 5 min ×
+    ARP-table size × the 168h default), which `build_binding_map` then collapses
+    to latest-MAC-per-key anyway — but only after materialising all of them as
+    Python dicts, OOM-killing the resolver. `argMax(mac, observed_at)` does the
+    latest-wins collapse in ClickHouse; `uniqExact(obj_id) AS mac_count` carries
+    the multi-MAC conflict signal that argMax would otherwise hide (an intra-
+    device IP that saw >1 MAC now arrives as one row with mac_count>1).
     """
-    # `topo_observations.observed_at` is qualified per the toString-alias trap:
-    # the `toString(observed_at) AS observed_at` SELECT alias shadows the real
-    # DateTime column, so an unqualified `observed_at >= now() - INTERVAL ...`
-    # compares String to DateTime (NO_COMMON_TYPE) and the read fails outright.
+    # Every `observed_at` is qualified `topo_observations.observed_at` per the
+    # toString-alias trap: the `AS observed_at` SELECT alias otherwise shadows
+    # the real DateTime column, so (a) the argMax ordering column resolves to the
+    # alias `max(observed_at)` -> "aggregate inside aggregate" (ILLEGAL_AGGREGATION),
+    # and (b) the window filter compares String to DateTime (NO_COMMON_TYPE). Both
+    # fail the read outright.
     sql = (
         "SELECT source_device, "
         "replaceOne(subj_id, 'ip:', '') AS ip, "
-        "replaceOne(obj_id, 'mac:', '') AS mac, "
-        "toString(observed_at) AS observed_at "
+        "argMax(replaceOne(obj_id, 'mac:', ''), topo_observations.observed_at) AS mac, "
+        "toString(max(topo_observations.observed_at)) AS observed_at, "
+        "uniqExact(obj_id) AS mac_count "
         "FROM ssdf.topo_observations "
         "WHERE tenant_id = {tenant:String} "
         "AND observation_type = 'arp_entry' "
-        "AND topo_observations.observed_at >= now() - INTERVAL {lookback_hours:UInt32} HOUR"
+        "AND topo_observations.observed_at >= now() - INTERVAL {lookback_hours:UInt32} HOUR "
+        "GROUP BY source_device, subj_id"
     )
     return sql, {"tenant": tenant, "lookback_hours": lookback_hours}
 

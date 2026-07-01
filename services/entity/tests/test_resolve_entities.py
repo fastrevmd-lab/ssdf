@@ -60,6 +60,17 @@ def test_build_binding_map_skips_missing_ip_or_mac():
     assert conflict == set()
 
 
+def test_build_binding_map_flags_conflict_from_mac_count():
+    """With the server-side aggregation (issue #28 leak fix), an intra-device
+    IP that saw multiple MACs over the window arrives as ONE argMax row with
+    mac_count>1 — the conflict must still be flagged even though only the
+    latest MAC survives in the row."""
+    rows = [dict(_binding("10.64.0.5", "cc:cc:cc:cc:cc:cc", "fwA"), mac_count=2)]
+    binding_map, conflict = build_binding_map(rows)
+    assert binding_map[("fwa", "10.64.0.5")] == "cc:cc:cc:cc:cc:cc"
+    assert conflict == {("fwa", "10.64.0.5")}
+
+
 # --- resolve_entities (segment-scoped) ---
 
 def test_ip_only_endpoints_become_segment_scoped_assets():
