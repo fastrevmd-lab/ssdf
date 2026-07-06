@@ -11,8 +11,8 @@ table inet ssdf_ingest {
     chain input {
         type filter hook input priority filter; policy accept;
 
-        # Allowed syslog senders: vSRX test fleet + panosvm (198.51.100.220-.242).
-        udp dport { 514, 515 } ip saddr 198.51.100.220-198.51.100.242 accept
+        # Allowed syslog senders: full vSRX fleet + panosvm (198.51.100.219-.245).
+        udp dport { 514, 515 } ip saddr 198.51.100.219-198.51.100.245 accept
 
         # vSRX test-fleet DATA-PLANE source range (added 2026-06-26). Stream-mode
         # security logs egress from ge-0/0/0 (198.51.100.150-.175), NOT fxp0, so the
