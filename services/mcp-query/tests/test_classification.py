@@ -21,6 +21,7 @@ EXPECTED = {
     "explain_access": {"security_log", "topology", "identity", "firewall_config"},
     "configured_policies": {"firewall_config"},
     "observed_by": {"security_log"},
+    "ingest_status": {"security_log"},
     "metric_timeseries": {"metrics"},
     "top_series": {"metrics"},
     "entity_metric_timeseries": {"metrics"},

@@ -23,3 +23,8 @@ packages = ["src/ssdf_mcp_query"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["integration: requires a live ClickHouse (deselect with -m 'not integration')"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
