@@ -1,16 +1,16 @@
 # SRX lab transit traffic (labgen endpoint)
 
-Keeps vSRX-Production's session table non-empty so SRX RT_FLOW parsing and the
-M6c-B provenance bridge (`vSRX-Production` exact-match) stay continuously
+Keeps vsrx-prod's session table non-empty so SRX RT_FLOW parsing and the
+M6c-B provenance bridge (`vsrx-prod` exact-match) stay continuously
 live-proven. SRX logs **transit only** (never host-originated) — a behind-the-firewall
 endpoint is required to generate flows.
 
 ## Topology (as built, Phase 2 2026-06-15)
 
-vSRX-Production is VMID 103 on pve3 (vSRX 3.0 NIC order: net0→fxp0, net1→ge-0/0/0, …,
+vsrx-prod is VMID 103 on pve3 (vSRX 3.0 NIC order: net0→fxp0, net1→ge-0/0/0, …,
 net4→ge-0/0/3).
 
-| vSRX-Production (VMID 103) | zone | address | Proxmox NIC |
+| vsrx-prod (VMID 103) | zone | address | Proxmox NIC |
 |---|---|---|---|
 | ge-0/0/0.0 | untrust | 198.51.100.240/24 | net1 → vmbr0 (LAN) |
 | ge-0/0/3.0 | trust | 10.74.12.1/24 | net4 → vmbr1 **tag=198** |
@@ -91,14 +91,14 @@ Notes:
 # RT_FLOW rows arriving + denies present (container-local on ct104):
 pct exec 104 -- clickhouse-client --query "
   SELECT event_action, observer_hostname, count() FROM ssdf.events
-  WHERE event_provider='juniper' AND observer_hostname='vSRX-Production'
+  WHERE event_provider='juniper' AND observer_hostname='vsrx-prod'
     AND timestamp > now() - INTERVAL 1 HOUR
   GROUP BY event_action, observer_hostname"
-# expect permit + deny rows, observer_hostname='vSRX-Production'
+# expect permit + deny rows, observer_hostname='vsrx-prod'
 ```
 
-`observer_hostname=vSRX-Production` requires the H2 device gate in
+`observer_hostname=vsrx-prod` requires the H2 device gate in
 `infra/vector/vector.toml` to accept it — the gate regex is
 `^vsrx-(test\d|production)` (broadened from test-fleet-only in Phase 2). The stored
 value keeps original case so the `explain_access` provenance bridge matches the
-`device:vSRX-Production` Firewall entity exactly.
+`device:vsrx-prod` Firewall entity exactly.

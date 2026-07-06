@@ -7,6 +7,7 @@ dependencies = [
     "clickhouse-connect>=0.8",
     "jsonschema[format-nongpl]>=4.21",
     "pyyaml>=6.0",
+    "ssdf-common",
 ]
 
 [project.optional-dependencies]
@@ -23,3 +24,6 @@ packages = ["src/ssdf_evals"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = ["integration: requires live ClickHouse (deselect with -m 'not integration')"]
+
+[tool.uv.sources]
+ssdf-common = { path = "../common", editable = true }

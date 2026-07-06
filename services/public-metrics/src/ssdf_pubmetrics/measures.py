@@ -13,6 +13,10 @@ DENY_ACTIONS = ["deny", "drop", "block", "reject"]
 # Per-entity series are keyed by the source IP (mapped to a 'host' surrogate).
 INDEX_METRICS: set[str] = {"deny_rate_index", "ips_volume_index"}
 
+# Volume measures that must be scoped to flow events only (event_action LIKE 'flow_%').
+# Prevents skew from non-flow events (juniper system/auth/config, screen alerts, etc.).
+VOLUME_METRICS: set[str] = {"bytes", "flows", "connections"}
+
 AGG_VALUE_EXPR: dict[str, str] = {
     # network_bytes is Nullable in ssdf.events (detection/audit sources carry no
     # bytes); ifNull keeps sum() from returning NULL for an all-NULL group, which
@@ -68,11 +72,19 @@ def ratio_to_baseline(current_rate: float, baseline_rate: float) -> float:
 
 def build_aggregate_sql(metric: str, since_iso: str, bucket_secs: int,
                         tenant: str) -> tuple[str, dict]:
+    """Build aggregate time-series SQL for a metric.
+
+    Volume metrics (bytes/flows/connections) are scoped to flow events only via
+    event_action LIKE 'flow_%' to exclude non-flow events (juniper system/auth/config,
+    screen alerts) that would otherwise skew the counts.
+    """
     expr = AGG_VALUE_EXPR[metric]
+    flow_filter = "AND event_action LIKE 'flow_%' " if metric in VOLUME_METRICS else ""
     sql = (
         f"SELECT toStartOfInterval(timestamp, INTERVAL {int(bucket_secs)} SECOND) "
         f"AS bucket_start, toFloat64({expr}) AS value FROM ssdf.events "
         "WHERE tenant_id = {tenant:String} "
+        f"{flow_filter}"
         "AND timestamp >= parseDateTimeBestEffort({since:String}) "
         "GROUP BY bucket_start ORDER BY bucket_start"
     )
@@ -81,12 +93,19 @@ def build_aggregate_sql(metric: str, since_iso: str, bucket_secs: int,
 
 def build_entity_bucket_sql(metric: str, since_iso: str, bucket_secs: int,
                             tenant: str) -> tuple[str, dict]:
+    """Build per-entity bucket SQL for a metric.
+
+    Volume metrics (bytes/flows/connections) are scoped to flow events only via
+    event_action LIKE 'flow_%' to exclude non-flow events that would skew counts.
+    """
     expr = AGG_VALUE_EXPR[metric]
+    flow_filter = "AND event_action LIKE 'flow_%' " if metric in VOLUME_METRICS else ""
     sql = (
         f"SELECT toStartOfInterval(timestamp, INTERVAL {int(bucket_secs)} SECOND) "
         f"AS bucket_start, toString(source_ip) AS ip, toFloat64({expr}) AS value "
         "FROM ssdf.events "
         "WHERE tenant_id = {tenant:String} AND source_ip IS NOT NULL "
+        f"{flow_filter}"
         "AND timestamp >= parseDateTimeBestEffort({since:String}) "
         "GROUP BY bucket_start, ip ORDER BY bucket_start"
     )
@@ -94,11 +113,17 @@ def build_entity_bucket_sql(metric: str, since_iso: str, bucket_secs: int,
 
 
 def build_deny_counts_sql(since_iso: str, tenant: str) -> tuple[str, dict]:
+    """Count deny actions over total flow events (both scoped to flows).
+
+    Scopes both numerator (deny actions) and denominator (total) to flow events
+    (event_action LIKE 'flow_%') so non-flow events don't dilute the deny rate.
+    """
     sql = (
         "SELECT toFloat64(countIf(event_action IN {deny:Array(String)})) AS deny, "
         "toFloat64(count()) AS total FROM ssdf.events "
         "WHERE tenant_id = {tenant:String} "
         "AND event_provider IN ('paloalto', 'juniper') "
+        "AND event_action LIKE 'flow_%' "
         "AND timestamp >= parseDateTimeBestEffort({since:String})"
     )
     return sql, {"tenant": tenant, "since": since_iso, "deny": DENY_ACTIONS}

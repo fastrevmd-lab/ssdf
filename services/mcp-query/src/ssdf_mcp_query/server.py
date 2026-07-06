@@ -23,6 +23,7 @@ from .graphstore import ClickHouseGraphStore
 from .topo_tools import TopoTools
 from .entitystore import ClickHouseEntityStore
 from .access_tools import AccessTools
+from .liveness_tools import LivenessTools
 from .metrics_store import MetricsStore
 from .metric_tools import MetricTools
 
@@ -40,9 +41,11 @@ def build_app(tier: str = "sovereign") -> FastMCP:
     # L5: the entity store/access tools are sovereign-only (hard-coded ssdf.*
     # reads, never exposed publicly) — don't even construct them on public.
     access = None
+    liveness = None
     if tier != "public":
         entity_store = ClickHouseEntityStore(client, tenant="t_main")
         access = AccessTools(entity_store, topo)
+        liveness = LivenessTools(graph_store, entity_store)
 
     metrics_store = MetricsStore(client, tenant="t_main")
     metrics = MetricTools(metrics_store)
@@ -146,6 +149,14 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         for "which firewall sees/observes traffic from X", NOT locate (which is L2 attach)."""
         return access.observed_by(identifier, since_hours=since_hours)
 
+    def ingest_status(staleness_hours: int | None = None) -> dict:
+        """Per-firewall ingest liveness: which devices are logging, how stale.
+        Use for "are all firewalls still logging" or "which stopped sending" questions.
+        Combines topology firewalls + recent observer_hostname to catch devices that
+        stopped entirely. Returns {firewalls:[{name, provider, last_event, hours_since,
+        stale}], summary:{total, stale, fresh}}. staleness_hours default 2."""
+        return liveness.ingest_status(staleness_hours=staleness_hours)
+
     def metric_timeseries(metric: str, since: str | None = None,
                           until: str | None = None) -> dict:
         """De-identified AGGREGATE time series for one metric (no per-entity detail).
@@ -196,6 +207,8 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         raw_tools["configured_policies"] = configured_policies
         raw_tools["observed_by"] = observed_by
         raw_tools["reidentify"] = reidentify
+    if liveness is not None:  # sovereign-only: ingest liveness
+        raw_tools["ingest_status"] = ingest_status
     if tier == "public":
         selected = public_tool_names(classification, list(raw_tools))
         if not selected:

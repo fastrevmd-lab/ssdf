@@ -1,5 +1,5 @@
 from ssdf_pubmetrics.measures import (
-    CATALOG, INDEX_METRICS, enabled_measures, ratio_to_baseline,
+    CATALOG, INDEX_METRICS, VOLUME_METRICS, enabled_measures, ratio_to_baseline,
     build_aggregate_sql, build_entity_bucket_sql, build_deny_counts_sql,
     build_alert_count_sql, AGG_VALUE_EXPR,
 )
@@ -51,3 +51,24 @@ def test_alert_count_sql_filters_unifi_alert():
     sql, params = build_alert_count_sql("2026-06-19T00:00:00+00:00", "t_main")
     assert "event_provider = 'unifi'" in sql
     assert "event_kind = 'alert'" in sql
+
+
+def test_volume_metrics_set():
+    assert VOLUME_METRICS == {"bytes", "flows", "connections"}
+
+
+def test_aggregate_sql_volume_metrics_scoped_to_flows():
+    for metric in VOLUME_METRICS:
+        sql, params = build_aggregate_sql(metric, "2026-07-05T00:00:00+00:00", 300, "t_main")
+        assert "event_action LIKE 'flow_%'" in sql
+
+
+def test_entity_bucket_sql_volume_metrics_scoped_to_flows():
+    for metric in VOLUME_METRICS:
+        sql, params = build_entity_bucket_sql(metric, "2026-07-05T00:00:00+00:00", 300, "t_main")
+        assert "event_action LIKE 'flow_%'" in sql
+
+
+def test_deny_counts_sql_scoped_to_flows():
+    sql, params = build_deny_counts_sql("2026-07-05T00:00:00+00:00", "t_main")
+    assert "event_action LIKE 'flow_%'" in sql

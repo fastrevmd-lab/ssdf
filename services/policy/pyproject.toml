@@ -7,6 +7,7 @@ dependencies = [
     "clickhouse-connect>=0.8",
     "defusedxml>=0.7",
     "fastmcp>=2.0",
+    "ssdf-common",
 ]
 
 [project.optional-dependencies]
@@ -28,3 +29,6 @@ markers = ["integration: requires live ClickHouse + MCPs (deselect with -m 'not 
 dev = [
     "pytest>=9.0.3",
 ]
+
+[tool.uv.sources]
+ssdf-common = { path = "../common", editable = true }

@@ -11,9 +11,8 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-
-class ConfigError(RuntimeError):
-    """Raised when required configuration is missing."""
+from ssdf_common.config import ConfigError
+from ssdf_common.clickhouse import client_kwargs as _shared_client_kwargs
 
 
 @dataclass(frozen=True)
@@ -56,14 +55,13 @@ def client_kwargs(config: Config, *, username: str | None = None,
     Pass username/password to connect as a different identity
     (ssdf_audit_verify for the audit read path).
     """
-    kwargs: dict[str, Any] = dict(
-        host=config.ch_host, port=config.ch_port,
-        username=username or config.ch_user,
+    # Delegate to the shared client_kwargs; override user/password if given
+    return _shared_client_kwargs(
+        host=config.ch_host,
+        port=config.ch_port,
+        user=username or config.ch_user,
         password=config.ch_password if password is None else password,
         database=config.ch_database,
+        secure=config.ch_secure,
+        ca_file=config.ch_ca_file,
     )
-    if config.ch_secure:
-        kwargs["interface"] = "https"
-        if config.ch_ca_file:
-            kwargs["ca_cert"] = config.ch_ca_file
-    return kwargs

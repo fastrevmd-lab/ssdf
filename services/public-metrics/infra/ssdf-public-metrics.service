@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 DynamicUser=yes
+RuntimeMaxSec=600
 EnvironmentFile=/etc/ssdf-public-metrics/ENV.local
 LoadCredential=pseudonym_key:/etc/ssdf-public-metrics/pseudonym.key
 Environment=PUBLIC_PSEUDONYM_KEY_FILE=%d/pseudonym_key

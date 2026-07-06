@@ -5,6 +5,7 @@ description = "SSDF M6 entity/correlation resolver (Asset + observed Policy from
 requires-python = ">=3.11"
 dependencies = [
     "clickhouse-connect>=0.8",
+    "ssdf-common",
 ]
 
 [project.optional-dependencies]
@@ -21,3 +22,6 @@ packages = ["src/ssdf_entity"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = ["integration: requires live ClickHouse (deselect with -m 'not integration')"]
+
+[tool.uv.sources]
+ssdf-common = { path = "../common", editable = true }

@@ -33,6 +33,15 @@ mode = "udp"
 address = "0.0.0.0:517"
 max_length = 102400
 
+# Junos SYSTEM syslog (M14c P3) — vSRX fleet forwards auth + config commits
+# via device system syslog host config on a separate UDP port. RFC5424 framing
+# with structured-data (junos@2636... key="value" params), parsed via parse_syslog.
+[sources.junos_sys_syslog]
+type = "socket"
+mode = "udp"
+address = "0.0.0.0:518"
+max_length = 102400
+
 [transforms.srx_ecs]
 type = "remap"
 inputs = ["srx_syslog"]
@@ -60,6 +69,8 @@ if err != null {
     action = downcase(string(parsed.msgid) ?? "")
     event_action = "unknown"
     event_outcome = "unknown"
+    event_kind = "event"
+    event_category = ["network"]
     if action == "rt_flow_session_create" {
         event_action = "flow_session_create"
         event_outcome = "success"
@@ -69,6 +80,26 @@ if err != null {
     } else if action == "rt_flow_session_deny" {
         event_action = "flow_session_deny"
         event_outcome = "failure"
+    } else if starts_with(action, "rt_screen") {
+        # RT_SCREEN typed branch: normalize attack-name to screen_<normalized>
+        attack = string(fields."attack-name") ?? ""
+        normalized = downcase(attack)
+        normalized = replace(normalized, r'[^a-z0-9]+', "_")
+        normalized = replace(normalized, r'^_+|_+$', "")
+        if normalized != "" {
+            event_action = "screen_" + normalized
+        } else {
+            event_action = "screen"
+        }
+        event_kind = "alert"
+        event_category = ["network","intrusion_detection"]
+        event_outcome = "failure"
+    }
+
+    # Generic RT_* fallback: any rt_<msgid> not matched above
+    if starts_with(action, "rt_") && event_action == "unknown" {
+        event_action = action
+        event_outcome = "unknown"
     }
 
     proto_id = to_int(fields."protocol-id")
@@ -98,7 +129,8 @@ if err != null {
     _obs_short = downcase(string(_obs_parts[0]) ?? "")
     _obs_known = false
     if _obs_short == "panosvm" { _obs_known = true }
-    _om, _oe = parse_regex(_obs_short, r'^vsrx-(test\d|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)')
+    # Dual-accept during fleet role-rename: NEW role names + legacy test-fleet names + current on-box names (mnha-router literal; vSRX-ISP-A/B -> isp-a/b after downcase). Prune legacy alternates after the rename settles.
+    _om, _oe = parse_regex(_obs_short, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2])|test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)$|^mnha-router$')
     if _oe == null { _obs_known = true }
     if !_obs_known { obs_host = "" }
 
@@ -106,8 +138,8 @@ if err != null {
         "timestamp": parsed.timestamp,
         "event_id": uuid_v4(),
         "tenant_id": "t_main",
-        "event_kind": "event",
-        "event_category": ["network"],
+        "event_kind": event_kind,
+        "event_category": event_category,
         "event_action": event_action,
         "event_outcome": event_outcome,
         "event_provider": "juniper",
@@ -233,7 +265,8 @@ _obs_parts = split(obs_host, ".")
 _obs_short = downcase(string(_obs_parts[0]) ?? "")
 _obs_known = false
 if _obs_short == "panosvm" { _obs_known = true }
-_om, _oe = parse_regex(_obs_short, r'^vsrx-(test\d|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)')
+# Dual-accept during fleet role-rename: NEW role names + legacy test-fleet names + current on-box names (mnha-router literal; vSRX-ISP-A/B -> isp-a/b after downcase). Prune legacy alternates after the rename settles.
+_om, _oe = parse_regex(_obs_short, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2])|test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)$|^mnha-router$')
 if _oe == null { _obs_known = true }
 if !_obs_known { obs_host = "" }
 ev.observer_hostname = obs_host
@@ -349,9 +382,18 @@ if log_type == "TRAFFIC" {
         if resultv != "" { ext = set!(ext, ["panw.panos.result"], resultv) }
     }
 } else {
-    # Unknown / short / malformed: nothing typed, keep everything in raw + ext.
-    ev.event_action = "unknown"
-    if log_type != "" { ext = set!(ext, ["panw.panos.type"], log_type) }
+    # Generic typed fallback for any forwarded log type not in {TRAFFIC, THREAT, SYSTEM, CONFIG}
+    if log_type != "" {
+        ext = set!(ext, ["panw.panos.type"], log_type)
+        if subtype != "" {
+            ev.event_action = downcase(log_type) + "_" + downcase(subtype)
+        } else {
+            ev.event_action = downcase(log_type)
+        }
+    } else {
+        # Malformed / short: no log_type at all
+        ev.event_action = "unknown"
+    }
 }
 
 ev.ext = ext
@@ -691,6 +733,205 @@ if perr != null {
 }
 '''
 
+# Filter Junos SYSTEM syslog lines: keep auth/config audit msgids only. Parse
+# errors become event_action="parse_error" rows (M11 pattern); everything else
+# is DROPPED (esp. UI_COMMIT_PROGRESS firehose + UI_NETCONF_CMD/UI_CMDLINE_READ_LINE
+# collector noise). Mirrors M11 proxmox_sec filter structure.
+[transforms.junos_sys_sec]
+type = "filter"
+inputs = ["junos_sys_syslog"]
+condition.type = "vrl"
+condition.source = '''
+result = false
+parsed, err = parse_syslog(string(.message) ?? "")
+if err == null {
+    msg_id = string(parsed.msgid) ?? ""
+    app = downcase(string(parsed.appname) ?? "")
+    msg = string(parsed.message) ?? ""
+    # Keep msgid-tagged audit events (commits, rollbacks, config changes, logins)
+    is_config_audit = msg_id == "UI_COMMIT" || msg_id == "UI_COMMIT_COMPLETED" ||
+        msg_id == "UI_COMMIT_NOT_CONFIRMED" || msg_id == "UI_ROLLBACK_EVENT" ||
+        msg_id == "UI_CFG_AUDIT_SET" || msg_id == "UI_CFG_AUDIT_OTHER"
+    is_auth_audit = msg_id == "UI_LOGIN_EVENT" || msg_id == "UI_LOGOUT_EVENT" ||
+        msg_id == "UI_AUTH_EVENT" || msg_id == "SSHD_LOGIN_FAILED" ||
+        msg_id == "SSHD_LOGIN_ATTEMPTS_THRESHOLD" ||
+        msg_id == "LOGIN_FAILED" || msg_id == "LOGIN_INFORMATION"
+    # sshd "Accepted" freeform lines (structured success msgid not guaranteed)
+    is_sshd_accepted = starts_with(app, "sshd") && starts_with(msg, "Accepted ")
+    result = is_config_audit || is_auth_audit || is_sshd_accepted
+}
+result
+'''
+
+# Parse Junos SYSTEM syslog lines -> ECS subset. event_provider="juniper".
+# observer_hostname goes through the SAME dual-accept gate as srx_ecs (these
+# ARE firewalls; the provenance field is correct). Structured-data params are
+# exposed by parse_syslog — check for SD extraction (mirroring srx_ecs pattern).
+[transforms.junos_sys_ecs]
+type = "remap"
+inputs = ["junos_sys_sec"]
+source = '''
+raw = string(.message) ?? ""
+parsed, perr = parse_syslog(raw)
+
+ev = {}
+ev.event_id = uuid_v4()
+ev.tenant_id = "t_main"
+ev.event_provider = "juniper"
+ev.event_kind = "event"
+ev.event_category = ["host"]
+ev.event_action = "unknown"
+ev.event_outcome = "unknown"
+ev.observer_hostname = ""
+ev.user_name = ""
+ev.raw = raw
+
+ext = {}
+
+if perr != null {
+    ev.timestamp = now()
+    ev.event_action = "parse_error"
+    ev.ext = ext
+    . = ev
+} else {
+    ts = parsed.timestamp
+    if ts != null { ev.timestamp = ts } else { ev.timestamp = now() }
+
+    msg_id = string(parsed.msgid) ?? ""
+    app = downcase(string(parsed.appname) ?? "")
+    msg = string(parsed.message) ?? ""
+    ext = set!(ext, ["junos.sys.appname"], app)
+    if msg_id != "" && msg_id != "-" { ext = set!(ext, ["junos.sys.msgid"], msg_id) }
+
+    # observer_hostname gate: normalize syslog HOSTNAME to first DNS label,
+    # downcase for membership test only, keep original case for stored value.
+    # Dual-accept gate copied from srx_ecs (vSRX fleet + panosvm).
+    obs_host = string(parsed.hostname) ?? ""
+    _obs_parts = split(obs_host, ".")
+    _obs_short = string(_obs_parts[0]) ?? ""
+    _obs_short_lower = downcase(_obs_short)
+    _obs_known = false
+    if _obs_short_lower == "panosvm" { _obs_known = true }
+    # Dual-accept during fleet role-rename: NEW role names + legacy test-fleet names
+    _om, _oe = parse_regex(_obs_short_lower, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2])|test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)$|^mnha-router$')
+    if _oe == null { _obs_known = true }
+    if _obs_known { ev.observer_hostname = _obs_short } else { ev.observer_hostname = "" }
+
+    # Branch on msgid/message (SD-ID-agnostic param extraction via raw regex)
+    if msg_id == "SSHD_LOGIN_FAILED" {
+        ev.event_category = ["authentication"]
+        ev.event_action = "auth_failure"
+        ev.event_outcome = "failure"
+        # Extract username from SD params (SD-ID-agnostic: match username="..." anywhere in raw)
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+        # Extract source-address from SD params
+        sam, same = parse_regex(raw, r'source-address="(?P<ip>[^"]*)"')
+        if same == null { ev.source_ip = string(sam.ip) ?? "" }
+    } else if msg_id == "SSHD_LOGIN_ATTEMPTS_THRESHOLD" {
+        ev.event_category = ["authentication"]
+        ev.event_action = "auth_attempts_threshold"
+        ev.event_outcome = "failure"
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+        lm, lme = parse_regex(raw, r'limit="(?P<lim>[^"]*)"')
+        if lme == null {
+            limit = string(lm.lim) ?? ""
+            if limit != "" { ext = set!(ext, ["junos.sys.limit"], limit) }
+        }
+    } else if starts_with(app, "sshd") && starts_with(msg, "Accepted ") {
+        # "Accepted publickey for admin from 198.51.100.148 port 50000 ssh2"
+        am, amerr = parse_regex(msg, r'Accepted \S+ for (?P<user>\S+) from (?P<ip>\S+) port (?P<port>\d+)')
+        if amerr == null {
+            ev.event_category = ["authentication"]
+            ev.event_action = "auth_success"
+            ev.event_outcome = "success"
+            ev.user_name = string(am.user) ?? ""
+            ev.source_ip = string(am.ip) ?? ""
+            ev.source_port = to_int(am.port) ?? null
+        }
+    } else if msg_id == "UI_LOGIN_EVENT" {
+        ev.event_category = ["authentication"]
+        ev.event_action = "auth_login"
+        ev.event_outcome = "success"
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+    } else if msg_id == "UI_LOGOUT_EVENT" {
+        ev.event_category = ["authentication"]
+        ev.event_action = "auth_logout"
+        ev.event_outcome = "success"
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+    } else if msg_id == "UI_AUTH_EVENT" {
+        ev.event_category = ["authentication"]
+        ev.event_action = "auth_event"
+        ev.event_outcome = "success"
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+    } else if msg_id == "UI_COMMIT" {
+        ev.event_category = ["configuration"]
+        ev.event_action = "configuration_commit"
+        ev.event_outcome = "success"
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+        mm, mme = parse_regex(raw, r'message="(?P<msg>[^"]*)"')
+        if mme == null {
+            commit_msg = string(mm.msg) ?? ""
+            if commit_msg != "" { ext = set!(ext, ["junos.sys.commit_message"], commit_msg) }
+        }
+        cm, cme = parse_regex(raw, r'command="(?P<cmd>[^"]*)"')
+        if cme == null {
+            cmd = string(cm.cmd) ?? ""
+            if cmd != "" { ext = set!(ext, ["junos.sys.command"], cmd) }
+        }
+    } else if msg_id == "UI_COMMIT_COMPLETED" {
+        ev.event_category = ["configuration"]
+        ev.event_action = "configuration_commit_completed"
+        ev.event_outcome = "success"
+    } else if msg_id == "UI_COMMIT_NOT_CONFIRMED" {
+        ev.event_category = ["configuration"]
+        ev.event_action = "configuration_commit_rollback"
+        ev.event_outcome = "failure"
+    } else if msg_id == "UI_ROLLBACK_EVENT" {
+        ev.event_category = ["configuration"]
+        ev.event_action = "configuration_rollback"
+        ev.event_outcome = "success"
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+    } else if msg_id == "UI_CFG_AUDIT_SET" {
+        ev.event_category = ["configuration"]
+        ev.event_action = "configuration_change"
+        ev.event_outcome = "success"
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+        pm, pme = parse_regex(raw, r'pathname="(?P<path>[^"]*)"')
+        if pme == null {
+            pathname = string(pm.path) ?? ""
+            if pathname != "" { ext = set!(ext, ["junos.sys.pathname"], pathname) }
+        }
+        dm, dme = parse_regex(raw, r'data="(?P<dat>[^"]*)"')
+        if dme == null {
+            data_val = string(dm.dat) ?? ""
+            if data_val != "" { ext = set!(ext, ["junos.sys.data"], data_val) }
+        }
+        am, ame = parse_regex(raw, r'action="(?P<act>[^"]*)"')
+        if ame == null {
+            action = string(am.act) ?? ""
+            if action != "" { ext = set!(ext, ["junos.sys.action"], action) }
+        }
+    } else if msg_id == "UI_CFG_AUDIT_OTHER" {
+        ev.event_category = ["configuration"]
+        ev.event_action = "configuration_change"
+        ev.event_outcome = "success"
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+    }
+
+    ev.ext = ext
+    . = ev
+}
+'''
+
 # L1 (CH TLS): the endpoint is env-overridable so the live host can flip to
 # https without a config fork — set CH_PROTO=https + CH_HTTP_PORT=8443 in the
 # Vector env drop-in. With only CH_HOST set (the historical env), this resolves
@@ -707,7 +948,7 @@ if perr != null {
 #   ca_file = "/etc/vector/ssdf-ca.crt"
 [sinks.clickhouse]
 type = "clickhouse"
-inputs = ["srx_ecs", "panos_ecs", "unifi_ips", "proxmox_ecs"]
+inputs = ["srx_ecs", "panos_ecs", "unifi_ips", "proxmox_ecs", "junos_sys_ecs"]
 endpoint = "${CH_PROTO:-http}://${CH_HOST}:${CH_HTTP_PORT:-8123}"
 database = "ssdf"
 table = "events"
@@ -852,6 +1093,48 @@ assert_eq!(.rule_name, "baseline-permit(global)")
 '''
 
 [[tests]]
+name = "srx_observer_hostname_mnha_router_accepted"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-06-08T12:00:00.000Z mnha-router RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.observer_hostname, "mnha-router")
+'''
+
+[[tests]]
+name = "srx_observer_hostname_isp_a_accepted"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-06-08T12:00:00.000Z vSRX-ISP-A RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.observer_hostname, "vSRX-ISP-A")
+'''
+
+[[tests]]
+name = "srx_observer_hostname_new_role_name_accepted"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-06-08T12:00:00.000Z vsrx-br05 RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.observer_hostname, "vsrx-br05")
+'''
+
+[[tests]]
 name = "srx_observer_hostname_fleet_name_is_known"
 [[tests.inputs]]
 insert_at = "srx_ecs"
@@ -863,6 +1146,20 @@ extract_from = "srx_ecs"
 type = "vrl"
 source = '''
 assert_eq!(.observer_hostname, "vSRX-twin")
+'''
+
+[[tests]]
+name = "srx_observer_hostname_prefix_spoof_blanked"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-06-08T12:00:00.000Z vsrx-cifake RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.observer_hostname, "")
 '''
 
 [[tests]]
@@ -1393,3 +1690,178 @@ no_outputs_from = ["proxmox_sec"]
 insert_at = "proxmox_sec"
 type = "raw"
 value = "<85>1 2026-06-14T20:09:00.000000+00:00 pve3 sshd-session 1353695 - -  pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=198.51.100.100"
+
+# ---------------- Junos SYSTEM syslog (M14c P3) unit tests ----------------
+
+[[tests]]
+name = "junos_sys_sshd_login_failed"
+[[tests.inputs]]
+insert_at = "junos_sys_ecs"
+type = "raw"
+value = "<37>1 2026-07-06T03:50:42.589Z vsrx-ci sshd - SSHD_LOGIN_FAILED [junos@2636.1.1.1.2.129 username=\"baduser\" source-address=\"198.51.100.148\"] Login failed for user 'baduser' from host '198.51.100.148'"
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "auth_failure")
+assert_eq!(.user_name, "baduser")
+assert_eq!(.source_ip, "198.51.100.148")
+assert_eq!(.observer_hostname, "vsrx-ci")
+assert_eq!(.event_category, ["authentication"])
+assert_eq!(.event_outcome, "failure")
+'''
+
+[[tests]]
+name = "junos_sys_ui_commit"
+[[tests.inputs]]
+insert_at = "junos_sys_ecs"
+type = "raw"
+value = "<189>1 2026-07-06T03:52:49.972Z vsrx-ci mgd 97400 UI_COMMIT [junos@2636.1.1.1.2.129 username=\"netconf\" command=\"commit\" message=\"m14c canary commit C (capture UI_COMMIT lines)\"] User 'netconf' requested 'commit' operation (comment: m14c canary commit C (capture UI_COMMIT lines))"
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "configuration_commit")
+assert_eq!(.user_name, "netconf")
+assert_eq!(.observer_hostname, "vsrx-ci")
+assert_eq!(.event_category, ["configuration"])
+assert_eq!(.ext."junos.sys.commit_message", "m14c canary commit C (capture UI_COMMIT lines)")
+'''
+
+[[tests]]
+name = "junos_sys_ui_cfg_audit_set"
+[[tests.inputs]]
+insert_at = "junos_sys_ecs"
+type = "raw"
+value = "<182>1 2026-07-06T03:52:49.931Z vsrx-ci mgd 97400 UI_CFG_AUDIT_SET [junos@2636.1.1.1.2.129 username=\"netconf\" action=\"set\" pathname=\"[system login message\\]\" delimiter=\"\\\"\" data=\"m14c commit capture\" value=\"m14c commit capture\"] User 'netconf' set: [system login message] \"m14c commit capture -- \"m14c commit capture\""
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "configuration_change")
+assert_eq!(.user_name, "netconf")
+assert_eq!(.event_category, ["configuration"])
+'''
+
+[[tests]]
+name = "junos_sys_sshd_failed_password_dropped"
+no_outputs_from = ["junos_sys_sec"]
+[[tests.inputs]]
+insert_at = "junos_sys_sec"
+type = "raw"
+value = '<38>1 2026-07-06T03:50:42.590Z vsrx-ci sshd 4139 - - Failed password for baduser from 198.51.100.148 port 59308 ssh2'
+
+[[tests]]
+name = "junos_sys_ui_commit_progress_dropped"
+no_outputs_from = ["junos_sys_sec"]
+[[tests.inputs]]
+insert_at = "junos_sys_sec"
+type = "raw"
+value = '<190>1 2026-07-06T03:52:49.974Z vsrx-ci mgd 97400 UI_COMMIT_PROGRESS [junos@2636.1.1.1.2.129 message="Obtaining lock for commit"] Commit operation in progress: Obtaining lock for commit'
+
+[[tests]]
+name = "junos_sys_ui_netconf_cmd_dropped"
+no_outputs_from = ["junos_sys_sec"]
+[[tests.inputs]]
+insert_at = "junos_sys_sec"
+type = "raw"
+value = "<190>1 2026-07-06T03:52:49.930Z vsrx-ci mgd 97400 UI_NETCONF_CMD [junos@2636.1.1.1.2.129 username=\"netconf\" command=\"lock cannot reconstruct arguments\"] User 'netconf' used NETCONF client to run command 'lock cannot reconstruct arguments'"
+
+[[tests]]
+name = "junos_sys_cron_dropped"
+no_outputs_from = ["junos_sys_sec"]
+[[tests.inputs]]
+insert_at = "junos_sys_sec"
+type = "raw"
+value = '<78>1 2026-07-06T03:51:00.003Z vsrx-ci /usr/sbin/cron 16860 - - (*system*) RELOAD (/etc/crontab)'
+
+[[tests]]
+name = "junos_sys_sshd_accepted_publickey"
+[[tests.inputs]]
+insert_at = "junos_sys_ecs"
+type = "raw"
+value = '<38>1 2026-07-06T04:00:00.000Z vsrx-ci sshd 4139 - - Accepted publickey for admin from 198.51.100.148 port 50000 ssh2'
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "auth_success")
+assert_eq!(.user_name, "admin")
+assert_eq!(.source_ip, "198.51.100.148")
+assert_eq!(.event_category, ["authentication"])
+assert_eq!(.event_outcome, "success")
+'''
+
+[[tests]]
+name = "junos_sys_unknown_hostname_blanked"
+[[tests.inputs]]
+insert_at = "junos_sys_ecs"
+type = "raw"
+value = "<37>1 2026-07-06T03:50:42.589Z evil-host sshd - SSHD_LOGIN_FAILED [junos@2636.1.1.1.2.129 username=\"baduser\" source-address=\"198.51.100.148\"] Login failed for user 'baduser' from host '198.51.100.148'"
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "auth_failure")
+assert!(.observer_hostname == "")
+'''
+
+# ---------------- M14b parser completeness tests ----------------
+
+[[tests]]
+name = "srx_rt_screen_ip_typed"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<11>1 2026-07-01T19:42:22.737-04:00 vsrx-isp-b RT_IDS - RT_SCREEN_IP [junos@2636.1.1.1.2.129 attack-name="Unknown protocol!" source-address="129.16.0.1" destination-address="224.255.255.250" protocol-id="250" source-zone-name="untrust" interface-name="ge-0/0/0.0" action="drop"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "screen_unknown_protocol")
+assert_eq!(.event_kind, "alert")
+assert_eq!(.event_outcome, "failure")
+assert_eq!(.observer_hostname, "vsrx-isp-b")
+assert_eq!(.source_ip, "129.16.0.1")
+assert_eq!(.destination_ip, "224.255.255.250")
+assert_eq!(.observer_ingress_zone, "untrust")
+assert_eq!(.event_category, ["network","intrusion_detection"])
+'''
+
+[[tests]]
+name = "srx_rt_generic_fallback_not_unknown"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-07-01T12:00:00.000Z vsrx-isp-b RT_IDS - RT_IDP_ATTACK_LOG_EVENT [junos@2636.1.1.1.2.36 source-address="10.65.1.10" destination-address="10.66.2.20"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "rt_idp_attack_log_event")
+assert_eq!(.event_outcome, "unknown")
+'''
+
+[[tests]]
+name = "panos_url_fallback_typed"
+[[tests.inputs]]
+insert_at = "panos_ecs"
+type = "raw"
+value = '<14>Jun 06 23:27:00 panosvm.example.com ,2026/06/06 23:27:00,007054000270810,URL,url,,2026/06/06 23:27:00,10.74.11.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,web-browsing,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40005,1,52345,80,0,0,0x0,tcp,allow'
+[[tests.outputs]]
+extract_from = "panos_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert!(starts_with(string!(.event_action), "url"))
+assert!(.event_action != "unknown")
+assert_eq!(.event_action, "url_url")
+assert_eq!(.ext."panw.panos.type", "URL")
+'''

@@ -7,6 +7,7 @@ import datetime
 import logging
 import os
 
+from ssdf_common.collectors import run_collectors
 from .chwriter import ClickHouseWriter
 from . import collectors  # noqa: F401 — importing the package triggers __init__, which registers all collectors
 from .collectors.base import REGISTRY
@@ -31,23 +32,6 @@ def _build_collector(name: str):
     if name == "panos":
         return cls(device=os.environ.get("PANOS_DEVICE", "panosvm"))
     return cls()
-
-
-def run_collectors(enabled, client_factory, collector_factory, writer, now: str) -> int:
-    """Run each enabled collector; skip any that raise, log a warning, and continue.
-
-    Returns the total number of observations inserted.
-    """
-    total = 0
-    for name in enabled:
-        try:
-            collector = collector_factory(name)
-            client = client_factory(name)
-            obs = collector.collect(client, now)
-            total += writer.insert_observations(obs)
-        except Exception:
-            logger.warning("collector %r failed; skipping", name, exc_info=True)
-    return total
 
 
 def main() -> None:
