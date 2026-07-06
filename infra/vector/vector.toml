@@ -60,6 +60,8 @@ if err != null {
     action = downcase(string(parsed.msgid) ?? "")
     event_action = "unknown"
     event_outcome = "unknown"
+    event_kind = "event"
+    event_category = ["network"]
     if action == "rt_flow_session_create" {
         event_action = "flow_session_create"
         event_outcome = "success"
@@ -69,6 +71,28 @@ if err != null {
     } else if action == "rt_flow_session_deny" {
         event_action = "flow_session_deny"
         event_outcome = "failure"
+    } else if starts_with(action, "rt_screen") {
+        # RT_SCREEN typed branch: normalize attack-name to screen_<normalized>
+        attack = string(fields."attack-name") ?? ""
+        normalized = downcase(attack)
+        normalized = replace(normalized, r'[^a-z0-9]+', "_")
+        normalized = strip_whitespace(normalized)
+        normalized = trim_end_matches(normalized, "_")
+        normalized = trim_start_matches(normalized, "_")
+        if normalized != "" {
+            event_action = "screen_" + normalized
+        } else {
+            event_action = "screen"
+        }
+        event_kind = "alert"
+        event_category = ["network","intrusion_detection"]
+        event_outcome = "failure"
+    }
+
+    # Generic RT_* fallback: any rt_<msgid> not matched above
+    if starts_with(action, "rt_") && event_action == "unknown" {
+        event_action = action
+        event_outcome = "unknown"
     }
 
     proto_id = to_int(fields."protocol-id")
@@ -107,8 +131,8 @@ if err != null {
         "timestamp": parsed.timestamp,
         "event_id": uuid_v4(),
         "tenant_id": "t_main",
-        "event_kind": "event",
-        "event_category": ["network"],
+        "event_kind": event_kind,
+        "event_category": event_category,
         "event_action": event_action,
         "event_outcome": event_outcome,
         "event_provider": "juniper",
@@ -351,9 +375,18 @@ if log_type == "TRAFFIC" {
         if resultv != "" { ext = set!(ext, ["panw.panos.result"], resultv) }
     }
 } else {
-    # Unknown / short / malformed: nothing typed, keep everything in raw + ext.
-    ev.event_action = "unknown"
-    if log_type != "" { ext = set!(ext, ["panw.panos.type"], log_type) }
+    # Generic typed fallback for any forwarded log type not in {TRAFFIC, THREAT, SYSTEM, CONFIG}
+    if log_type != "" {
+        ext = set!(ext, ["panw.panos.type"], log_type)
+        if subtype != "" {
+            ev.event_action = downcase(log_type) + "_" + downcase(subtype)
+        } else {
+            ev.event_action = downcase(log_type)
+        }
+    } else {
+        # Malformed / short: no log_type at all
+        ev.event_action = "unknown"
+    }
 }
 
 ev.ext = ext
@@ -1451,3 +1484,58 @@ no_outputs_from = ["proxmox_sec"]
 insert_at = "proxmox_sec"
 type = "raw"
 value = "<85>1 2026-06-14T20:09:00.000000+00:00 pve3 sshd-session 1353695 - -  pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=198.51.100.100"
+
+# ---------------- M14b parser completeness tests ----------------
+
+[[tests]]
+name = "srx_rt_screen_ip_typed"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<11>1 2026-07-01T19:42:22.737-04:00 vsrx-isp-b RT_IDS - RT_SCREEN_IP [junos@2636.1.1.1.2.129 attack-name="Unknown protocol!" source-address="129.16.0.1" destination-address="224.255.255.250" protocol-id="250" source-zone-name="untrust" interface-name="ge-0/0/0.0" action="drop"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "screen_unknown_protocol")
+assert_eq!(.event_kind, "alert")
+assert_eq!(.event_outcome, "failure")
+assert_eq!(.observer_hostname, "vsrx-isp-b")
+assert_eq!(.source_ip, "129.16.0.1")
+assert_eq!(.destination_ip, "224.255.255.250")
+assert_eq!(.observer_ingress_zone, "untrust")
+assert_eq!(.event_category, ["network","intrusion_detection"])
+'''
+
+[[tests]]
+name = "srx_rt_generic_fallback_not_unknown"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-07-01T12:00:00.000Z vsrx-isp-b RT_IDS - RT_IDP_ATTACK_LOG_EVENT [junos@2636.1.1.1.2.36 source-address="10.65.1.10" destination-address="10.66.2.20"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "rt_idp_attack_log_event")
+assert_eq!(.event_outcome, "unknown")
+'''
+
+[[tests]]
+name = "panos_url_fallback_typed"
+[[tests.inputs]]
+insert_at = "panos_ecs"
+type = "raw"
+value = '<14>Jun 06 23:27:00 panosvm.example.com ,2026/06/06 23:27:00,007054000270810,URL,url,,2026/06/06 23:27:00,10.74.11.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,web-browsing,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40005,1,52345,80,0,0,0x0,tcp,allow'
+[[tests.outputs]]
+extract_from = "panos_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert!(starts_with(string!(.event_action), "url"))
+assert_ne!(.event_action, "unknown")
+assert_eq!(.event_action, "url_url")
+assert_eq!(.ext."panw.panos.type", "URL")
+'''
