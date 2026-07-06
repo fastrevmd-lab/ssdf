@@ -23,14 +23,18 @@ def _short_host(name: str) -> str:
 def build_recent_observer_hostnames_sql(since_iso: str, tenant: str) -> tuple[str, dict]:
     """Distinct non-empty observer_hostname values per provider in-window.
 
-    Returns rows {observer_hostname, provider, max_timestamp} where
-    observer_hostname != '' and timestamp >= since. The short-host normalization
-    (first DNS label) happens in Python, not SQL, so this query returns the full
-    FQDN for downstream _short_host processing.
+    Returns rows {observer_hostname, provider, max_timestamp, hours_since} where
+    observer_hostname != '' and timestamp >= since. Computes hours_since in SQL
+    (dateDiff('second', max(timestamp), now())/3600.0) to avoid Python tz-aware/naive
+    datetime subtraction errors. The short-host normalization (first DNS label) happens
+    in Python, not SQL, so this query returns the full FQDN for downstream _short_host
+    processing.
     """
     sql = (
         "SELECT observer_hostname, event_provider AS provider, "
-        "max(timestamp) AS max_timestamp FROM ssdf.events "
+        "max(timestamp) AS max_timestamp, "
+        "dateDiff('second', max(timestamp), now()) / 3600.0 AS hours_since "
+        "FROM ssdf.events "
         "WHERE tenant_id = {tenant:String} AND observer_hostname != '' "
         "AND timestamp >= parseDateTimeBestEffort({since:String}) "
         "GROUP BY observer_hostname, provider"
@@ -72,8 +76,6 @@ class LivenessTools:
             }
         """
         staleness = staleness_hours if staleness_hours is not None else self._staleness
-        now = _dt.datetime.now(_dt.timezone.utc)
-        cutoff = now - _dt.timedelta(hours=staleness)
 
         # Expected set part 1: topology firewall nodes (kind='device', attrs['role']='firewall')
         topo_firewalls = self._graph.nodes_by_attr(role="firewall", kind="device")
@@ -100,18 +102,16 @@ class LivenessTools:
             short_name = _short_host(full_name)
             provider = row.get("provider", "")
             max_ts_str = row.get("max_timestamp", "")
-            if not max_ts_str:
+            hours_since = row.get("hours_since")
+            if not max_ts_str or hours_since is None:
                 continue
-            max_ts = _dt.datetime.fromisoformat(max_ts_str.replace("Z", "+00:00"))
-            hours_since = (now - max_ts).total_seconds() / 3600.0
-            is_stale = max_ts < cutoff
+            # hours_since is computed in SQL; staleness check uses it directly
+            is_stale = hours_since > staleness
 
-            # If we already have this name, keep the most recent event
+            # If we already have this name, keep the most recent event (smallest hours_since)
             if short_name in event_by_name:
                 existing = event_by_name[short_name]
-                existing_ts = _dt.datetime.fromisoformat(
-                    existing["last_event"].replace("Z", "+00:00"))
-                if max_ts > existing_ts:
+                if hours_since < existing["hours_since"]:
                     event_by_name[short_name] = {
                         "name": short_name, "provider": provider,
                         "last_event": max_ts_str, "hours_since": hours_since,

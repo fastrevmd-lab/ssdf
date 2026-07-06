@@ -55,6 +55,7 @@ def test_recent_observer_hostnames_sql_shape():
     assert "observer_hostname" in sql
     assert "event_provider AS provider" in sql
     assert "max(timestamp) AS max_timestamp" in sql
+    assert "dateDiff('second', max(timestamp), now()) / 3600.0 AS hours_since" in sql
     assert "observer_hostname != ''" in sql
     assert "parseDateTimeBestEffort({since:String})" in sql
     assert "GROUP BY observer_hostname, provider" in sql
@@ -62,8 +63,10 @@ def test_recent_observer_hostnames_sql_shape():
 
 
 def test_ingest_status_fresh_firewall():
+    # Use tz-aware datetime to match real clickhouse-connect behavior
     now = _dt.datetime.now(_dt.timezone.utc)
     recent = (now - _dt.timedelta(minutes=30)).isoformat()
+    hours_since = 0.5
 
     topo_nodes = [
         {"name": "panosvm", "kind": "device", "attrs": {"role": "firewall"},
@@ -71,7 +74,7 @@ def test_ingest_status_fresh_firewall():
     ]
     event_rows = [
         {"observer_hostname": "panosvm.example.com", "provider": "paloalto",
-         "max_timestamp": recent}
+         "max_timestamp": recent, "hours_since": hours_since}
     ]
 
     graph = _FakeGraphStore(topo_nodes)
@@ -86,13 +89,14 @@ def test_ingest_status_fresh_firewall():
     assert fw["provider"] == "paloalto"
     assert fw["stale"] is False
     assert fw["last_event"] == recent
-    assert fw["hours_since"] < 1.0
+    assert fw["hours_since"] == hours_since
     assert result["summary"] == {"total": 1, "stale": 0, "fresh": 1}
 
 
 def test_ingest_status_stale_firewall():
     now = _dt.datetime.now(_dt.timezone.utc)
     stale_ts = (now - _dt.timedelta(hours=5)).isoformat()
+    hours_since = 5.0
 
     topo_nodes = [
         {"name": "vSRX-test10", "kind": "device", "attrs": {"role": "firewall"},
@@ -100,7 +104,7 @@ def test_ingest_status_stale_firewall():
     ]
     event_rows = [
         {"observer_hostname": "vSRX-test10", "provider": "juniper",
-         "max_timestamp": stale_ts}
+         "max_timestamp": stale_ts, "hours_since": hours_since}
     ]
 
     graph = _FakeGraphStore(topo_nodes)
@@ -113,7 +117,7 @@ def test_ingest_status_stale_firewall():
     fw = result["firewalls"][0]
     assert fw["name"] == "vSRX-test10"
     assert fw["stale"] is True
-    assert fw["hours_since"] > 4.0
+    assert fw["hours_since"] == hours_since
     assert result["summary"] == {"total": 1, "stale": 1, "fresh": 0}
 
 
@@ -150,7 +154,7 @@ def test_ingest_status_panosvm_fqdn_short_label_join():
     ]
     event_rows = [
         {"observer_hostname": "panosvm.example.com", "provider": "paloalto",
-         "max_timestamp": recent}
+         "max_timestamp": recent, "hours_since": 0.17}
     ]
 
     graph = _FakeGraphStore(topo_nodes)
@@ -177,8 +181,10 @@ def test_ingest_status_summary_counts():
         {"name": "fw3", "kind": "device", "attrs": {"role": "firewall"}, "identifiers": {}},
     ]
     event_rows = [
-        {"observer_hostname": "fw1", "provider": "juniper", "max_timestamp": fresh_ts},
-        {"observer_hostname": "fw2", "provider": "paloalto", "max_timestamp": stale_ts},
+        {"observer_hostname": "fw1", "provider": "juniper", "max_timestamp": fresh_ts,
+         "hours_since": 0.17},
+        {"observer_hostname": "fw2", "provider": "paloalto", "max_timestamp": stale_ts,
+         "hours_since": 4.0},
     ]
     # fw3 has no events
 
@@ -202,9 +208,12 @@ def test_ingest_status_sorts_stale_first_then_name():
         {"name": "charlie", "kind": "device", "attrs": {"role": "firewall"}, "identifiers": {}},
     ]
     event_rows = [
-        {"observer_hostname": "alpha", "provider": "juniper", "max_timestamp": fresh_ts},
-        {"observer_hostname": "bravo", "provider": "juniper", "max_timestamp": stale_ts},
-        {"observer_hostname": "charlie", "provider": "paloalto", "max_timestamp": fresh_ts},
+        {"observer_hostname": "alpha", "provider": "juniper", "max_timestamp": fresh_ts,
+         "hours_since": 0.17},
+        {"observer_hostname": "bravo", "provider": "juniper", "max_timestamp": stale_ts,
+         "hours_since": 3.0},
+        {"observer_hostname": "charlie", "provider": "paloalto", "max_timestamp": fresh_ts,
+         "hours_since": 0.17},
     ]
 
     graph = _FakeGraphStore(topo_nodes)
@@ -225,7 +234,8 @@ def test_ingest_status_event_only_device():
 
     topo_nodes = []  # no topology nodes
     event_rows = [
-        {"observer_hostname": "rogue-fw", "provider": "juniper", "max_timestamp": recent}
+        {"observer_hostname": "rogue-fw", "provider": "juniper", "max_timestamp": recent,
+         "hours_since": 0.33}
     ]
 
     graph = _FakeGraphStore(topo_nodes)
