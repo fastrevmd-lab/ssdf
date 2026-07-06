@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 DynamicUser=yes
+RuntimeMaxSec=600
 EnvironmentFile=/etc/ssdf-health/ENV.local
 WorkingDirectory=/opt/ssdf-health
 ExecStart=/opt/ssdf-health/bin/python -m ssdf_health.collect_main

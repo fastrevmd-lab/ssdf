@@ -323,6 +323,19 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 - Deploy: rsync `services/health` to ct109 venv `/opt/ssdf-health`, env
   `/etc/ssdf-health/ENV.local` (mode 600), install `ssdf-health.{service,timer}`, enable timer.
 
+### M14 (full-fleet telemetry + role-based naming)
+- **Fleet role-rename (M14a):** 23 logical vSRX firewalls renamed to role-based `vsrx-<role>` (all-lowercase kebab) across Proxmox VM names, Junos on-box host-names, rust-junosmcp `devices.json` keys, and SSDF (`JUNOS_DEVICES` ×3, Vector observer gate, eval corpus, docs). Standard: `docs/naming-standard.md`. panosvm unchanged. Vector observer gate dual-accepts old+new names during ~30-day transition (`graph_nodes` + `events` both TTL 30d), then legacy alternates pruned (Phase 1D follow-up).
+- **Hotfix (M14):** dual-accept observer gate (fixes 514k/wk unattributed mnha-router + ISP-A/B) broadened to `^vsrx-(test\d|isp-[ab]|mnha-router|production|br\d\d)` (case-preserved for provenance bridge). nftables source range 198.51.100.219-.245. Policy+health collectors expanded from 1-2 devices to full fleet (JUNOS_DEVICES 24 fleet + panosvm).
+- **Parser completeness (M14b):** `srx_ecs` RT_SCREEN typed parse (`event_kind=alert`, `category [network,intrusion_detection]`, `action screen_<attack>`) + generic RT_* msgid fallback (never 'unknown' for parseable sd-syslog). `panos_ecs` generic fallback for URL/WILDFIRE/DATA/TUNNEL/AUTH/DECRYPTION. Live invariant: juniper unknown=0.
+- **Junos SYSTEM syslog source (M14c):** new Vector source `junos_sys_syslog` UDP/518 + `junos_sys_sec` filter + `junos_sys_ecs` remap (`parse_syslog` RFC5424; auth_* from SSHD_LOGIN_*/Accepted, configuration_* from UI_COMMIT/UI_CFG_AUDIT_*). `event_provider=juniper`, observer gate identical to srx_ecs. nftables UDP/518. Runbook `onboarding/srx/system-syslog.md`. Fleet-wide device config: `set system syslog host 198.51.100.150 port 518 any info structured-data routing-instance mgmt_junos` — **routing-instance REQUIRED** (live-found; without it, syslog fails silently). Live-found: Vector `parse_syslog` nests RFC5424 SD under SD-ID key → SD-ID-agnostic regex extraction.
+- **`ingest_status` sovereign tool (M14d):** per-firewall liveness (fresh/stale) with expected set = union of M4 topology firewall nodes + 7d `observer_hostnames`, so a device that stopped entirely still shows (stale, last_event null). Classed `security_log`, never public. Also scoped public-metrics volume measures + `deny_rate_index` to `event_action LIKE 'flow_%'` (was counting auth/config as flows). Live-found: clickhouse-connect returns tz-aware datetimes → hours_since computed in SQL.
+- Run Vector unit tests: on ct102, `vector test /etc/vector/vector.toml` (50/50 incl. M14b+M14c suites). Validate: `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`.
+
+### M15 (ssdf-common shared library)
+- New `services/common` package (`ssdf_common`: mcp_client, clickhouse client_kwargs, config ConfigError/McpEndpoint/load_mcp_endpoint/env_bool, collectors registry+run_collectors). 7 services migrated via thin re-export shims (zero behavior change, 538/538 tests: mcp-query 271, topo 66, entity 64, policy 41, public-metrics 69, health 27, evals 0).
+- Installed editable on ct109 (5 services) + ct106 + ct113: `pip install -e /opt/src/common --no-deps`. Each service venv needs it alongside the service itself; a fresh deploy adds the editable install step.
+- No code change to services — each reuses its shim `config.py`/`collectors/` (re-exports from `ssdf_common`). Cross-service helpers now centralized; future shared patterns land in `ssdf_common` (no per-service duplication).
+
 Future Rust/Python components will record their own commands here as they are scaffolded.
 
 ## Related external systems
