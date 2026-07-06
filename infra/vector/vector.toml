@@ -1533,7 +1533,7 @@ extract_from = "panos_ecs"
 type = "vrl"
 source = '''
 assert!(starts_with(string!(.event_action), "url"))
-assert_ne!(.event_action, "unknown")
+assert!(.event_action != "unknown")
 assert_eq!(.event_action, "url_url")
 assert_eq!(.ext."panw.panos.type", "URL")
 '''
