@@ -803,22 +803,6 @@ if perr != null {
     ext = set!(ext, ["junos.sys.appname"], app)
     if msg_id != "" && msg_id != "-" { ext = set!(ext, ["junos.sys.msgid"], msg_id) }
 
-    # Extract structured-data key=value pairs (parse_syslog exposes SD via
-    # parsed.structured_data if present — check availability; if absent, fallback
-    # to no SD fields). First probe: write a test to see the shape.
-    # For now, parse SD params from raw via regex (mirroring srx_ecs pattern).
-    fields = {}
-    sd_match, sd_err = parse_regex(raw, r'\[junos@[^\]]+\s+(?P<params>(?:\S+="[^"]*"\s*)+)\]')
-    if sd_err == null {
-        params_str = string(sd_match.params) ?? ""
-        kv_matches, _kv_err = parse_regex_all(params_str, r'(?P<key>[^=\s]+)="(?P<val>[^"]*)"')
-        for_each(kv_matches) -> |_i, kv| {
-            k = string(kv.key) ?? ""
-            v = string(kv.val) ?? ""
-            fields = set!(fields, [k], v)
-        }
-    }
-
     # observer_hostname gate: normalize syslog HOSTNAME to first DNS label,
     # downcase for membership test only, keep original case for stored value.
     # Dual-accept gate copied from srx_ecs (vSRX fleet + panosvm).
@@ -833,20 +817,28 @@ if perr != null {
     if _oe == null { _obs_known = true }
     if _obs_known { ev.observer_hostname = _obs_short } else { ev.observer_hostname = "" }
 
-    # Branch on msgid/message
+    # Branch on msgid/message (SD-ID-agnostic param extraction via raw regex)
     if msg_id == "SSHD_LOGIN_FAILED" {
         ev.event_category = ["authentication"]
         ev.event_action = "auth_failure"
         ev.event_outcome = "failure"
-        ev.user_name = string(fields.username) ?? ""
-        ev.source_ip = string(fields."source-address") ?? ""
+        # Extract username from SD params (SD-ID-agnostic: match username="..." anywhere in raw)
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+        # Extract source-address from SD params
+        sam, same = parse_regex(raw, r'source-address="(?P<ip>[^"]*)"')
+        if same == null { ev.source_ip = string(sam.ip) ?? "" }
     } else if msg_id == "SSHD_LOGIN_ATTEMPTS_THRESHOLD" {
         ev.event_category = ["authentication"]
         ev.event_action = "auth_attempts_threshold"
         ev.event_outcome = "failure"
-        ev.user_name = string(fields.username) ?? ""
-        limit = string(fields.limit) ?? ""
-        if limit != "" { ext = set!(ext, ["junos.sys.limit"], limit) }
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+        lm, lme = parse_regex(raw, r'limit="(?P<lim>[^"]*)"')
+        if lme == null {
+            limit = string(lm.lim) ?? ""
+            if limit != "" { ext = set!(ext, ["junos.sys.limit"], limit) }
+        }
     } else if starts_with(app, "sshd") && starts_with(msg, "Accepted ") {
         # "Accepted publickey for admin from 198.51.100.148 port 50000 ssh2"
         am, amerr = parse_regex(msg, r'Accepted \S+ for (?P<user>\S+) from (?P<ip>\S+) port (?P<port>\d+)')
@@ -862,26 +854,36 @@ if perr != null {
         ev.event_category = ["authentication"]
         ev.event_action = "auth_login"
         ev.event_outcome = "success"
-        ev.user_name = string(fields.username) ?? ""
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
     } else if msg_id == "UI_LOGOUT_EVENT" {
         ev.event_category = ["authentication"]
         ev.event_action = "auth_logout"
         ev.event_outcome = "success"
-        ev.user_name = string(fields.username) ?? ""
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
     } else if msg_id == "UI_AUTH_EVENT" {
         ev.event_category = ["authentication"]
         ev.event_action = "auth_event"
         ev.event_outcome = "success"
-        ev.user_name = string(fields.username) ?? ""
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
     } else if msg_id == "UI_COMMIT" {
         ev.event_category = ["configuration"]
         ev.event_action = "configuration_commit"
         ev.event_outcome = "success"
-        ev.user_name = string(fields.username) ?? ""
-        commit_msg = string(fields.message) ?? ""
-        if commit_msg != "" { ext = set!(ext, ["junos.sys.commit_message"], commit_msg) }
-        cmd = string(fields.command) ?? ""
-        if cmd != "" { ext = set!(ext, ["junos.sys.command"], cmd) }
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+        mm, mme = parse_regex(raw, r'message="(?P<msg>[^"]*)"')
+        if mme == null {
+            commit_msg = string(mm.msg) ?? ""
+            if commit_msg != "" { ext = set!(ext, ["junos.sys.commit_message"], commit_msg) }
+        }
+        cm, cme = parse_regex(raw, r'command="(?P<cmd>[^"]*)"')
+        if cme == null {
+            cmd = string(cm.cmd) ?? ""
+            if cmd != "" { ext = set!(ext, ["junos.sys.command"], cmd) }
+        }
     } else if msg_id == "UI_COMMIT_COMPLETED" {
         ev.event_category = ["configuration"]
         ev.event_action = "configuration_commit_completed"
@@ -894,23 +896,35 @@ if perr != null {
         ev.event_category = ["configuration"]
         ev.event_action = "configuration_rollback"
         ev.event_outcome = "success"
-        ev.user_name = string(fields.username) ?? ""
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
     } else if msg_id == "UI_CFG_AUDIT_SET" {
         ev.event_category = ["configuration"]
         ev.event_action = "configuration_change"
         ev.event_outcome = "success"
-        ev.user_name = string(fields.username) ?? ""
-        pathname = string(fields.pathname) ?? ""
-        if pathname != "" { ext = set!(ext, ["junos.sys.pathname"], pathname) }
-        data_val = string(fields.data) ?? ""
-        if data_val != "" { ext = set!(ext, ["junos.sys.data"], data_val) }
-        action = string(fields.action) ?? ""
-        if action != "" { ext = set!(ext, ["junos.sys.action"], action) }
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+        pm, pme = parse_regex(raw, r'pathname="(?P<path>[^"]*)"')
+        if pme == null {
+            pathname = string(pm.path) ?? ""
+            if pathname != "" { ext = set!(ext, ["junos.sys.pathname"], pathname) }
+        }
+        dm, dme = parse_regex(raw, r'data="(?P<dat>[^"]*)"')
+        if dme == null {
+            data_val = string(dm.dat) ?? ""
+            if data_val != "" { ext = set!(ext, ["junos.sys.data"], data_val) }
+        }
+        am, ame = parse_regex(raw, r'action="(?P<act>[^"]*)"')
+        if ame == null {
+            action = string(am.act) ?? ""
+            if action != "" { ext = set!(ext, ["junos.sys.action"], action) }
+        }
     } else if msg_id == "UI_CFG_AUDIT_OTHER" {
         ev.event_category = ["configuration"]
         ev.event_action = "configuration_change"
         ev.event_outcome = "success"
-        ev.user_name = string(fields.username) ?? ""
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
     }
 
     ev.ext = ext
