@@ -76,9 +76,7 @@ if err != null {
         attack = string(fields."attack-name") ?? ""
         normalized = downcase(attack)
         normalized = replace(normalized, r'[^a-z0-9]+', "_")
-        normalized = strip_whitespace(normalized)
-        normalized = trim_end_matches(normalized, "_")
-        normalized = trim_start_matches(normalized, "_")
+        normalized = replace(normalized, r'^_+|_+$', "")
         if normalized != "" {
             event_action = "screen_" + normalized
         } else {
