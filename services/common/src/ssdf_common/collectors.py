@@ -26,7 +26,16 @@ class Collector(Protocol):
 
 
 def register(name: str) -> Callable[[type], type]:
-    """Decorator: register a collector class under `name`."""
+    """Decorator: register a collector class under `name`.
+
+    INVARIANT: `REGISTRY` is a module-level dict shared by every importer. Services
+    reuse collector names (`junos`, `panos`, `proxmox`, `unifi`) with DIFFERENT
+    classes, so this is only safe because each service runs as its own process
+    (separate systemd unit / venv). Do NOT import two services' collector packages
+    into one process — the later registration would silently shadow the earlier.
+    If SSDF ever consolidates services into one process, switch to per-service
+    registries or namespaced names (`topo:junos`).
+    """
     def _wrap(cls: type) -> type:
         REGISTRY[name] = cls
         return cls
