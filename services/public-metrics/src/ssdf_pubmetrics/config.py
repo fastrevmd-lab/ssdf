@@ -9,9 +9,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-
-class ConfigError(RuntimeError):
-    """Raised when required configuration is missing or invalid."""
+from ssdf_common.config import ConfigError
 
 
 @dataclass(frozen=True)

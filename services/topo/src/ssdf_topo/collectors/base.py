@@ -1,12 +1,17 @@
 # src/ssdf_topo/collectors/base.py
-"""Collector protocol + a name->class registry."""
+"""Collector protocol + a name->class registry.
+
+Re-exports REGISTRY, register, get_collector from ssdf_common.collectors.
+"""
 
 from __future__ import annotations
 
-from typing import Callable, Protocol
+from typing import Protocol
 
+from ssdf_common.collectors import REGISTRY, register, get_collector
 from ..mcp_client import McpToolClient
 from ..models import Observation
+
 
 def firewall_inventory(collector: str, source_device: str, now: str) -> Observation:
     """Build a device_inventory observation tagging `source_device` as a firewall.
@@ -27,9 +32,6 @@ def firewall_inventory(collector: str, source_device: str, now: str) -> Observat
     )
 
 
-REGISTRY: dict[str, type] = {}
-
-
 class Collector(Protocol):
     name: str
 
@@ -38,14 +40,4 @@ class Collector(Protocol):
         ...
 
 
-def register(name: str) -> Callable[[type], type]:
-    def _wrap(cls: type) -> type:
-        REGISTRY[name] = cls
-        return cls
-    return _wrap
-
-
-def get_collector(name: str) -> type:
-    if name not in REGISTRY:
-        raise KeyError(f"unknown collector: {name}")
-    return REGISTRY[name]
+__all__ = ["REGISTRY", "register", "get_collector", "Collector", "firewall_inventory"]

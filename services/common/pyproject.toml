@@ -1,11 +1,11 @@
 [project]
-name = "ssdf-entity"
+name = "ssdf-common"
 version = "0.1.0"
-description = "SSDF M6 entity/correlation resolver (Asset + observed Policy from ssdf.events + topology)"
+description = "SSDF shared utilities — MCP client, ClickHouse helpers, collector registry"
 requires-python = ">=3.11"
 dependencies = [
     "clickhouse-connect>=0.8",
-    "ssdf-common",
+    "fastmcp>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -16,12 +16,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ssdf_entity"]
+packages = ["src/ssdf_common"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-markers = ["integration: requires live ClickHouse (deselect with -m 'not integration')"]
-
-[tool.uv.sources]
-ssdf-common = { path = "../common", editable = true }

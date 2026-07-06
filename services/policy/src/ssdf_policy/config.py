@@ -9,17 +9,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from ssdf_common.config import ConfigError, McpEndpoint, load_mcp_endpoint
+
 ALL_COLLECTORS = ("panos", "junos")
-
-
-class ConfigError(RuntimeError):
-    """Raised when required configuration is missing."""
-
-
-@dataclass(frozen=True)
-class McpEndpoint:
-    url: str
-    token: str
 
 
 @dataclass(frozen=True)
@@ -37,12 +29,7 @@ class Config:
     ch_ca_file: str = ""
 
     def mcp_endpoint(self, name: str) -> McpEndpoint:
-        prefix = name.upper()
-        url = os.environ.get(f"{prefix}_MCP_URL")
-        token = os.environ.get(f"{prefix}_MCP_TOKEN", "")
-        if not url:
-            raise ConfigError(f"missing {prefix}_MCP_URL for collector '{name}'")
-        return McpEndpoint(url=url, token=token)
+        return load_mcp_endpoint(name)
 
 
 def _csv(name: str, default: str = "") -> tuple[str, ...]:

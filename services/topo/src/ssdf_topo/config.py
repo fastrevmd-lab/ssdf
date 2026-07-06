@@ -6,17 +6,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from ssdf_common.config import ConfigError, McpEndpoint, load_mcp_endpoint
+
 ALL_COLLECTORS = ("junos", "unifi", "panos", "proxmox")
-
-
-class ConfigError(RuntimeError):
-    """Raised when required configuration is missing."""
-
-
-@dataclass(frozen=True)
-class McpEndpoint:
-    url: str
-    token: str
 
 
 @dataclass(frozen=True)
@@ -33,12 +25,7 @@ class Config:
     ch_ca_file: str = ""
 
     def mcp_endpoint(self, name: str) -> McpEndpoint:
-        prefix = name.upper()
-        url = os.environ.get(f"{prefix}_MCP_URL")
-        token = os.environ.get(f"{prefix}_MCP_TOKEN", "")
-        if not url:
-            raise ConfigError(f"missing {prefix}_MCP_URL for collector '{name}'")
-        return McpEndpoint(url=url, token=token)
+        return load_mcp_endpoint(name)
 
 
 def load_config() -> Config:
@@ -56,6 +43,6 @@ def load_config() -> Config:
         tenant_id=os.environ.get("TOPO_TENANT", "t_main"),
         window_hours=int(os.environ.get("TOPO_WINDOW_HOURS", "24")),
         enabled_collectors=enabled,
-        ch_secure=os.environ.get("CH_SECURE", "0").strip().lower() in ("1", "true"),
+        ch_secure=os.environ.get("CH_SECURE", "0").strip().lower() in ("1", "true"),  # keep inline for now
         ch_ca_file=os.environ.get("CH_CA_FILE", ""),
     )

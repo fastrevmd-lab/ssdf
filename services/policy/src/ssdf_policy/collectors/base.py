@@ -1,12 +1,14 @@
-"""Collector protocol + a name->class registry (rules, not topology observations)."""
+"""Collector protocol + a name->class registry (rules, not topology observations).
+
+Re-exports REGISTRY, register, get_collector from ssdf_common.collectors.
+"""
 
 from __future__ import annotations
 
-from typing import Callable, Protocol
+from typing import Protocol
 
+from ssdf_common.collectors import REGISTRY, register, get_collector
 from ..mcp_client import McpToolClient
-
-REGISTRY: dict[str, type] = {}
 
 
 class Collector(Protocol):
@@ -17,8 +19,4 @@ class Collector(Protocol):
         ...
 
 
-def register(name: str) -> Callable[[type], type]:
-    def _wrap(cls: type) -> type:
-        REGISTRY[name] = cls
-        return cls
-    return _wrap
+__all__ = ["REGISTRY", "register", "get_collector", "Collector"]

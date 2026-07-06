@@ -5,6 +5,7 @@ description = "SSDF M7c public de-identified metrics resolver (ssdf.events -> ss
 requires-python = ">=3.11"
 dependencies = [
     "clickhouse-connect>=0.8",
+    "ssdf-common",
 ]
 
 [project.optional-dependencies]
@@ -24,3 +25,6 @@ markers = ["integration: requires live ClickHouse (deselect with -m 'not integra
 
 [dependency-groups]
 dev = ["pytest>=9.0.3"]
+
+[tool.uv.sources]
+ssdf-common = { path = "../common", editable = true }

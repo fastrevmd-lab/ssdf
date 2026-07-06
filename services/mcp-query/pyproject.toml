@@ -8,6 +8,7 @@ dependencies = [
     "clickhouse-connect>=0.8",
     "sqlglot>=25.0",
     "networkx>=3.0",
+    "ssdf-common",
 ]
 
 [project.optional-dependencies]
@@ -28,3 +29,6 @@ markers = ["integration: requires a live ClickHouse (deselect with -m 'not integ
 dev = [
     "pytest>=9.0.3",
 ]
+
+[tool.uv.sources]
+ssdf-common = { path = "../common", editable = true }

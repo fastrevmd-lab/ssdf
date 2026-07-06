@@ -7,6 +7,7 @@ from typing import Any, Iterable
 
 import clickhouse_connect
 
+from ssdf_common.clickhouse import client_kwargs as _client_kwargs
 from .config import Config
 from .gauge import Gauge
 
@@ -18,15 +19,15 @@ HEALTH_COLUMNS = [
 
 def client_kwargs(config: Config) -> dict[str, Any]:
     """get_client kwargs from config; adds TLS (interface/ca_cert) when ch_secure."""
-    kwargs: dict[str, Any] = dict(
-        host=config.ch_host, port=config.ch_port, username=config.ch_user,
-        password=config.ch_password, database=config.ch_database,
+    return _client_kwargs(
+        host=config.ch_host,
+        port=config.ch_port,
+        user=config.ch_user,
+        password=config.ch_password,
+        database=config.ch_database,
+        secure=config.ch_secure,
+        ca_file=config.ch_ca_file,
     )
-    if config.ch_secure:
-        kwargs["interface"] = "https"
-        if config.ch_ca_file:
-            kwargs["ca_cert"] = config.ch_ca_file
-    return kwargs
 
 
 def health_rows(gauges: Iterable[Gauge], now: datetime, tenant_id: str) -> list[list[Any]]:

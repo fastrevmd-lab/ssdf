@@ -6,6 +6,7 @@ from typing import Any
 
 import clickhouse_connect
 
+from ssdf_common.clickhouse import client_kwargs as _client_kwargs
 from .config import Config
 from .measures import (
     build_aggregate_sql, build_entity_bucket_sql, build_deny_counts_sql,
@@ -14,15 +15,15 @@ from .measures import (
 
 
 def client_kwargs(config: Config) -> dict[str, Any]:
-    kwargs: dict[str, Any] = dict(
-        host=config.ch_host, port=config.ch_port, username=config.ch_user,
-        password=config.ch_password, database=config.ch_database,
+    return _client_kwargs(
+        host=config.ch_host,
+        port=config.ch_port,
+        user=config.ch_user,
+        password=config.ch_password,
+        database=config.ch_database,
+        secure=config.ch_secure,
+        ca_file=config.ch_ca_file,
     )
-    if config.ch_secure:
-        kwargs["interface"] = "https"
-        if config.ch_ca_file:
-            kwargs["ca_cert"] = config.ch_ca_file
-    return kwargs
 
 
 class EventsReader:

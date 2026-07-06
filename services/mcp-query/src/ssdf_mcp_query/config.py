@@ -8,9 +8,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-
-class ConfigError(RuntimeError):
-    """Raised when required configuration is missing."""
+from ssdf_common.config import ConfigError
 
 
 @dataclass(frozen=True)
