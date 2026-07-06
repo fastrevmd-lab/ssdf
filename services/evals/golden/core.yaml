@@ -278,7 +278,7 @@
   required_tools: [topology_snapshot]
   predicate:
     type: expected_json
-    expected: {firewalls: [panosvm, vSRX-test10]}
+    expected: {firewalls: [panosvm, vsrx-br01, vsrx-br02, vsrx-br03, vsrx-br04, vsrx-br05, vsrx-br06, vsrx-br07, vsrx-br08, vsrx-br09, vsrx-br10, vsrx-br11, vsrx-br12, vsrx-campus-a, vsrx-campus-b, vsrx-ci, vsrx-core-a, vsrx-core-b, vsrx-dc, vsrx-dmz, vsrx-isp-a, vsrx-isp-b, vsrx-prod, vsrx-wan-edge]}
 
 - id: topo-path-labgen-gateway
   question: >-
@@ -319,7 +319,7 @@
 
 # ---- change ----
 - id: change-vsrx-rule-names
-  question: What are the names of the configured security policies on vSRX-test10?
+  question: What are the names of the configured security policies on vsrx-br05?
   tier: sovereign
   category: change
   difficulty: medium
@@ -331,7 +331,7 @@
       SELECT name FROM ssdf.entities
       WHERE kind = 'policy' AND source = 'configured'
         AND identifiers['provider'] = 'juniper'
-        AND identifiers['device_name'] = 'vSRX-test10'
+        AND identifiers['device_name'] = 'vsrx-br05'
     match: exact
     answer_key: rules
 

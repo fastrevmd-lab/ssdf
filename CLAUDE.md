@@ -71,6 +71,8 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
 
 ## Commands
 
+Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
+
 ### M1 (SRX → Vector → ClickHouse)
 - Run Vector unit tests: `vector test infra/vector/vector.toml`
 - Validate Vector config: `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`
@@ -99,7 +101,7 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
 
 ### M4 (topology graph — services/topo + topology MCP tools)
 - Unit tests: `cd services/topo && uv run pytest -m "not integration"`
-- Live integration: `cd services/topo && CH_HOST=<ip> CH_PASSWORD=<pw> JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… uv run pytest -m integration`
+- Live integration: `cd services/topo && CH_HOST=<ip> CH_PASSWORD=<pw> JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… JUNOS_DEVICES=vsrx-br05 uv run pytest -m integration`
 - One collection cycle: `cd services/topo && uv run python -m ssdf_topo.collect_all`
 - One resolver pass: `cd services/topo && uv run python -m ssdf_topo.resolve_main`
 - Deployed: collectors+resolver on Proxmox LXC **ct109** (`ssdf-topo`, 198.51.100.153, no
@@ -107,7 +109,7 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
   ct104 as `ssdf_topo`. Topology MCP tools (`get_entity`, `locate`, `neighbors`, `find_path`,
   `enforcement_points`, `topology_snapshot`) live on the existing `ssdf-mcp-query` (ct106).
   As-built coords in gitignored `services/topo/infra/ENV.local`.
-- **Firewall-role device nodes (M6c, issue #6 scope A).** The junos + panos collectors self-emit one `device_inventory(role=firewall, name=<device>)` observation per device (helper `collectors/base.py:firewall_inventory`), so `panosvm`/`vSRX-test10` resolve as `kind=device, attrs.role=firewall` and `enforcement_points` can attribute them. Requires `JUNOS_DEVICES` to be set on ct109 (`/etc/ssdf-topo/ENV.local`) — junos collector is a no-op with an empty device list.
+- **Firewall-role device nodes (M6c, issue #6 scope A).** The junos + panos collectors self-emit one `device_inventory(role=firewall, name=<device>)` observation per device (helper `collectors/base.py:firewall_inventory`), so `panosvm`/`vsrx-br05` (now vsrx-br05) resolve as `kind=device, attrs.role=firewall` and `enforcement_points` can attribute them. Requires `JUNOS_DEVICES` to be set on ct109 (`/etc/ssdf-topo/ENV.local`) — junos collector is a no-op with an empty device list.
 - **Collector MCP arg names (latent-bug fix, M6c):** `execute_junos_command` takes `router_name` (NOT `router`); `execute_pan_op` takes `host` + `cmd`. Wrong names raise `missing_argument`, which `run_collectors` catches and silently skips — surfaced only when a collector first runs live.
 
 ### M6a (entity/correlation — services/entity + explain_access tool)
@@ -125,13 +127,13 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
 
 ### M6b (configured policy — services/policy + explain_access configured_controls)
 - Policy unit tests: `cd services/policy && uv run pytest -m "not integration"`
-- Live integration (needs CH + vendor MCPs): `cd services/policy && CH_PASSWORD=<pw> PANOS_MCP_URL=… PANOS_MCP_TOKEN=… JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… JUNOS_DEVICES=vSRX-test10 uv run pytest -m integration`
+- Live integration (needs CH + vendor MCPs): `cd services/policy && CH_PASSWORD=<pw> PANOS_MCP_URL=… PANOS_MCP_TOKEN=… JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… JUNOS_DEVICES=vsrx-br05 uv run pytest -m integration`
 - One pass: `cd services/policy && uv run python -m ssdf_policy.collect_resolve`
 - Deployed: collector+resolver on ct109 (third role alongside topo+entity; venv `/opt/ssdf-policy`, env `/etc/ssdf-policy/ENV.local` mode 600) on an HOURLY systemd timer (`ssdf-policy.timer` → oneshot `ssdf-policy.service`); writes CH ct104 as `ssdf_entity` into the shared `ssdf.entities`/`ssdf.entity_edges` (kind='firewall'|'policy', source='configured'). `explain_access` (ct106) gains `configured_controls` + integer `coverage.configured`. As-built coords in gitignored `services/policy/infra/ENV.local`.
 - Configured Policy is keyed `provider:device_name:rule_name` (per-firewall identity — fixes M6a's same-name collapse where two firewalls' identically-named rules merged); Firewall entities keyed `device:<name>` linked by `Firewall──GOVERNED_BY(configured)──►Policy` edges.
 - Device names in `JUNOS_DEVICES`/`PANOS_DEVICE` MUST match M4 `source_device` names so explain_access can bridge topology firewalls → Firewall entities by name.
 - Junos rules read via `execute_junos_command "show configuration security policies | display set"`; PAN-OS via `get_pan_config` (vsys1 security rulebase, pinned to 12.1 config shape).
-- **M4↔M6b name-bridge gap (live finding):** `explain_access` attaches configured rules to a path via M4 `enforcement_points`, which only returns graph nodes with `kind=="device"` AND `attrs.role=="firewall"`. M4 currently models **0** such nodes, so live `explain_access` on real transit pairs returns `configured_basis:no_path_firewall` and `coverage.configured:0` even though the configured side is correct (direct `configured_policies_for_firewalls(["panosvm","vSRX-test10"])` returns all 6 policies). Closing this needs M4 to emit firewall-role device nodes; tracked as the M6b→M4 dependency in issue #6 (milestone M6c). **Closed by M6c scope A (PR #7 — M4 now emits firewall-role nodes, fixing the topology/fallback path) + M6c scope B (provenance attribution as the primary, transit-robust path; below).**
+- **M4↔M6b name-bridge gap (live finding):** `explain_access` attaches configured rules to a path via M4 `enforcement_points`, which only returns graph nodes with `kind=="device"` AND `attrs.role=="firewall"`. M4 currently models **0** such nodes, so live `explain_access` on real transit pairs returns `configured_basis:no_path_firewall` and `coverage.configured:0` even though the configured side is correct (direct `configured_policies_for_firewalls(["panosvm","vsrx-br05"])` returns all 6 policies). Closing this needs M4 to emit firewall-role device nodes; tracked as the M6b→M4 dependency in issue #6 (milestone M6c). **Closed by M6c scope A (PR #7 — M4 now emits firewall-role nodes, fixing the topology/fallback path) + M6c scope B (provenance attribution as the primary, transit-robust path; below).**
 
 ### M6c scope B (provenance firewall attribution — observer_hostname → explain_access)
 - Apply migration: `clickhouse-client < infra/clickhouse/006_observer_hostname.sql` (idempotent `ADD COLUMN IF NOT EXISTS observer_hostname LowCardinality(String)` on `ssdf.events`).
@@ -139,9 +141,9 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
 - entity unit tests (flow-agg `observer_hosts` + edge attr): `cd services/entity && uv run pytest -m "not integration"`.
 - mcp-query unit tests (provenance-primary attribution): `cd services/mcp-query && uv run pytest -m "not integration"`.
 - **Mechanism:** the firewall that *logged* a flow is by definition on its path. `observer_hostname` (ECS `observer.hostname`) is normalized at ingest (both `srx_ecs` + `panos_ecs` transforms emit `string(parsed.hostname)`); the entity resolver collects it per pair via `groupUniqArray(observer_hostname)` in `build_flow_agg_sql` and merges it onto the `COMMUNICATED_WITH` edge as a comma-set `observer_hosts`; `explain_access` reads `observer_hosts` first → `firewall_basis:provenance`, falling back to M4 `enforcement_points` only when absent (`firewall_basis:topology`/`no_path_firewall`). New response field: `firewall_basis`.
-- **Live proof:** resolve the client by an identifier that lands on the flow-owning asset (`explain_access("203.0.113.1"` server, client = the MAC/asset that owns the flow) → `firewall_basis:provenance`, `firewalls:[vSRX-test10]`, `coverage.configured:1`).
-- **Proof caveat (pre-existing M6a duplication):** an IP that sometimes binds a MAC (M4 topo) and sometimes doesn't yields TWO Asset entities; `find_entity` orders `last_seen DESC LIMIT 1`, so a by-IP lookup can return a stale ip-only asset whose edge lacks `observer_hosts`. This is M6a's IP-vs-MAC identity split, not a scope-B defect. vSRX-test10 is the live-proven path.
-- **Provenance suffix normalization (M6c-B follow-up):** `explain_access` normalizes each `observer_hosts` value to its first DNS label (`access_tools._short_host` — case-preserved, IPv4/IPv6-guarded) before matching Firewall entities, so PAN-OS `panosvm.example.com` bridges to `device_name=panosvm`. vSRX (`vSRX-test10`, dot-free) is a no-op, so the live-proven path is unchanged. Side effect: the `firewalls` response field is now vendor-consistent (short device names for both vendors). Unit-proven (`test_short_host`, `test_explain_access_provenance_normalizes_panos_fqdn`, `test_explain_access_provenance_preserves_mixed_case_short_name`); NOT yet live-proven end-to-end — no PAN-OS transit flow exists in the lab (same M5/M6c-B carve-out). Spec: `docs/superpowers/specs/2026-06-10-ssdf-panos-provenance-suffix-normalization-design.md`.
+- **Live proof:** resolve the client by an identifier that lands on the flow-owning asset (`explain_access("203.0.113.1"` server, client = the MAC/asset that owns the flow) → `firewall_basis:provenance`, `firewalls:[vsrx-br05]` (now vsrx-br05), `coverage.configured:1`).
+- **Proof caveat (pre-existing M6a duplication):** an IP that sometimes binds a MAC (M4 topo) and sometimes doesn't yields TWO Asset entities; `find_entity` orders `last_seen DESC LIMIT 1`, so a by-IP lookup can return a stale ip-only asset whose edge lacks `observer_hosts`. This is M6a's IP-vs-MAC identity split, not a scope-B defect. vsrx-br05 (now vsrx-br05) is the live-proven path.
+- **Provenance suffix normalization (M6c-B follow-up):** `explain_access` normalizes each `observer_hosts` value to its first DNS label (`access_tools._short_host` — case-preserved, IPv4/IPv6-guarded) before matching Firewall entities, so PAN-OS `panosvm.example.com` bridges to `device_name=panosvm`. vSRX (`vsrx-br05` (now vsrx-br05), dot-free) is a no-op, so the live-proven path is unchanged. Side effect: the `firewalls` response field is now vendor-consistent (short device names for both vendors). Unit-proven (`test_short_host`, `test_explain_access_provenance_normalizes_panos_fqdn`, `test_explain_access_provenance_preserves_mixed_case_short_name`); NOT yet live-proven end-to-end — no PAN-OS transit flow exists in the lab (same M5/M6c-B carve-out). Spec: `docs/superpowers/specs/2026-06-10-ssdf-panos-provenance-suffix-normalization-design.md`.
 
 ### M7a (classification + multi-principal auth + audit — ssdf-mcp-query hardening)
 - Unit tests: `cd services/mcp-query && uv run pytest -m "not integration"` (adds classification/auth/audit/wrapper/server-audit suites).
@@ -165,7 +167,7 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
 ### P0 ingest hardening (H1 nftables allow-list + H2 observer_hostname device gate)
 - Security-review P0 fixes from `docs/security/2026-06-10-vulnerability-review.md` (findings H1+H2); spec `docs/superpowers/specs/2026-06-10-ssdf-p0-ingest-hardening-design.md`, plan `docs/superpowers/plans/2026-06-10-ssdf-p0-ingest-hardening.md`. PR #15 (merged `0156368`); both DEPLOYED + verified live on ct102 2026-06-10.
 - **H1 (nftables source allow-list on the ingest host):** apply with `./scripts/apply_ct102_nftables.sh` (idempotent; env `PVE_HOST_SSH` default `root@pve3.example.com`, `SSDF_VECTOR_CTID` default `102`). Rule file `infra/firewall/ct102-ingest.nft` → pushed to ct102 `/etc/nftables.d/ssdf-ingest.nft`; dedicated `inet ssdf_ingest` table accepts UDP 514/515 only from `198.51.100.220-198.51.100.242` (vSRX test fleet + panosvm .225) and drops everything else on those ports. Base chain `policy accept` ⇒ all other traffic passes; the default `inet filter` table is untouched. Flat /24 LAN means interface-binding can't isolate senders, so source-IP filtering is required. Verify: `ssh root@pve3.example.com "pct exec 102 -- nft list table inet ssdf_ingest"` shows both rules; `include "/etc/nftables.d/ssdf-ingest.nft"` in `/etc/nftables.conf` makes it reboot-persistent. Revert: `nft delete table inet ssdf_ingest`.
-- **H2 (known-device gate, both VRL transforms):** `srx_ecs` + `panos_ecs` in `infra/vector/vector.toml` now gate `observer_hostname` — normalize the syslog HOSTNAME to its first DNS label, lowercase **for the membership test only**, accept iff `panosvm` (exact) or regex `^vsrx-test\d`, else blank to `""`. **Stored value keeps original case** so the M6c-B `vSRX-test10` exact-match provenance bridge in `explain_access` is intact. Defense-in-depth for spoofed-but-source-allowed packets. Tests (run on ct102): `vector test infra/vector/vector.toml` — 14/14 incl. `srx_observer_hostname_unknown_is_blanked`, `panos_observer_hostname_unknown_is_blanked` (unknown HOSTNAME ⇒ `observer_hostname==""`) plus regression that known hosts pass through.
+- **H2 (known-device gate, both VRL transforms):** `srx_ecs` + `panos_ecs` in `infra/vector/vector.toml` now gate `observer_hostname` — normalize the syslog HOSTNAME to its first DNS label, lowercase **for the membership test only**, accept iff `panosvm` (exact) or regex `^vsrx-test\d`, else blank to `""`. **Stored value keeps original case** so the M6c-B `vsrx-br05` (now vsrx-br05) exact-match provenance bridge in `explain_access` is intact. Defense-in-depth for spoofed-but-source-allowed packets. Tests (run on ct102): `vector test infra/vector/vector.toml` — 14/14 incl. `srx_observer_hostname_unknown_is_blanked`, `panos_observer_hostname_unknown_is_blanked` (unknown HOSTNAME ⇒ `observer_hostname==""`) plus regression that known hosts pass through.
 - **H2 live deploy (gated on ClickHouse being reachable):** Vector's CH-sink healthcheck fails if ct104 is down, so deploy when CH is up. Push the updated toml, `vector validate /etc/vector/vector.toml.new` (CH healthcheck must pass), back up the old config, `mv` into place, `systemctl restart vector.service`, confirm `active` + both UDP sources listening. Vector config path on ct102 is `/etc/vector/vector.toml`; env drop-in sets `CH_HOST` + `VECTOR_CONFIG`.
 - **Remaining review backlog:** ALL CLOSED — P1 (M1/M3/M4/M5/M6) via PR #16 (deployed 2026-06-11/12), M2 + L1–L6 via the edge-hardening batch below. See STATUS.md "Security hardening backlog".
 
@@ -198,7 +200,7 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
 - **Lab transit traffic (Phase 2, 2026-06-15):** TWO Alpine endpoints run the shared
   `scripts/labgen_endpoint.sh` daemon (OpenRC service `labgen`, not cron — it self-loops
   ~30s jittered) so BOTH firewalls stay continuously live-proven as SSDF transit sources:
-  ct198 `ssdf-ep-srx` (10.74.12.20/24, gw 10.74.12.1) behind vSRX-Production trust VLAN 198,
+  ct198 `ssdf-ep-srx` (10.74.12.20/24, gw 10.74.12.1) behind vsrx-prod (now vsrx-prod) trust VLAN 198,
   and ct199 `ssdf-ep-panos` (10.74.11.20/24, gw 10.74.11.1) behind panosvm trust VLAN 199.
   Trust VLANs are Proxmox-only bridge tags on vmbr1 (VLAN id = endpoint CTID, no UniFi net
   object). The generator produces permitted internet egress PLUS a deliberate denied DNS
@@ -208,9 +210,9 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
   ct198/ct199 without replacing the source; neither is in the weekly backup job (reproducible
   from the runbooks). The old single-vendor ct115 (`labgen_transit.sh`, cron) was retired.
 - **H2 device gate broadened (Phase 2):** the `infra/vector/vector.toml` observer_hostname
-  gate now accepts `^vsrx-(test\d|production)` (was test-fleet-only), so vSRX-Production's
-  RT_FLOW events carry `observer_hostname=vSRX-Production` (original case preserved for the
-  `explain_access` `device:vSRX-Production` provenance bridge). Unknown hosts still blank.
+  gate now accepts `^vsrx-(test\d|production)` (was test-fleet-only), so vsrx-prod's (now vsrx-prod)
+  RT_FLOW events carry `observer_hostname=vsrx-prod` (original case preserved for the
+  `explain_access` `device:vsrx-prod` provenance bridge). Unknown hosts still blank.
 
 ### M8 (agent evals — services/evals, SSDF side only)
 - Unit tests + corpus lint: `cd services/evals && uv run pytest -m "not integration"`
@@ -250,7 +252,7 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
 - **`topology_snapshot(role=…, kind=…)` filter** (additive): when role/kind set, selects nodes **directly** from `{schema}.graph_nodes FINAL` via `build_nodes_by_attr_sql`/`nodes_by_attr` (current-state inventory, NO time window), then restricts edges to surviving nodes. MUST bypass `load_subgraph` — it derives nodes FROM edges, so isolated firewall `device_inventory` nodes (0 edges) are invisible to it (live-found, masked by unit stubs).
 - **Live-found deploy fixes (caught only post-deploy):** (1) `observed_by` `TYPE_MISMATCH` — `ssdf.events.timestamp` is `DateTime64(3,'UTC')` and rejects a raw ISO `+00:00` String cast ⇒ the window bound is wrapped `parseDateTimeBestEffort({since:String})` in `build_observers_for_ips_sql`. (NB: `alerts_for_pair`'s raw `{since:String}` is the same latent pattern — not yet tripped because its callers pass a compatible form.) (2) the `topology_snapshot` isolated-node bug above.
 - **Live dependency — panosvm VMID 900:** paloalto ingest (and therefore `observed_by` for panosvm-side IPs + any panos-based eval question) goes stale whenever the panosvm VM is **stopped**. It was found stopped mid-eval; operator restart resumed ingest within ~minutes. VMID 900 is on the `~/.claude/CLAUDE.md` NEVER-TOUCH list — flag to the operator rather than starting/stopping it.
-- **Corpus follow-through (`services/evals`):** `configured_policies`+`observed_by` added to `corpus.py` `SOVEREIGN_TOOLS`; `golden/core.yaml` re-points `topo-locate-labgen` to `observed_by` (short-label reference SQL) and `reach-configured-policy-count-panosvm` `required_tools` to `[configured_policies]` (its predicate already matched; only the tool-check needed updating once the model correctly routed to the new tool). `topo-firewall-inventory` expectation `[panosvm, vSRX-test10]` was live-verified correct and kept UNCHANGED (the original spec premise that vSRX-Production should appear was wrong — only those two are `kind=device, attrs.role=firewall`).
+- **Corpus follow-through (`services/evals`):** `configured_policies`+`observed_by` added to `corpus.py` `SOVEREIGN_TOOLS`; `golden/core.yaml` re-points `topo-locate-labgen` to `observed_by` (short-label reference SQL) and `reach-configured-policy-count-panosvm` `required_tools` to `[configured_policies]` (its predicate already matched; only the tool-check needed updating once the model correctly routed to the new tool). `topo-firewall-inventory` expectation was originally `[panosvm, vSRX-test10]` (now vsrx-br05), live-verified correct (the original spec premise that vSRX-Production should appear was wrong — only those two are `kind=device, attrs.role=firewall`).
 - Deploy = sync `services/mcp-query/src` to ct106 `/opt/src/mcp-query/src` + `systemctl restart ssdf-mcp-query.service` (editable install). Backup before: ct106 `/root/m12-backup-*`.
 
 ### M7c (public de-identified metrics tier — services/public-metrics + metric MCP tools)
@@ -294,7 +296,7 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
   vendor MCP op-commands (NO SNMP, no device-side log enablement). A 5th ct109 poller role.
 - Unit tests: `cd services/health && uv run pytest -m "not integration"`; live:
   `CH_HOST=… CH_PORT=8443 CH_SECURE=1 CH_CA_FILE=… CH_USER=ssdf_health CH_PASSWORD=<pw>
-  JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… JUNOS_DEVICES=… PANOS_MCP_URL=… PANOS_MCP_TOKEN=…
+  JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… JUNOS_DEVICES=vsrx-br05 PANOS_MCP_URL=… PANOS_MCP_TOKEN=…
   PROXMOX_MCP_URL=… UNIFI_MCP_URL=… UNIFI_DEVICE_MACS=… uv run pytest -m integration`.
 - One pass: `cd services/health && uv run python -m ssdf_health.collect_main`.
 - Apply migrations: `HEALTH_TTL_DAYS=30 envsubst < infra/clickhouse/014_health_metrics.sql

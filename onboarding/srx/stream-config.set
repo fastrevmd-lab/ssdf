@@ -7,8 +7,8 @@
 # Junos defaults to UTC when `system time-zone` is unset — verify before
 # onboarding with `show system uptime` (expect "Current time: ... UTC") and do
 # NOT set a non-UTC `set system time-zone`.
-# Verified 2026-06-12 on vSRX-test10: no time-zone configured, clock UTC.
-# Substitutions (as-built 2026-06-06, vSRX-test10):
+# Verified 2026-06-12 on vsrx-br05: no time-zone configured, clock UTC.
+# Substitutions (as-built 2026-06-06, vsrx-br05):
 #   <srx-data-plane-ip> = 198.51.100.160  (ge-0/0/0.0 — stream logs source from the data plane, NOT fxp0)
 #   <vector-host-ip>    = 198.51.100.150  (ssdf-vector LXC 102, UDP/514)
 set security log mode stream
