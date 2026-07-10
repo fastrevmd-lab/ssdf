@@ -1,0 +1,36 @@
+name: mcp-query CI
+
+on:
+  pull_request:
+    paths:
+      - "services/mcp-query/**"
+      - ".github/workflows/mcp-query-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/mcp-query/**"
+      - ".github/workflows/mcp-query-ci.yml"
+
+concurrency:
+  group: mcp-query-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (unit, no live ClickHouse)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/mcp-query
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync deps (incl. dev)
+        run: uv sync --extra dev
+      - name: Unit tests
+        # Integration tests (@pytest.mark.integration) need a live ClickHouse and
+        # are deselected here; they run against the real fabric on ct106.
+        run: uv run pytest tests/ -m "not integration" -q
