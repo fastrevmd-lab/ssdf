@@ -39,3 +39,9 @@ infra/tls-local/
 # Local MCP client config (bearer tokens)
 .mcp.json
 .claude/settings.local.json
+.direnv/
+coverage/
+dist/
+build/
+*.agekey
+*.decrypted.*
