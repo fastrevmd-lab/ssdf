@@ -117,7 +117,7 @@ class AlertTools:
 
     def recent_alerts(
         self,
-        since: str = "24 hours ago",
+        since: str = "now-24h",
         min_severity: str = "high",
         providers: str = "",
         limit: int = 500
@@ -125,7 +125,7 @@ class AlertTools:
         """Return recent alert-class events with normalized severity.
 
         Args:
-            since: time window start (default "24 hours ago")
+            since: time window start (ISO-8601 or relative "now-24h" style, default "now-24h")
             min_severity: minimum severity to include (critical|high|medium|low)
             providers: comma-separated provider filter, or empty for all
             limit: max results (default 500, clamped to 2000)

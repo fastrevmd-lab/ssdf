@@ -189,12 +189,12 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         entity:null. Never registered on the public tier."""
         return metrics.reidentify(surrogate)
 
-    def recent_alerts(since: str = "24 hours ago", min_severity: str = "high",
+    def recent_alerts(since: str = "now-24h", min_severity: str = "high",
                       providers: str = "", limit: int = 500) -> dict:
         """Alert-class events (IPS detections, threat logs, high-severity syslog)
         with severity normalized across providers to critical/high/medium/low.
         `min_severity` filters at or above; `providers` is a CSV of event_provider
-        values; times accept ISO-8601 or relative. Returns {rows, row_count, truncated}."""
+        values; times accept ISO-8601 or relative "now-24h" style. Returns {rows, row_count, truncated}."""
         return alert_tools.recent_alerts(since=since, min_severity=min_severity,
                                          providers=providers, limit=limit)
 

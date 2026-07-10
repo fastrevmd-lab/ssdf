@@ -113,3 +113,20 @@ def test_recent_alerts_not_registered_public(monkeypatch):
     tools = asyncio.run(app.list_tools())
     tool_names = {t.name for t in tools}
     assert "recent_alerts" not in tool_names
+
+
+def test_recent_alerts_with_all_defaults():
+    """Default since must parse cleanly (was '24 hours ago', crashes with parse_time)."""
+    from ssdf_mcp_query.alerts import AlertTools
+
+    # Fake CH runner that captures the query params
+    class FakeCH:
+        def run(self, sql, params):
+            # If parse_time crashes on the default, we never get here
+            assert "since" in params  # parse_time succeeded
+            return {"columns": [], "rows": [], "row_count": 0}
+
+    tools = AlertTools(FakeCH())
+    # Call with ALL DEFAULTS — since default flows through build_recent_alerts_sql/parse_time
+    result = tools.recent_alerts()
+    assert result["row_count"] == 0  # no rows, but no crash
