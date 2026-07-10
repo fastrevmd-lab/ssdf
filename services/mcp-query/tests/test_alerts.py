@@ -1,5 +1,10 @@
 # tests/test_alerts.py
+import os
 import pytest
+
+os.environ.setdefault("CH_PASSWORD", "x")
+os.environ.setdefault("MCP_AUTH_TOKEN", "t")
+
 from ssdf_mcp_query.alerts import normalize_severity, build_recent_alerts_sql
 
 
@@ -76,3 +81,35 @@ def test_recent_alerts_includes_pan_threat_row():
     assert row["severity"] == "critical"
     assert row["severity_num"] == 4
     assert row["provider"] == "paloalto"
+
+
+def test_recent_alerts_is_registered_sovereign(monkeypatch):
+    """recent_alerts must be registered on sovereign tier only."""
+    import asyncio
+    import ssdf_mcp_query.server as server
+
+    class _Dummy:
+        def __init__(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(server, "ClickHouseClient", _Dummy)
+    app = server.build_app()
+    tools = asyncio.run(app.list_tools())
+    tool_names = {t.name for t in tools}
+    assert "recent_alerts" in tool_names
+
+
+def test_recent_alerts_not_registered_public(monkeypatch):
+    """recent_alerts must NEVER appear on the public tier (security_log class)."""
+    import asyncio
+    import ssdf_mcp_query.server as server
+
+    class _Dummy:
+        def __init__(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(server, "ClickHouseClient", _Dummy)
+    app = server.build_app(tier="public")
+    tools = asyncio.run(app.list_tools())
+    tool_names = {t.name for t in tools}
+    assert "recent_alerts" not in tool_names

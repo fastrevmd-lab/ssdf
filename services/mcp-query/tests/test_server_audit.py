@@ -9,8 +9,8 @@ EXPECTED_TOOLS = {
     "query_flows", "describe_schema", "top_talkers", "run_sql", "get_entity",
     "locate", "neighbors", "find_path", "enforcement_points",
     "topology_snapshot", "explain_access", "configured_policies", "observed_by",
-    "ingest_status", "metric_timeseries", "top_series", "entity_metric_timeseries",
-    "reidentify",
+    "ingest_status", "recent_alerts", "metric_timeseries", "top_series",
+    "entity_metric_timeseries", "reidentify",
 }
 
 
