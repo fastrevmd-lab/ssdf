@@ -496,6 +496,30 @@ if cerr != null {
         dp = to_int(doc.dpt) ?? null
         if dp != null { ev.destination_port = dp }
 
+        # Endpoint IPs. UniFi CEF carries the destination as `dst` (a real IP) on
+        # the subset of IPS detections where it is known; the source is identified
+        # by client MAC/alias (ext.unifi.src_*), not an IP, so `source_ip` is only
+        # set on the rare event that does carry a CEF `src`. MAC->IP resolution for
+        # the source is left to the entity/topology layer. Without this mapping
+        # every IPS detection lands with source_ip/destination_ip NULL, so
+        # downstream path attribution (explain_access) can't run on IPS events.
+        # source_ip/destination_ip are ClickHouse Nullable(IPv4); guard with an
+        # IPv4 check and route anything else (e.g. IPv6) to ext, mirroring the
+        # proxmox auth handler below — a non-v4 value would fail the IPv4 insert.
+        # Strict, octet-bounded IPv4 match (rejects e.g. 999.999.999.999, which a
+        # loose \d{1,3} pattern would pass and then fail the IPv4 column insert).
+        # Regex inlined as a literal (parse_regex requires a literal pattern).
+        dst_ip = string(doc.dst) ?? ""
+        if dst_ip != "" {
+            _d4, _d4e = parse_regex(dst_ip, r'^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$')
+            if _d4e == null { ev.destination_ip = dst_ip } else { ext = set!(ext, ["unifi.dst_addr"], dst_ip) }
+        }
+        src_ip = string(doc.src) ?? ""
+        if src_ip != "" {
+            _s4, _s4e = parse_regex(src_ip, r'^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$')
+            if _s4e == null { ev.source_ip = src_ip } else { ext = set!(ext, ["unifi.src_addr"], src_ip) }
+        }
+
         # bytes: sent = source->dest, received = dest->source, total = network_bytes
         sb = to_int(doc.UNIFIbytesSent) ?? null
         rb = to_int(doc.UNIFIbytesReceived) ?? null
@@ -1358,6 +1382,27 @@ assert_eq!(.ext."unifi.session_id", "1190371755462149")
 assert_eq!(.ext."unifi.src_zone", "Internal")
 assert_eq!(.ext."unifi.dst_zone", "External")
 assert_eq!(.ext."unifi.dst_region", "US")
+'''
+
+# Same detection shape but WITH a CEF `dst=` extension (destination IP present,
+# as ~20% of live IPS detections carry). Verifies the dst -> destination_ip
+# mapping; source stays unset because UniFi identifies it by client MAC/alias.
+[[tests]]
+name = "unifi_cef_scan_with_dst_maps_destination_ip"
+[[tests.inputs]]
+insert_at = "unifi_ips"
+type = "raw"
+value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus HarmanHoldfast proto=TCP spt=38738 dpt=22 act=allowed app=SSH UNIFIrisk=medium UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing deviceOutboundInterface=Internet 1 UNIFIdeviceMac=02:00:01:27:fb:2b UNIFIdeviceName=Gateway Max UNIFIdeviceModel=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIdeviceVersion=5.0.16 dst=192.0.2.1 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcClientModel=Windows PC UNIFIsrcZone=Internal UNIFIdstClientAlias=02:00:01:27:fb:2c UNIFIdstClientMac=02:00:01:27:fb:2c UNIFIdstRegion=US UNIFIdstZone=External UNIFItotalBytes=74 UNIFItotalPackets=1 UNIFIpacketsReceived=0 UNIFIpacketsSent=1 UNIFIbytesReceived=0 UNIFIbytesSent=74 UNIFIflowCount=1 UNIFIflowId=null UNIFIflowStartTime=Jun 14, 2026 at 7:48:50.822 PM UNIFIipsSessionId=1190371755462149 UNIFIipsSignature=ET SCAN Potential SSH Scan OUTBOUND UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z msg=A network intrusion attempt from ssdf-vector to 02:00:01:27:fb:2c has been detected.'
+[[tests.outputs]]
+extract_from = "unifi_ips"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.destination_ip, "192.0.2.1")
+assert!(!exists(.source_ip))
+assert_eq!(.destination_port, 22)
+assert_eq!(.event_provider, "unifi")
+assert_eq!(.ext."unifi.ips.signature", "ET SCAN Potential SSH Scan OUTBOUND")
 '''
 
 [[tests]]
