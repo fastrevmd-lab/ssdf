@@ -29,3 +29,50 @@ def test_sql_filters_min_severity_and_providers():
                                           providers="unifi,paloalto", limit=10)
     assert "LIMIT" in sql and params["limit"] == 10
     assert "event_provider IN" in sql
+
+
+def test_sql_selects_pan_threat_via_ext_key():
+    """PAN THREAT rows keep event_kind='event', so WHERE must gate on ext key."""
+    sql, _ = build_recent_alerts_sql(since="now-1h", min_severity="high",
+                                     providers="", limit=10)
+    assert "ext['panw.panos.severity'] != ''" in sql
+
+
+def test_recent_alerts_includes_pan_threat_row():
+    """End-to-end: a PAN THREAT row (event_kind='event') must land in results."""
+    from ssdf_mcp_query.alerts import AlertTools
+
+    # Fake CH runner returning one PAN THREAT row
+    class FakeCH:
+        def run(self, sql, params):
+            return {
+                "columns": ["event_id", "timestamp", "event_provider", "event_kind",
+                            "rule_name", "source_ip", "source_port", "destination_ip",
+                            "destination_port", "observer_hostname", "observer_ingress_zone",
+                            "observer_egress_zone", "ext"],
+                "rows": [{
+                    "event_id": "abc123",
+                    "timestamp": "2026-07-09T12:00:00+00:00",
+                    "event_provider": "paloalto",
+                    "event_kind": "event",  # PAN THREAT logs keep event_kind="event"
+                    "rule_name": "test-rule",
+                    "source_ip": "10.65.1.1",
+                    "source_port": 12345,
+                    "destination_ip": "10.66.2.2",
+                    "destination_port": 443,
+                    "observer_hostname": "panosvm",
+                    "observer_ingress_zone": "trust",
+                    "observer_egress_zone": "untrust",
+                    "ext": {"panw.panos.severity": "critical", "panw.panos.threat_id": "30001"}
+                }],
+                "row_count": 1
+            }
+
+    tools = AlertTools(FakeCH())
+    result = tools.recent_alerts(since="now-1h", min_severity="high", providers="", limit=10)
+
+    assert result["row_count"] == 1
+    row = result["rows"][0]
+    assert row["severity"] == "critical"
+    assert row["severity_num"] == 4
+    assert row["provider"] == "paloalto"

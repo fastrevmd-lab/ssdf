@@ -14,9 +14,8 @@ SEVERITY_NUM = {"critical": 4, "high": 3, "medium": 2, "low": 1}
 # - Line 94 (srx_ecs RT_SCREEN): event_kind = "alert"
 # - Line 472 (unifi_ips): ev.event_kind = "alert"
 # PAN-OS THREAT logs do NOT set event_kind="alert" — they stay "event" but have
-# category ["network","intrusion_detection"]. For now, ALERT_KINDS covers only
-# the explicit alert rows; if PAN threat rows need normalization, add "threat"
-# to this tuple or add a category-based gate.
+# category ["network","intrusion_detection"], so the WHERE clause gates on the
+# ext key (panw.panos.severity) to select them.
 ALERT_KINDS = ("alert",)
 
 # PAN severity ext key pinned from vector.toml line 342:
@@ -88,10 +87,10 @@ def build_recent_alerts_sql(since: str, min_severity: str, providers: str, limit
     params = {"since": parse_time(since), "limit": max(1, min(int(limit), 2000))}
 
     # Alert-class gate: explicit event_kind IN (alert) OR has UniFi IPS signature
-    # (UniFi detections carry the signature in ext; the event_kind is already "alert")
+    # OR has PAN severity ext key (PAN THREAT logs keep event_kind='event')
     where = [
         "timestamp >= %(since)s",
-        "(event_kind IN %(kinds)s OR ext['unifi.ips.signature'] != '')"
+        "(event_kind IN %(kinds)s OR ext['unifi.ips.signature'] != '' OR ext['panw.panos.severity'] != '')"
     ]
     params["kinds"] = tuple(ALERT_KINDS)
 
