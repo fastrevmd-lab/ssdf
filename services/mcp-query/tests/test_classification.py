@@ -22,6 +22,7 @@ EXPECTED = {
     "configured_policies": {"firewall_config"},
     "observed_by": {"security_log"},
     "ingest_status": {"security_log"},
+    "recent_alerts": {"security_log"},
     "metric_timeseries": {"metrics"},
     "top_series": {"metrics"},
     "entity_metric_timeseries": {"metrics"},

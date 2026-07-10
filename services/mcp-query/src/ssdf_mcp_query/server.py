@@ -26,6 +26,7 @@ from .access_tools import AccessTools
 from .liveness_tools import LivenessTools
 from .metrics_store import MetricsStore
 from .metric_tools import MetricTools
+from .alerts import AlertTools
 
 
 def build_app(tier: str = "sovereign") -> FastMCP:
@@ -49,6 +50,7 @@ def build_app(tier: str = "sovereign") -> FastMCP:
 
     metrics_store = MetricsStore(client, tenant="t_main")
     metrics = MetricTools(metrics_store)
+    alert_tools = AlertTools(client)
 
     verifier_tokens: dict[str, dict] = {}
     for token, tp in config.tokens.items():
@@ -187,6 +189,15 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         entity:null. Never registered on the public tier."""
         return metrics.reidentify(surrogate)
 
+    def recent_alerts(since: str = "now-24h", min_severity: str = "high",
+                      providers: str = "", limit: int = 500) -> dict:
+        """Alert-class events (IPS detections, threat logs, high-severity syslog)
+        with severity normalized across providers to critical/high/medium/low.
+        `min_severity` filters at or above; `providers` is a CSV of event_provider
+        values; times accept ISO-8601 or relative "now-24h" style. Returns {rows, row_count, truncated}."""
+        return alert_tools.recent_alerts(since=since, min_severity=min_severity,
+                                         providers=providers, limit=limit)
+
     raw_tools = {
         "query_flows": query_flows,
         "describe_schema": describe_schema,
@@ -207,6 +218,7 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         raw_tools["configured_policies"] = configured_policies
         raw_tools["observed_by"] = observed_by
         raw_tools["reidentify"] = reidentify
+        raw_tools["recent_alerts"] = recent_alerts
     if liveness is not None:  # sovereign-only: ingest liveness
         raw_tools["ingest_status"] = ingest_status
     if tier == "public":
