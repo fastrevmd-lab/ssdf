@@ -20,11 +20,6 @@ enabled = true
 enabled_tools = ["get_router_list", "gather_device_facts", "get_junos_config", "junos_config_diff"]
 default_tools_approval_mode = "writes"
 
-[mcp_servers.rust-srxmcp]
-enabled = true
-enabled_tools = ["srxmcp_status", "get_srx_security_services_status", "get_chassis_cluster_status", "vpn_lifecycle_report"]
-default_tools_approval_mode = "writes"
-
 [mcp_servers.panos-mcp]
 enabled = true
 enabled_tools = ["list_devices", "get_pan_config", "pan_config_diff"]
