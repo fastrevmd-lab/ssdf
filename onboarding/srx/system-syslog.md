@@ -13,7 +13,13 @@ clock is **not skewed** (NTP-synced).
 
 ## 1. Device config (forward to Vector ct102 on UDP 518)
 
-Apply via rust-junosmcp (or CLI if debugging):
+**Check which case the device is in FIRST — the routing-instance line is conditional:**
+
+```
+show configuration system management-instance
+```
+
+### Case A — `management-instance;` is configured (fxp0 lives in mgmt_junos)
 
 ```
 set system syslog host 198.51.100.150 any info
@@ -22,13 +28,61 @@ set system syslog host 198.51.100.150 structured-data
 set system syslog host 198.51.100.150 routing-instance mgmt_junos
 ```
 
-**LIVE-FOUND CRITICAL:** `routing-instance mgmt_junos` is **REQUIRED**. fxp0 (the management
-interface) lives in the `mgmt_junos` routing-instance on the live fleet. Without this line,
-the syslog egresses the default routing-instance (where fxp0 is not reachable) and nothing
-reaches Vector. Proven live on vsrx-ci 2026-07-06 — adding the routing-instance line
-immediately unblocked the stream. The legacy RT_FLOW security logs (UDP 514) use stream-mode
-via the data-plane interface (ge-0/0/0, no routing-instance needed), but SYSTEM syslog
-egresses fxp0.
+`routing-instance mgmt_junos` is **required here**. fxp0 lives in the `mgmt_junos`
+routing-instance, so without this line the syslog egresses the default routing-instance
+(where fxp0 is not reachable) and nothing arrives at Vector. Proven live on vsrx-ci
+2026-07-06 — adding the line immediately unblocked the stream.
+
+### Case B — no management-instance (fxp0 lives in the default routing-instance)
+
+```
+set system syslog host 198.51.100.150 any info
+set system syslog host 198.51.100.150 port 518
+set system syslog host 198.51.100.150 structured-data
+```
+
+**Omit the routing-instance line.** With fxp0 in the default instance, 198.51.100.0/24 is
+directly connected in inet.0 and syslog egresses correctly on its own. Adding the line here
+does not merely fail to help — the commit is **rejected** with
+`Routing-instance must be defined`, because `mgmt_junos` does not exist on these devices.
+
+Verified live 2026-07-19 on vsrx-dmz: 7 packets captured on ct102
+(`198.51.100.224.514 > 198.51.100.150.518 SYSLOG auth.info`) with no routing-instance
+configured.
+
+**Which devices are in Case B:** vsrx-dmz, vsrx-campus-a, vsrx-br05, vsrx-br08, vsrx-dc.
+These had `management-instance` removed on 2026-07-19 during the Recovery Mode recovery
+(see the caution below). The rest of the fleet remains Case A.
+
+### Caution: do NOT pin the dynamic-address feed-server to mgmt_junos
+
+Related trap in the same area. This line is **boot-fatal** and must never be committed:
+
+```
+set security dynamic-address feed-server <name> routing-table mgmt_junos.inet   # DO NOT
+```
+
+A `routing-table` reference requires its routing-instance to already exist at validation
+time. Committed interactively it validates fine, because mgmt_junos was committed earlier.
+But at boot Junos validates the whole config in a single pass, fails with
+`Error routing table mgmt_junos.inet cannot find`, **auto-activates Recovery Mode, and rolls
+the device back** to the last config that loads — silently discarding everything since.
+
+This took down 19 fleet devices on 2026-07-10 when pve3 rebooted; the bad line had been
+committed on 07-04 and sat dormant for six days. Devices reverted past the m14 fleet rename
+and dropped off their inventory addresses entirely, requiring console recovery.
+
+Symptom to look for: `show system commit` showing `Junos has activated Recovery Mode` a
+minute or two after boot. Upstream skill bug: fwskillsshare#18.
+
+If feeds need to reach a feed server over fxp0, remove `management-instance` instead so
+fxp0 sits in the default instance (Case B) — that is what the five Case B devices did, and
+their feeds work.
+
+### Both cases
+
+The legacy RT_FLOW security logs (UDP 514) use stream-mode via the data-plane interface
+(ge-0/0/0, no routing-instance needed) regardless of case; only SYSTEM syslog egresses fxp0.
 
 ## 2. Verify on the wire
 On ct102:  tcpdump -n -A -i any udp port 518 -c 20
