@@ -13,9 +13,18 @@
 # Target defaults track the 2026-08-12 renumber+migration (ct102/pve3 -> 700/pve2);
 # override PVE_HOST_SSH / SSDF_VECTOR_CTID if the guest moves again.
 #
-# Rollback: ssh $PVE_HOST "pct exec $CTID -- nft delete table inet ssdf_ingest"
-# and remove the include line from /etc/nftables.conf. The dedicated table is
-# separate from the default `inet filter`, so removing it cannot disturb other rules.
+# Rollback (all three steps — deleting only the live table is NOT a rollback,
+# because the include and drop-in survive and the next nftables reload or reboot
+# recreates the table):
+#   ssh $PVE_HOST "pct exec $CTID -- sh -c '
+#     nft delete table inet ssdf_ingest
+#     sed -i \"\\|ssdf-ingest.nft|d\" /etc/nftables.conf
+#     rm -f /etc/nftables.d/ssdf-ingest.nft'"
+# Then verify it is gone and stays gone:
+#   nft list table inet ssdf_ingest   # must report: No such file or directory
+#   grep ssdf-ingest /etc/nftables.conf   # must return nothing
+# The dedicated table is separate from the default `inet filter`, so removing it
+# cannot disturb other rules.
 set -eu
 
 APPLY=0
@@ -69,4 +78,12 @@ ssh "$PVE_HOST" "pct exec $CTID -- sh -c '
 # Verify the table loaded.
 echo "=== ssdf_ingest table on guest $CTID ==="
 ssh "$PVE_HOST" "pct exec $CTID -- nft list table inet ssdf_ingest"
-echo "Rollback: ssh $PVE_HOST \"pct exec $CTID -- nft delete table inet ssdf_ingest\""
+cat <<ROLLBACK
+=== rollback (all three steps; the live table alone is not enough) ===
+  ssh $PVE_HOST "pct exec $CTID -- sh -c '
+    nft delete table inet ssdf_ingest
+    sed -i \"\\|ssdf-ingest.nft|d\" /etc/nftables.conf
+    rm -f $RULE_DST'"
+  verify: nft list table inet ssdf_ingest   # expect: No such file or directory
+  verify: grep ssdf-ingest /etc/nftables.conf   # expect: no output
+ROLLBACK
