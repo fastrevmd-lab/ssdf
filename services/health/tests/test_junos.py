@@ -118,3 +118,32 @@ def test_collect_stops_probing_a_device_that_is_unreachable():
 
     assert gauges == []
     assert len(calls) == 1, "unreachable device should not be probed twice"
+
+
+def test_collect_treats_a_timeout_as_unreachable():
+    """A timeout is a down device, not a bad command.
+
+    Most of the lab fleet is powered off and fails with 'operation timed out'
+    rather than a transport error. Probing twice per dead device can exhaust the
+    unit's RuntimeMaxSec=600 before later devices or collectors ever run.
+    """
+    from ssdf_health.collectors.junos import JunosCollector
+
+    calls: list[str] = []
+
+    class _TimingOutClient:
+        def call_tool(self, name, args=None):
+            calls.append((args or {}).get("command", ""))
+            raise RuntimeError("netconf error: operation timed out after 30s")
+
+    gauges = JunosCollector(["vsrx-down"]).collect(_TimingOutClient(), "2026-08-19T00:00:00Z")
+
+    assert gauges == []
+    assert len(calls) == 1, "a timed-out device must not be probed a second time"
+
+
+def test_host_key_mismatch_is_unreachable():
+    """Stale known_hosts is a reachability problem, and the docstring says so."""
+    from ssdf_health.collectors.junos import _is_unreachable
+
+    assert _is_unreachable(RuntimeError("netconf error: host key mismatch for 198.51.100.235"))

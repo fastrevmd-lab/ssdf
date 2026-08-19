@@ -56,16 +56,32 @@ def parse_environment(text: str, device: str, now: str) -> list[Gauge]:
     return gauges
 
 
+# Substrings that mean "this device is not answering", as opposed to "this
+# command is not supported here". rust-junosmcp usually prefixes reachability
+# problems with "transport error", but a powered-off device commonly surfaces as
+# a bare timeout, and a stale known_hosts entry as a bare host-key mismatch.
+_UNREACHABLE_MARKERS = (
+    "transport error",
+    "connection failed",
+    "connection refused",
+    "no route to host",
+    "host key mismatch",
+    "timed out",
+    "timeout",
+)
+
+
 def _is_unreachable(exc: Exception) -> bool:
     """True if the error means the device is down rather than the command bad.
 
-    rust-junosmcp surfaces reachability problems as "netconf error: transport
-    error: ..." (connection refused, no route to host, host key mismatch). Those
-    are worth short-circuiting; a command the platform simply does not support
-    is not, because the device's other probes may still answer.
+    Short-circuiting matters for cost, not just tidiness: most of the lab fleet is
+    powered off, and probing every command against every dead device can exhaust
+    the unit's RuntimeMaxSec=600 before later devices or collectors run. A command
+    the platform simply does not support is NOT unreachable — the device's other
+    probes may still answer.
     """
     text = str(exc).lower()
-    return "transport error" in text or "connection failed" in text
+    return any(marker in text for marker in _UNREACHABLE_MARKERS)
 
 
 @register("junos")
