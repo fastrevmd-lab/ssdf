@@ -6,9 +6,13 @@ policies (`... global policy NAME ...`, whose zones appear as `match from-zone/t
 
 from __future__ import annotations
 
+import logging
+
 import re
 
 from .base import register
+
+logger = logging.getLogger(__name__)
 
 PROVIDER = "juniper"
 _ACTION_MAP = {"permit": "allow", "deny": "deny", "reject": "reject"}
@@ -99,12 +103,24 @@ class JunosPolicyCollector:
         self.devices = devices or []
 
     def collect(self, client, now: str) -> list[dict]:
+        """Read each device's configured policy, skipping ones that fail.
+
+        Per-device resilient: run_collectors catches at collector granularity, so
+        an uncaught error here would discard every other device's rules too.
+        """
         rules: list[dict] = []
         for dev in self.devices:
-            text = client.call_tool(
-                "execute_junos_command",
-                {"router_name": dev,
-                 "command": "show configuration security policies | display set"},
-            )
-            rules.extend(parse_security_policies(text, dev, now))
+            try:
+                text = client.call_tool(
+                    "execute_junos_command",
+                    {"router_name": dev,
+                     "command": "show configuration security policies | display set"},
+                )
+            except Exception:
+                logger.warning("junos device %r unreachable; skipping", dev, exc_info=True)
+                continue
+            try:
+                rules.extend(parse_security_policies(text, dev, now))
+            except Exception:
+                logger.warning("junos %r: policy parse failed; continuing", dev, exc_info=True)
         return rules

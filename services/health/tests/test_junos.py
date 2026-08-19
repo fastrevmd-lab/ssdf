@@ -40,3 +40,110 @@ def test_parse_environment_multi_sensor_temps():
 
 def test_parse_routing_engine_garbage_returns_empty():
     assert parse_routing_engine("nonsense", "d", "2026-06-20T00:00:00Z") == []
+
+
+def test_collect_skips_unreachable_device_and_keeps_the_rest():
+    """One unreachable vSRX must not zero the whole fleet's health gauges."""
+    from ssdf_health.collectors.junos import JunosCollector
+
+    class _FlakyClient:
+        def call_tool(self, name, args=None):
+            args = args or {}
+            if args.get("router_name") == "vsrx-down":
+                raise RuntimeError("netconf error: host key mismatch")
+            return _RE_TEXT if "routing-engine" in args.get("command", "") else _ENV_TEXT
+
+    gauges = JunosCollector(["vsrx-down", "vsrx-up"]).collect(
+        _FlakyClient(), "2026-08-19T00:00:00Z"
+    )
+
+    assert {g.device for g in gauges} == {"vsrx-up"}
+    assert "cpu_util_pct" in {g.metric_name for g in gauges}
+
+
+def test_collect_continues_when_one_command_fails():
+    """A device answering routing-engine but not environment still yields gauges."""
+    from ssdf_health.collectors.junos import JunosCollector
+
+    class _PartialClient:
+        def call_tool(self, name, args=None):
+            args = args or {}
+            if "environment" in args.get("command", ""):
+                raise RuntimeError("unsupported command")
+            return _RE_TEXT
+
+    gauges = JunosCollector(["vsrx-up"]).collect(_PartialClient(), "2026-08-19T00:00:00Z")
+
+    assert {g.metric_name for g in gauges} == {"mem_util_pct", "cpu_util_pct"}
+
+
+def test_collect_still_probes_environment_when_routing_engine_fails():
+    """The two commands are independent; a routing-engine failure must not
+    suppress the temperature probe on a device that is plainly reachable."""
+    from ssdf_health.collectors.junos import JunosCollector
+
+    class _NoRoutingEngineClient:
+        def call_tool(self, name, args=None):
+            args = args or {}
+            if "routing-engine" in args.get("command", ""):
+                raise RuntimeError("unsupported command on this platform")
+            return _ENV_TEXT
+
+    gauges = JunosCollector(["vsrx-up"]).collect(
+        _NoRoutingEngineClient(), "2026-08-19T00:00:00Z"
+    )
+
+    assert {g.metric_class for g in gauges} == {"temperature"}
+    assert {g.device for g in gauges} == {"vsrx-up"}
+
+
+def test_collect_stops_probing_a_device_that_is_unreachable():
+    """A transport failure means the device is down: don't pay a second timeout.
+
+    Most of the lab fleet is powered off, so probing every command against every
+    dead device would push a pass past its 5-minute timer interval.
+    """
+    from ssdf_health.collectors.junos import JunosCollector
+
+    calls: list[str] = []
+
+    class _UnreachableClient:
+        def call_tool(self, name, args=None):
+            calls.append((args or {}).get("command", ""))
+            raise RuntimeError("netconf error: transport error: connection failed")
+
+    gauges = JunosCollector(["vsrx-down"]).collect(
+        _UnreachableClient(), "2026-08-19T00:00:00Z"
+    )
+
+    assert gauges == []
+    assert len(calls) == 1, "unreachable device should not be probed twice"
+
+
+def test_collect_treats_a_timeout_as_unreachable():
+    """A timeout is a down device, not a bad command.
+
+    Most of the lab fleet is powered off and fails with 'operation timed out'
+    rather than a transport error. Probing twice per dead device can exhaust the
+    unit's RuntimeMaxSec=600 before later devices or collectors ever run.
+    """
+    from ssdf_health.collectors.junos import JunosCollector
+
+    calls: list[str] = []
+
+    class _TimingOutClient:
+        def call_tool(self, name, args=None):
+            calls.append((args or {}).get("command", ""))
+            raise RuntimeError("netconf error: operation timed out after 30s")
+
+    gauges = JunosCollector(["vsrx-down"]).collect(_TimingOutClient(), "2026-08-19T00:00:00Z")
+
+    assert gauges == []
+    assert len(calls) == 1, "a timed-out device must not be probed a second time"
+
+
+def test_host_key_mismatch_is_unreachable():
+    """Stale known_hosts is a reachability problem, and the docstring says so."""
+    from ssdf_health.collectors.junos import _is_unreachable
+
+    assert _is_unreachable(RuntimeError("netconf error: host key mismatch for 198.51.100.235"))

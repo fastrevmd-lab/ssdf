@@ -34,7 +34,7 @@ Two principles shape every design decision:
 - **Rust is permitted, not doctrine** — use it where a future component is genuinely
   performance-critical; nothing in SSDF is Rust today. `rust-junosmcp` remains the
   external reference implementation, not part of this repo.
-- Everything runs on Proxmox LXCs (no Docker) on pve3.example.com.
+- Everything runs on Proxmox LXCs (no Docker) on pve2.example.com (see "Deployment coordinates" below; the stack moved off pve3 on 2026-08-12).
 
 ## Architecture (as built)
 
@@ -69,6 +69,42 @@ security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ─�
 - **Provider-agnostic by construction.** Anything that assumes one specific LLM, one storage
   engine, or one SIEM violates the sovereignty principle. Put such choices behind interfaces.
 
+## Deployment coordinates (current — renumbered + migrated 2026-08-12)
+
+**The SSDF stack was renumbered into the 700 band and migrated from pve3 to pve2.**
+The old `ct1xx` VMIDs no longer exist in the cluster. Sections below were written
+against the old numbering and still use the `ct1xx` labels as *names for the same
+guests* — this table is the authority for anything you actually run.
+
+| Role | Current | Old label | Host | IP |
+|---|---|---|---|---|
+| Vector ingest | **700** `ssdf-log-ingest` | ct102 | pve2 | 198.51.100.150 |
+| ClickHouse | **701** `ssdf-event-store` | ct104 | pve2 | 198.51.100.151 |
+| Sovereign MCP | **702** `ssdf-sovereign-mcp` | ct106 | pve2 | 198.51.100.152 |
+| Public MCP | **703** `ssdf-public-mcp` | ct113 | pve2 | 198.51.100.154 |
+| Resolvers (topo/entity/policy/public-metrics/health) | **704** `ssdf-topo` | ct109 | pve2 | 198.51.100.153 |
+| Traffic gen (SRX) | **710** `ssdf-traffic-gen-srx` | ct198 | pve2 | 10.74.12.20 |
+| Traffic gen (PAN-OS) | **711** `ssdf-traffic-gen-panos` | ct199 | pve2 | 10.74.11.20 |
+
+Resolve a guest's node before node-local commands — guests migrate:
+`pvesh get /cluster/resources --type vm`. Reach them as
+`ssh root@pve2.example.com "pct exec <vmid> -- ..."`.
+
+**Vendor MCP endpoints (renamed to prod identities + TLS, 2026-08-15).** The
+collectors on 704 dial these; they are Let's Encrypt certs on LAN DNS, so no CA
+file is needed, but the `--allowed-host` gate means you MUST dial the hostname,
+not the IP:
+
+- Junos: `https://prod-junosmcp.example.com:30031/mcp` (LXC 950) — tool
+  `execute_junos_command(router_name, command)`
+- PAN-OS: `https://prod-panosmcp.example.com:30031/mcp` (LXC 960) — tools
+  `execute_panos_op(device, command)` + `get_panos_config(device)`. These were
+  renamed from `execute_pan_op(host, cmd)` / `get_pan_config(host)`, and
+  `get_panos_config` now nests its payload as `{"output": {"content": "<xml>"}}`.
+
+SSDF's collector tokens are named `ssdf-collector` on both servers, scoped to the
+read-only tools above.
+
 ## Commands
 
 Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
@@ -78,7 +114,7 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 - Validate Vector config: `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`
 - Apply ClickHouse schema: `CH_HOST=<ip> ./scripts/apply_clickhouse_schema.sh`
 - Query events: `clickhouse-client --host <ch-host> --query "SELECT ... FROM ssdf.events ..."`
-- Infra runs on Proxmox LXC (no Docker): ClickHouse=ct104, Vector=ct102 on pve3.example.com.
+- Infra runs on Proxmox LXC (no Docker): ClickHouse=701 (ct104), Vector=700 (ct102) on pve2.example.com.
 - SRX onboarding applied via rust-junosmcp using onboarding/srx/stream-config.set.
 
 ### M2 (MCP query layer — ssdf-mcp-query)
@@ -92,7 +128,7 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
   "headers":{"Authorization":"Bearer <token>"}}`.
 
 ### M3 (PAN-OS ingest — Vector VRL/CSV → ClickHouse)
-- Run Vector unit tests (on ct102 where Vector is installed, not dev host): `ssh root@ct102 "cd /etc/vector && vector test /path/to/vector.toml"` or push the toml and run `vector test infra/vector/vector.toml` remotely.
+- Run Vector unit tests (on ct102 where Vector is installed, not dev host): `ssh root@pve2.example.com "pct exec 700 -- bash -c 'cd /etc/vector && vector test vector.toml'"` or push the toml and run `vector test infra/vector/vector.toml` remotely.
 - Validate config locally (syntax only, no live sinks): `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`
 - PAN-OS source: Vector ct102 listens UDP **port 515** (SRX uses 514; PAN-OS is separate source to avoid collision).
 - Onboarding artifact: `onboarding/panos/log-forwarding.set` — apply to host `panosvm` (VMID 900) via panos-mcp. Preview first with `pan_config_diff`, then commit with `load_and_commit_pan_config`. SSDF never applies device config in its own data path.
@@ -110,7 +146,7 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
   `enforcement_points`, `topology_snapshot`) live on the existing `ssdf-mcp-query` (ct106).
   As-built coords in gitignored `services/topo/infra/ENV.local`.
 - **Firewall-role device nodes (M6c, issue #6 scope A).** The junos + panos collectors self-emit one `device_inventory(role=firewall, name=<device>)` observation per device (helper `collectors/base.py:firewall_inventory`), so `panosvm`/`vsrx-br05` (now vsrx-br05) resolve as `kind=device, attrs.role=firewall` and `enforcement_points` can attribute them. Requires `JUNOS_DEVICES` to be set on ct109 (`/etc/ssdf-topo/ENV.local`) — junos collector is a no-op with an empty device list.
-- **Collector MCP arg names (latent-bug fix, M6c):** `execute_junos_command` takes `router_name` (NOT `router`); `execute_pan_op` takes `host` + `cmd`. Wrong names raise `missing_argument`, which `run_collectors` catches and silently skips — surfaced only when a collector first runs live.
+- **Collector MCP arg names (latent-bug fix, M6c; re-broken by the 2026-08-15 vendor-MCP rename, fixed 2026-08-19):** `execute_junos_command` takes `router_name` (NOT `router`); PAN-OS is now `execute_panos_op(device, command)` / `get_panos_config(device)` (was `execute_pan_op(host, cmd)` / `get_pan_config(host)`). Wrong names raise a tool error, which `run_collectors` catches and silently skips — surfaced only when a collector runs live. Contract tests in `services/{topo,policy,health}/tests` now pin the tool + argument names so a rename fails in CI instead of silently zeroing a vendor.
 
 ### M6a (entity/correlation — services/entity + explain_access tool)
 - Entity unit tests: `cd services/entity && uv run pytest -m "not integration"`
@@ -125,6 +161,11 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 - **Reconcile pass (`reconcile_assets`).** Standalone idempotent cleanup for twins already written before the fix: merges a stale ip_only twin's COMMUNICATED_WITH edge attrs into the MAC asset's edge, then `ALTER TABLE … DELETE` (mutations_sync=1) the twin + its edges — only when the IP maps to exactly one MAC and that MAC asset exists. Twin GOVERNED_BY edges are dropped (not re-pointed) and re-derived by the next resolver pass.
 - **`find_entity` confidence-first ordering.** By-IP lookups can match both a MAC asset (confidence 1.0) and a stale ip_only twin (0.5); `ORDER BY confidence DESC, entities.last_seen DESC` makes the MAC asset win so explain_access reads its `observer_hosts`-bearing edge (fixes the M6c-B provenance caveat where a by-IP lookup returned the stale twin).
 
+- **Per-device resilience (2026-08-19):** the junos collectors in `policy` and `health` now
+  skip an unreachable device and continue the fleet (matching `topo`'s long-standing pattern).
+  `run_collectors` catches at *collector* granularity, so one bad device previously discarded
+  every other device's rules/gauges — live, a single stale `known_hosts` entry zeroed all 23.
+
 ### M6b (configured policy — services/policy + explain_access configured_controls)
 - Policy unit tests: `cd services/policy && uv run pytest -m "not integration"`
 - Live integration (needs CH + vendor MCPs): `cd services/policy && CH_PASSWORD=<pw> PANOS_MCP_URL=… PANOS_MCP_TOKEN=… JUNOS_MCP_URL=… JUNOS_MCP_TOKEN=… JUNOS_DEVICES=vsrx-br05 uv run pytest -m integration`
@@ -132,7 +173,7 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 - Deployed: collector+resolver on ct109 (third role alongside topo+entity; venv `/opt/ssdf-policy`, env `/etc/ssdf-policy/ENV.local` mode 600) on an HOURLY systemd timer (`ssdf-policy.timer` → oneshot `ssdf-policy.service`); writes CH ct104 as `ssdf_entity` into the shared `ssdf.entities`/`ssdf.entity_edges` (kind='firewall'|'policy', source='configured'). `explain_access` (ct106) gains `configured_controls` + integer `coverage.configured`. As-built coords in gitignored `services/policy/infra/ENV.local`.
 - Configured Policy is keyed `provider:device_name:rule_name` (per-firewall identity — fixes M6a's same-name collapse where two firewalls' identically-named rules merged); Firewall entities keyed `device:<name>` linked by `Firewall──GOVERNED_BY(configured)──►Policy` edges.
 - Device names in `JUNOS_DEVICES`/`PANOS_DEVICE` MUST match M4 `source_device` names so explain_access can bridge topology firewalls → Firewall entities by name.
-- Junos rules read via `execute_junos_command "show configuration security policies | display set"`; PAN-OS via `get_pan_config` (vsys1 security rulebase, pinned to 12.1 config shape).
+- Junos rules read via `execute_junos_command "show configuration security policies | display set"`; PAN-OS via `get_panos_config` (vsys1 security rulebase, pinned to 12.1 config shape). `get_panos_config` nests its payload as `{"output": {"content": "<xml>"}}` — `collectors/panos.py:_root` unwraps that and the older flat `{"result": ...}`.
 - **M4↔M6b name-bridge gap (live finding):** `explain_access` attaches configured rules to a path via M4 `enforcement_points`, which only returns graph nodes with `kind=="device"` AND `attrs.role=="firewall"`. M4 currently models **0** such nodes, so live `explain_access` on real transit pairs returns `configured_basis:no_path_firewall` and `coverage.configured:0` even though the configured side is correct (direct `configured_policies_for_firewalls(["panosvm","vsrx-br05"])` returns all 6 policies). Closing this needs M4 to emit firewall-role device nodes; tracked as the M6b→M4 dependency in issue #6 (milestone M6c). **Closed by M6c scope A (PR #7 — M4 now emits firewall-role nodes, fixing the topology/fallback path) + M6c scope B (provenance attribution as the primary, transit-robust path; below).**
 
 ### M6c scope B (provenance firewall attribution — observer_hostname → explain_access)
@@ -166,7 +207,7 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 
 ### P0 ingest hardening (H1 nftables allow-list + H2 observer_hostname device gate)
 - Security-review P0 fixes from `docs/security/2026-06-10-vulnerability-review.md` (findings H1+H2); spec `docs/superpowers/specs/2026-06-10-ssdf-p0-ingest-hardening-design.md`, plan `docs/superpowers/plans/2026-06-10-ssdf-p0-ingest-hardening.md`. PR #15 (merged `0156368`); both DEPLOYED + verified live on ct102 2026-06-10.
-- **H1 (nftables source allow-list on the ingest host):** apply with `./scripts/apply_ct102_nftables.sh` (idempotent; env `PVE_HOST_SSH` default `root@pve3.example.com`, `SSDF_VECTOR_CTID` default `102`). Rule file `infra/firewall/ct102-ingest.nft` → pushed to ct102 `/etc/nftables.d/ssdf-ingest.nft`; dedicated `inet ssdf_ingest` table accepts UDP 514/515 only from `198.51.100.220-198.51.100.242` (vSRX test fleet + panosvm .225) and drops everything else on those ports. Base chain `policy accept` ⇒ all other traffic passes; the default `inet filter` table is untouched. Flat /24 LAN means interface-binding can't isolate senders, so source-IP filtering is required. Verify: `ssh root@pve3.example.com "pct exec 102 -- nft list table inet ssdf_ingest"` shows both rules; `include "/etc/nftables.d/ssdf-ingest.nft"` in `/etc/nftables.conf` makes it reboot-persistent. Revert: `nft delete table inet ssdf_ingest`.
+- **H1 (nftables source allow-list on the ingest host):** apply with `./scripts/apply_ct102_nftables.sh` (idempotent; env `PVE_HOST_SSH` (now `root@pve2.example.com`), `SSDF_VECTOR_CTID` (now `700`)). Rule file `infra/firewall/ct102-ingest.nft` → pushed to ct102 `/etc/nftables.d/ssdf-ingest.nft`; dedicated `inet ssdf_ingest` table accepts UDP 514/515 only from `198.51.100.220-198.51.100.242` (vSRX test fleet + panosvm .225) and drops everything else on those ports. Base chain `policy accept` ⇒ all other traffic passes; the default `inet filter` table is untouched. Flat /24 LAN means interface-binding can't isolate senders, so source-IP filtering is required. Verify: `ssh root@pve2.example.com "pct exec 700 -- nft list table inet ssdf_ingest"` shows both rules; `include "/etc/nftables.d/ssdf-ingest.nft"` in `/etc/nftables.conf` makes it reboot-persistent. Revert: `nft delete table inet ssdf_ingest`.
 - **H2 (known-device gate, both VRL transforms):** `srx_ecs` + `panos_ecs` in `infra/vector/vector.toml` now gate `observer_hostname` — normalize the syslog HOSTNAME to its first DNS label, lowercase **for the membership test only**, accept iff `panosvm` (exact) or regex `^vsrx-test\d`, else blank to `""`. **Stored value keeps original case** so the M6c-B `vsrx-br05` (now vsrx-br05) exact-match provenance bridge in `explain_access` is intact. Defense-in-depth for spoofed-but-source-allowed packets. Tests (run on ct102): `vector test infra/vector/vector.toml` — 14/14 incl. `srx_observer_hostname_unknown_is_blanked`, `panos_observer_hostname_unknown_is_blanked` (unknown HOSTNAME ⇒ `observer_hostname==""`) plus regression that known hosts pass through.
 - **H2 live deploy (gated on ClickHouse being reachable):** Vector's CH-sink healthcheck fails if ct104 is down, so deploy when CH is up. Push the updated toml, `vector validate /etc/vector/vector.toml.new` (CH healthcheck must pass), back up the old config, `mv` into place, `systemctl restart vector.service`, confirm `active` + both UDP sources listening. Vector config path on ct102 is `/etc/vector/vector.toml`; env drop-in sets `CH_HOST` + `VECTOR_CONFIG`.
 - **Remaining review backlog:** ALL CLOSED — P1 (M1/M3/M4/M5/M6) via PR #16 (deployed 2026-06-11/12), M2 + L1–L6 via the edge-hardening batch below. See STATUS.md "Security hardening backlog".
@@ -227,7 +268,7 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 
 ### M9 (UniFi Gateway Max Suricata IPS ingest — Vector CEF → ClickHouse)
 - SSDF's first **detection-class** source (prior sources SRX/PAN-OS were flow/traffic). UniFi Gateway Max Suricata IPS/IDS alerts ingest via remote syslog on Vector ct102 UDP **port 516** (SRX=514, PAN-OS=515, each a separate source to avoid collision) → `ssdf.events`. Merged to `main` (merge `818a984`); **end-to-end live-proven 2026-06-14**.
-- Run Vector unit tests (on ct102 where Vector is installed): `ssh root@pve3.example.com "pct exec 102 -- bash -c 'cd /etc/vector && vector test vector.toml'"` — 20/20 incl. the UniFi CEF suite. Validate locally (syntax only): `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`.
+- Run Vector unit tests (on ct102 where Vector is installed): `ssh root@pve2.example.com "pct exec 700 -- bash -c 'cd /etc/vector && vector test vector.toml'"` — 20/20 incl. the UniFi CEF suite. Validate locally (syntax only): `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`.
 - **Wire format is CEF (Common Event Format), NOT Suricata EVE-JSON** (the original synthetic baseline was wrong). Lines look like `CEF:0|Ubiquiti|UniFi Network|<ver>|200|Threat Detected|<sev>|<ext>`, carry NO syslog PRI. Sender is the **Cloud Key controller `198.51.100.30`** (host `UCK-G2-Plus-HarmanHoldfast`) forwarding the SIEM export — NOT the Gateway Max `198.51.100.1` (which only emits RFC3164 system-log noise on the same port, dropped by the filter).
 - VRL: `[transforms.unifi_cef_threat]` filter gates on `CEF:0|Ubiquiti` + `|Threat Detected|` before `[transforms.unifi_ips]`, which parses via **`parse_cef`** (NOT regex/key-value — CEF extension values contain spaces and Rust regex has no lookahead). Re-validate the transform on any UniFi Network upgrade that changes the CEF schema (DeviceVersion pinned **10.68.57**).
 - **No MAC columns in `ssdf.events`** + `skip_unknown_fields=false` ⇒ MACs/aliases/zones/signature detail go in `ext` (keys `unifi.ips.*`, `unifi.src_mac`, etc.). Detections carry MAC + alias only (no client IPs) → source_ip/destination_ip stay null. Event time from `UNIFIutcTime` (clean ISO-8601 UTC, trailing Z — no clock backfill needed).
@@ -238,7 +279,7 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 
 ### M11 (Proxmox host audit ingest — rsyslog RFC5424 → Vector → ClickHouse)
 - The pve3 hypervisor host's **auth + admin-action audit stream** (logins + VM/CT task ops) as an SSDF event source. rsyslog on pve3 forwards `auth`/`authpriv`/`daemon` facilities **RFC5424** to Vector ct102 UDP **517** (514=SRX, 515=PAN-OS, 516=UniFi — each a separate source). → `ssdf.events` (`event_provider=proxmox`). **Ingest-only:** no new MCP tool, no schema migration — queryable via the generic `run_sql`/`describe_schema` tools. Merged on branch `m11-proxmox-ingest`; **end-to-end live-proven 2026-06-14**.
-- Run Vector unit tests (on ct102): `ssh root@pve3.example.com "pct exec 102 -- bash -c 'cd /etc/vector && CH_HOST=127.0.0.1 vector test vector.toml'"` — 31/31 incl. the 11-test proxmox suite. Validate locally: `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`.
+- Run Vector unit tests (on ct102): `ssh root@pve2.example.com "pct exec 700 -- bash -c 'cd /etc/vector && CH_HOST=127.0.0.1 vector test vector.toml'"` — 31/31 incl. the 11-test proxmox suite. Validate locally: `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`.
 - **Transport is `parse_syslog` (RFC5424 with PRI + offset), NOT the UniFi CEF regex-slice.** rsyslog forwards `;RSYSLOG_SyslogProtocol23Format`, whose ISO-8601 timestamp carries the UTC offset — so SSDF stores correct UTC **even though pve3 runs a local zone** (`America/New_York`, EDT -0400). A UTC host clock is NOT required (the robust escape from the PAN-OS/SRX naive-local-time trap); only NTP accuracy matters.
 - VRL: `[transforms.proxmox_sec]` filter (parse_syslog + app-gate + known-pattern gate) → `[transforms.proxmox_ecs]` remap. Branches: sshd `Accepted`/`Failed password` → `auth_*` (source_ip+port); pvedaemon pam `successful auth`/`authentication failure; rhost=` → `auth_*`; `starting|end task UPID:…:<dtype>:<vmid>:<user>:` → `configuration`/`task_<dtype>`/`task_end_<dtype>` (UPID-parsed task_type+vmid+user). `observer_hostname` stays EMPTY (it is the P0/H2 firewall-provenance field; pve3 is not a firewall) — node name + all Proxmox detail ride the `ext` Map (keys `proxmox.node/upid/vmid/task_type/task_status/realm/appname/invalid_user`). Auth-success user is wrapped in single quotes ⇒ extracted via `split()` (VRL on ct102 accepts only `r'...'` literals, which cannot contain a single quote).
 - nftables ct102 ingest allow-list: UDP/517 source must be **198.51.100.201** (pve3's LAN IP toward ct102). Apply with `./scripts/apply_ct102_nftables.sh` (rule file `infra/firewall/ct102-ingest.nft`). Runbook (real captured samples in §3/§4): `onboarding/proxmox/rsyslog.md` (notes rsyslog needs installing on a stock PVE host).

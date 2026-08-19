@@ -90,3 +90,26 @@ def test_parses_zonepair_fixture_actions():
     assert by_name["deny-telnet"]["action"] == "deny"
     assert by_name["block-all"]["action"] == "reject"
     assert all(r["rule_name"] and r["action"] for r in rules)
+
+
+def test_collect_skips_unreachable_device_and_keeps_the_rest():
+    """One unreachable vSRX must not zero the whole fleet's configured policy.
+
+    run_collectors catches at collector granularity, so an uncaught per-device
+    error discards every other device's rules too (live: a single stale
+    known_hosts entry dropped all 23 devices).
+    """
+    from ssdf_policy.collectors.junos import JunosPolicyCollector
+
+    class _FlakyClient:
+        def call_tool(self, name, args=None):
+            if (args or {}).get("router_name") == "vsrx-down":
+                raise RuntimeError("netconf error: host key mismatch")
+            return SAMPLE
+
+    rules = JunosPolicyCollector(["vsrx-down", "vsrx-up"]).collect(
+        _FlakyClient(), "2026-08-19T00:00:00Z"
+    )
+
+    assert {r["device_name"] for r in rules} == {"vsrx-up"}
+    assert {r["rule_name"] for r in rules} == {"ALLOW-WEB", "DENY-ALL"}

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 import re
 
 from ..gauge import Gauge
 from .base import register
+
+logger = logging.getLogger(__name__)
 
 _MEM_RE = re.compile(r"Memory utilization\s+(\d+)\s+percent", re.IGNORECASE)
 _IDLE_RE = re.compile(r"Idle\s+(\d+)\s+percent", re.IGNORECASE)
@@ -52,6 +56,34 @@ def parse_environment(text: str, device: str, now: str) -> list[Gauge]:
     return gauges
 
 
+# Substrings that mean "this device is not answering", as opposed to "this
+# command is not supported here". rust-junosmcp usually prefixes reachability
+# problems with "transport error", but a powered-off device commonly surfaces as
+# a bare timeout, and a stale known_hosts entry as a bare host-key mismatch.
+_UNREACHABLE_MARKERS = (
+    "transport error",
+    "connection failed",
+    "connection refused",
+    "no route to host",
+    "host key mismatch",
+    "timed out",
+    "timeout",
+)
+
+
+def _is_unreachable(exc: Exception) -> bool:
+    """True if the error means the device is down rather than the command bad.
+
+    Short-circuiting matters for cost, not just tidiness: most of the lab fleet is
+    powered off, and probing every command against every dead device can exhaust
+    the unit's RuntimeMaxSec=600 before later devices or collectors run. A command
+    the platform simply does not support is NOT unreachable — the device's other
+    probes may still answer.
+    """
+    text = str(exc).lower()
+    return any(marker in text for marker in _UNREACHABLE_MARKERS)
+
+
 @register("junos")
 class JunosCollector:
     """Collects CPU/mem + temps from one or more Junos devices via rust-junosmcp."""
@@ -62,16 +94,30 @@ class JunosCollector:
         self.devices = devices or []
 
     def collect(self, client, now: str) -> list[Gauge]:
+        """Poll each device, skipping only the probes that actually fail.
+
+        Per-device resilient: run_collectors catches at collector granularity, so
+        an uncaught error here would discard every other device's gauges too.
+        The two commands are independent and are attempted independently — a
+        platform that rejects one still yields the other's gauges, so neither is
+        treated as a reachability gate for the device.
+        """
         gauges: list[Gauge] = []
         for dev in self.devices:
-            re_text = client.call_tool(
-                "execute_junos_command",
-                {"router_name": dev, "command": "show chassis routing-engine"},
-            )
-            gauges.extend(parse_routing_engine(re_text, dev, now))
-            env_text = client.call_tool(
-                "execute_junos_command",
-                {"router_name": dev, "command": "show chassis environment"},
-            )
-            gauges.extend(parse_environment(env_text, dev, now))
+            for command, parser in (
+                ("show chassis routing-engine", parse_routing_engine),
+                ("show chassis environment", parse_environment),
+            ):
+                try:
+                    text = client.call_tool(
+                        "execute_junos_command", {"router_name": dev, "command": command}
+                    )
+                    gauges.extend(parser(text, dev, now))
+                except Exception as exc:
+                    if _is_unreachable(exc):
+                        logger.warning("junos device %r unreachable; skipping", dev, exc_info=True)
+                        break
+                    logger.warning(
+                        "junos %r: command %r failed; continuing", dev, command, exc_info=True
+                    )
         return gauges

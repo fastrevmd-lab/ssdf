@@ -43,3 +43,26 @@ def test_parse_environmentals_multi_sensor():
 def test_parse_resources_garbage_returns_empty():
     assert parse_resources('{"result": "no cpu line here"}', "d",
                            "2026-06-20T00:00:00Z") == []
+
+
+def test_collect_uses_current_panos_mcp_tool_contract():
+    """Pin the panos-mcp tool + argument names the collector depends on.
+
+    The MCP server renamed these (execute_pan_op/host/cmd ->
+    execute_panos_op/device/command).
+    """
+    from ssdf_health.collectors.panos import PanosCollector
+
+    calls: list[tuple[str, dict]] = []
+
+    class _RecordingClient:
+        def call_tool(self, name, args=None):
+            calls.append((name, args or {}))
+            return _RESOURCES if len(calls) == 1 else _ENVIRONMENTALS
+
+    PanosCollector("panosvm").collect(_RecordingClient(), "2026-08-19T00:00:00Z")
+
+    assert [c[0] for c in calls] == ["execute_panos_op", "execute_panos_op"]
+    for _, args in calls:
+        assert set(args) == {"device", "command"}
+        assert args["device"] == "panosvm"

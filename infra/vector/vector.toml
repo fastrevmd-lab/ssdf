@@ -42,9 +42,49 @@ mode = "udp"
 address = "0.0.0.0:518"
 max_length = 102400
 
+# UDP/514 carries TWO streams, because the fleet's `system syslog host` statement
+# cannot be moved to 518: Junos 25.4R1.12 accepts `port 518` and then ignores it
+# (verified live on vsrx-prod 2026-08-19 — 108 packets still went to 514, zero to
+# 518), and on a management-instance device the `routing-instance mgmt_junos` line
+# the runbook requires is rejected outright. So the split is done here instead.
+#
+#   security-log stream (RT_* msgids)  -> srx_ecs        (this filter)
+#   system syslog audit msgids         -> junos_sys_sec  (that filter also reads srx_syslog)
+#   everything else                    -> dropped
+#
+# The two msgid sets are disjoint, so no event is processed by both. Before this
+# gate the whole `any info` firehose reached srx_ecs and landed as `unknown` —
+# ~52k rows/day, 97.5% of all juniper volume. Unparseable input is deliberately
+# still admitted so it is recorded as `parse_error` rather than vanishing.
+[transforms.srx_sec]
+type = "filter"
+inputs = ["srx_syslog"]
+condition.type = "vrl"
+condition.source = '''
+result = true
+parsed, err = parse_syslog(string(.message) ?? "")
+if err == null {
+    # Parsed cleanly: keep only the security-log stream, identified by its
+    # RFC5424 APP-NAME. Junos emits every security category under an RT_ app-name
+    # (RT_FLOW, RT_IDS, RT_IDP, RT_UTM, RT_AAMW, ...), while system syslog uses
+    # the emitting process (kernel, mgd, sshd, aamwd, ipfd, cron).
+    #
+    # Classify on APP-NAME, not MSGID: `security log stream ... category all`
+    # also carries records whose MSGID is not RT_-prefixed — AppTrack emits
+    # APPTRACK_SESSION_CREATE/CLOSE/VOL_UPDATE under app-name RT_FLOW. Matching
+    # MSGID alone would silently discard that security telemetry. The MSGID test
+    # is kept as a second path so an RT_ msgid under an unexpected app-name is
+    # still admitted.
+    app = string(parsed.appname) ?? ""
+    msg_id = string(parsed.msgid) ?? ""
+    result = starts_with(app, "RT_") || starts_with(msg_id, "RT_")
+}
+result
+'''
+
 [transforms.srx_ecs]
 type = "remap"
-inputs = ["srx_syslog"]
+inputs = ["srx_sec"]
 source = '''
 raw = .message
 parsed, err = parse_syslog(raw)
@@ -129,10 +169,34 @@ if err != null {
     _obs_short = downcase(string(_obs_parts[0]) ?? "")
     _obs_known = false
     if _obs_short == "panosvm" { _obs_known = true }
-    # Dual-accept during fleet role-rename: NEW role names + legacy test-fleet names + current on-box names (mnha-router literal; vSRX-ISP-A/B -> isp-a/b after downcase). Prune legacy alternates after the rename settles.
-    _om, _oe = parse_regex(_obs_short, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2])|test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)$|^mnha-router$')
+    # Known-device gate (M14a Phase 1D, 2026-08-19): role-standard names only. The dual-accept legacy alternates (test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router) were pruned once the 30-day events/graph_nodes TTL horizon passed and 30d of live events showed zero legacy names. See docs/naming-standard.md.
+    _om, _oe = parse_regex(_obs_short, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2]))$')
     if _oe == null { _obs_known = true }
     if !_obs_known { obs_host = "" }
+
+    # ssdf.events.source_ip/destination_ip are Nullable(IPv4). Junos logs IPv6
+    # flows through the same RT_FLOW records (link-local and multicast are routine),
+    # and a v6 value makes ClickHouse reject the ENTIRE insert batch with
+    # CANNOT_PARSE_IPV4 — silently discarding every unrelated event batched with it
+    # (369 dropped batches in 24h before this guard). Keep the typed columns null
+    # for non-IPv4 and let `ext` carry the real addresses, which it already does
+    # because it is built from the same `fields` map. Mirrors panos_ecs/unifi_ips.
+    # Bound once and reused: parse_regex accepts a variable pattern here
+    # (verified by `vector test`), unlike the filter predicates elsewhere in
+    # this file that must inline their literal.
+    _v4 = r'^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$'
+    _src_raw = string(fields."source-address") ?? ""
+    _dst_raw = string(fields."destination-address") ?? ""
+    src_ip_v4 = null
+    if _src_raw != "" {
+        _sm, _se = parse_regex(_src_raw, _v4)
+        if _se == null { src_ip_v4 = _src_raw }
+    }
+    dst_ip_v4 = null
+    if _dst_raw != "" {
+        _dm, _de = parse_regex(_dst_raw, _v4)
+        if _de == null { dst_ip_v4 = _dst_raw }
+    }
 
     . = {
         "timestamp": parsed.timestamp,
@@ -143,10 +207,10 @@ if err != null {
         "event_action": event_action,
         "event_outcome": event_outcome,
         "event_provider": "juniper",
-        "source_ip": fields."source-address",
+        "source_ip": src_ip_v4,
         "source_port": to_int(fields."source-port"),
         "source_bytes": src_bytes,
-        "destination_ip": fields."destination-address",
+        "destination_ip": dst_ip_v4,
         "destination_port": to_int(fields."destination-port"),
         "destination_bytes": dst_bytes,
         "network_transport": transport,
@@ -265,8 +329,8 @@ _obs_parts = split(obs_host, ".")
 _obs_short = downcase(string(_obs_parts[0]) ?? "")
 _obs_known = false
 if _obs_short == "panosvm" { _obs_known = true }
-# Dual-accept during fleet role-rename: NEW role names + legacy test-fleet names + current on-box names (mnha-router literal; vSRX-ISP-A/B -> isp-a/b after downcase). Prune legacy alternates after the rename settles.
-_om, _oe = parse_regex(_obs_short, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2])|test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)$|^mnha-router$')
+# Known-device gate (M14a Phase 1D, 2026-08-19): role-standard names only. The dual-accept legacy alternates (test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router) were pruned once the 30-day events/graph_nodes TTL horizon passed and 30d of live events showed zero legacy names. See docs/naming-standard.md.
+_om, _oe = parse_regex(_obs_short, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2]))$')
 if _oe == null { _obs_known = true }
 if !_obs_known { obs_host = "" }
 ev.observer_hostname = obs_host
@@ -761,9 +825,14 @@ if perr != null {
 # errors become event_action="parse_error" rows (M11 pattern); everything else
 # is DROPPED (esp. UI_COMMIT_PROGRESS firehose + UI_NETCONF_CMD/UI_CMDLINE_READ_LINE
 # collector noise). Mirrors M11 proxmox_sec filter structure.
+# Reads BOTH the dedicated system-syslog port (518) and the shared SRX port (514).
+# vsrx-prod and vsrx-ci send their system syslog to 514 because the Junos `port`
+# statement does not take effect on them; their audit events would otherwise be
+# stranded as `unknown` in srx_ecs. This filter's msgid allow-list is what keeps
+# the two streams from overlapping.
 [transforms.junos_sys_sec]
 type = "filter"
-inputs = ["junos_sys_syslog"]
+inputs = ["junos_sys_syslog", "srx_syslog"]
 condition.type = "vrl"
 condition.source = '''
 result = false
@@ -837,7 +906,7 @@ if perr != null {
     _obs_known = false
     if _obs_short_lower == "panosvm" { _obs_known = true }
     # Dual-accept during fleet role-rename: NEW role names + legacy test-fleet names
-    _om, _oe = parse_regex(_obs_short_lower, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2])|test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)$|^mnha-router$')
+    _om, _oe = parse_regex(_obs_short_lower, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2]))$')
     if _oe == null { _obs_known = true }
     if _obs_known { ev.observer_hostname = _obs_short } else { ev.observer_hostname = "" }
 
@@ -1058,7 +1127,7 @@ assert_eq!(.user_name, "")
 '''
 
 [[tests]]
-name = "srx_observer_hostname_from_syslog_host"
+name = "srx_observer_hostname_legacy_testfleet_is_blanked"
 [[tests.inputs]]
 insert_at = "srx_ecs"
 type = "raw"
@@ -1068,7 +1137,7 @@ extract_from = "srx_ecs"
 [[tests.outputs.conditions]]
 type = "vrl"
 source = '''
-assert_eq!(.observer_hostname, "vSRX-test10")
+assert_eq!(.observer_hostname, "")
 assert_eq!(.rule_name, "baseline-permit(global)")
 '''
 
@@ -1102,7 +1171,7 @@ assert_eq!(.rule_name, "baseline-permit(global)")
 '''
 
 [[tests]]
-name = "srx_observer_hostname_production_is_known"
+name = "srx_observer_hostname_legacy_production_is_blanked"
 [[tests.inputs]]
 insert_at = "srx_ecs"
 type = "raw"
@@ -1112,12 +1181,12 @@ extract_from = "srx_ecs"
 [[tests.outputs.conditions]]
 type = "vrl"
 source = '''
-assert_eq!(.observer_hostname, "vSRX-Production")
+assert_eq!(.observer_hostname, "")
 assert_eq!(.rule_name, "baseline-permit(global)")
 '''
 
 [[tests]]
-name = "srx_observer_hostname_mnha_router_accepted"
+name = "srx_observer_hostname_legacy_mnha_router_is_blanked"
 [[tests.inputs]]
 insert_at = "srx_ecs"
 type = "raw"
@@ -1127,7 +1196,7 @@ extract_from = "srx_ecs"
 [[tests.outputs.conditions]]
 type = "vrl"
 source = '''
-assert_eq!(.observer_hostname, "mnha-router")
+assert_eq!(.observer_hostname, "")
 '''
 
 [[tests]]
@@ -1159,17 +1228,17 @@ assert_eq!(.observer_hostname, "vsrx-br05")
 '''
 
 [[tests]]
-name = "srx_observer_hostname_fleet_name_is_known"
+name = "srx_observer_hostname_fleet_role_name_is_known"
 [[tests.inputs]]
 insert_at = "srx_ecs"
 type = "raw"
-value = '<14>1 2026-06-08T12:00:00.000Z vSRX-twin RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+value = '<14>1 2026-06-08T12:00:00.000Z vsrx-core-a RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
 [[tests.outputs]]
 extract_from = "srx_ecs"
 [[tests.outputs.conditions]]
 type = "vrl"
 source = '''
-assert_eq!(.observer_hostname, "vSRX-twin")
+assert_eq!(.observer_hostname, "vsrx-core-a")
 '''
 
 [[tests]]
@@ -1909,4 +1978,126 @@ assert!(starts_with(string!(.event_action), "url"))
 assert!(.event_action != "unknown")
 assert_eq!(.event_action, "url_url")
 assert_eq!(.ext."panw.panos.type", "URL")
+'''
+
+# --- UDP/514 stream split (system syslog cannot be moved to 518; see srx_sec) ---
+
+[[tests]]
+name = "srx_sec_drops_kernel_firewall_filter_noise"
+no_outputs_from = ["srx_sec"]
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = '<158>1 2026-08-19T13:57:14.010Z vsrx-prod kernel - - - FW: fxp0.0       D  udp 198.51.100.1 255.255.255.255 46620 10001'
+[[tests]]
+name = "srx_sec_drops_daemon_noise_msgids"
+no_outputs_from = ["srx_sec"]
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = '<11>1 2026-08-19T05:32:33.084Z vsrx-prod kernel - KERN_ARP_DUPLICATE_ADDR [junos@2636.1.1.1.2.129 message="duplicate IP address 172.20.4.1"] dup'
+[[tests]]
+name = "srx_sec_passes_security_log_stream"
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = '<14>1 2026-06-08T12:00:00.000Z vsrx-prod RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "flow_session_close")
+assert_eq!(.observer_hostname, "vsrx-prod")
+'''
+
+[[tests]]
+name = "srx_sec_still_admits_unparseable_input_as_parse_error"
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = 'this is not syslog at all'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "parse_error")
+'''
+
+[[tests]]
+name = "junos_sys_types_audit_events_arriving_on_514"
+[[tests.inputs]]
+insert_at = "junos_sys_sec"
+type = "raw"
+value = "<190>1 2026-08-19T22:10:00.000Z vsrx-prod mgd 1234 UI_COMMIT [junos@2636.1.1.1.2.129 username=\"mharman\" command=\"commit\"] User 'mharman' requested 'commit' operation"
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_provider, "juniper")
+assert_eq!(.observer_hostname, "vsrx-prod")
+assert!(starts_with(string!(.event_action), "configuration"))
+'''
+
+[[tests]]
+name = "srx_sec_passes_apptrack_under_rt_flow_appname"
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = '<14>1 2026-08-19T12:00:00.000Z vsrx-prod RT_FLOW - APPTRACK_SESSION_CLOSE [junos@2636.1.1.1.2.42 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit" source-zone-name="trust" destination-zone-name="untrust" application="HTTP" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_provider, "juniper")
+assert_eq!(.observer_hostname, "vsrx-prod")
+assert!(.event_action != "parse_error", "AppTrack security record must reach srx_ecs")
+'''
+
+[[tests]]
+name = "srx_sec_drops_daemon_appname_even_with_rich_sd"
+no_outputs_from = ["srx_sec"]
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = '<27>1 2026-08-19T12:00:00.000Z vsrx-prod aamwd 4321 AAMWD_NETWORK_CONNECT_FAILED [junos@2636.1.1.1.2.129 message="failed to connect"] failed'
+
+[[tests]]
+name = "srx_ipv6_flow_does_not_poison_the_ipv4_column"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-08-19T12:00:00.000Z vsrx-prod RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="fe80::1" source-port="546" destination-address="ff05:0:0:0:0:0::" destination-port="547" protocol-id="17" policy-name="v6-permit" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="10" bytes-from-server="20" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+# ssdf.events.source_ip/destination_ip are Nullable(IPv4); a v6 address here makes
+# ClickHouse reject the WHOLE batch (CANNOT_PARSE_IPV4), silently discarding every
+# unrelated event batched with it. Keep the typed columns null and preserve the
+# real addresses in ext.
+assert_eq!(.source_ip, null)
+assert_eq!(.destination_ip, null)
+assert_eq!(.event_action, "flow_session_close")
+assert_eq!(.ext."source-address", "fe80::1")
+assert_eq!(.ext."destination-address", "ff05:0:0:0:0:0::")
+'''
+
+[[tests]]
+name = "srx_ipv4_flow_still_populates_typed_columns"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-08-19T12:00:00.000Z vsrx-prod RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="v4-permit" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.source_ip, "10.65.1.10")
+assert_eq!(.destination_ip, "10.66.2.20")
 '''
