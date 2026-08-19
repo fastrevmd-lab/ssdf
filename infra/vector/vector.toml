@@ -42,9 +42,39 @@ mode = "udp"
 address = "0.0.0.0:518"
 max_length = 102400
 
+# UDP/514 carries TWO streams, because the fleet's `system syslog host` statement
+# cannot be moved to 518: Junos 25.4R1.12 accepts `port 518` and then ignores it
+# (verified live on vsrx-prod 2026-08-19 — 108 packets still went to 514, zero to
+# 518), and on a management-instance device the `routing-instance mgmt_junos` line
+# the runbook requires is rejected outright. So the split is done here instead.
+#
+#   security-log stream (RT_* msgids)  -> srx_ecs        (this filter)
+#   system syslog audit msgids         -> junos_sys_sec  (that filter also reads srx_syslog)
+#   everything else                    -> dropped
+#
+# The two msgid sets are disjoint, so no event is processed by both. Before this
+# gate the whole `any info` firehose reached srx_ecs and landed as `unknown` —
+# ~52k rows/day, 97.5% of all juniper volume. Unparseable input is deliberately
+# still admitted so it is recorded as `parse_error` rather than vanishing.
+[transforms.srx_sec]
+type = "filter"
+inputs = ["srx_syslog"]
+condition.type = "vrl"
+condition.source = '''
+result = true
+parsed, err = parse_syslog(string(.message) ?? "")
+if err == null {
+    # Parsed cleanly: keep only the security-log stream. Junos emits every
+    # security category (RT_FLOW, RT_SCREEN, RT_IDP, RT_UTM, ...) under an RT_
+    # msgid; system syslog never does.
+    result = starts_with(string(parsed.msgid) ?? "", "RT_")
+}
+result
+'''
+
 [transforms.srx_ecs]
 type = "remap"
-inputs = ["srx_syslog"]
+inputs = ["srx_sec"]
 source = '''
 raw = .message
 parsed, err = parse_syslog(raw)
@@ -761,9 +791,14 @@ if perr != null {
 # errors become event_action="parse_error" rows (M11 pattern); everything else
 # is DROPPED (esp. UI_COMMIT_PROGRESS firehose + UI_NETCONF_CMD/UI_CMDLINE_READ_LINE
 # collector noise). Mirrors M11 proxmox_sec filter structure.
+# Reads BOTH the dedicated system-syslog port (518) and the shared SRX port (514).
+# vsrx-prod and vsrx-ci send their system syslog to 514 because the Junos `port`
+# statement does not take effect on them; their audit events would otherwise be
+# stranded as `unknown` in srx_ecs. This filter's msgid allow-list is what keeps
+# the two streams from overlapping.
 [transforms.junos_sys_sec]
 type = "filter"
-inputs = ["junos_sys_syslog"]
+inputs = ["junos_sys_syslog", "srx_syslog"]
 condition.type = "vrl"
 condition.source = '''
 result = false
@@ -1909,4 +1944,65 @@ assert!(starts_with(string!(.event_action), "url"))
 assert!(.event_action != "unknown")
 assert_eq!(.event_action, "url_url")
 assert_eq!(.ext."panw.panos.type", "URL")
+'''
+
+# --- UDP/514 stream split (system syslog cannot be moved to 518; see srx_sec) ---
+
+[[tests]]
+name = "srx_sec_drops_kernel_firewall_filter_noise"
+no_outputs_from = ["srx_sec"]
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = '<158>1 2026-08-19T13:57:14.010Z vsrx-prod kernel - - - FW: fxp0.0       D  udp 198.51.100.1 255.255.255.255 46620 10001'
+[[tests]]
+name = "srx_sec_drops_daemon_noise_msgids"
+no_outputs_from = ["srx_sec"]
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = '<11>1 2026-08-19T05:32:33.084Z vsrx-prod kernel - KERN_ARP_DUPLICATE_ADDR [junos@2636.1.1.1.2.129 message="duplicate IP address 172.20.4.1"] dup'
+[[tests]]
+name = "srx_sec_passes_security_log_stream"
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = '<14>1 2026-06-08T12:00:00.000Z vsrx-prod RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "flow_session_close")
+assert_eq!(.observer_hostname, "vsrx-prod")
+'''
+
+[[tests]]
+name = "srx_sec_still_admits_unparseable_input_as_parse_error"
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = 'this is not syslog at all'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_action, "parse_error")
+'''
+
+[[tests]]
+name = "junos_sys_types_audit_events_arriving_on_514"
+[[tests.inputs]]
+insert_at = "junos_sys_sec"
+type = "raw"
+value = "<190>1 2026-08-19T22:10:00.000Z vsrx-prod mgd 1234 UI_COMMIT [junos@2636.1.1.1.2.129 username=\"mharman\" command=\"commit\"] User 'mharman' requested 'commit' operation"
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_provider, "juniper")
+assert_eq!(.observer_hostname, "vsrx-prod")
+assert!(starts_with(string!(.event_action), "configuration"))
 '''
