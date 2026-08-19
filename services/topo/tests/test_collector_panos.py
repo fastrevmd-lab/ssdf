@@ -71,3 +71,30 @@ _BILLION_LAUGHS = """<?xml version="1.0"?>
 
 def test_parse_arp_xml_rejects_entity_expansion():
     assert parse_arp_xml(_BILLION_LAUGHS, "panosvm", "2026-06-10T00:00:00Z") == []
+
+
+def test_collect_uses_current_panos_mcp_tool_contract():
+    """Pin the panos-mcp tool + argument names the collector depends on.
+
+    The MCP server renamed these (execute_pan_op/host/cmd ->
+    execute_panos_op/device/command). A stub that ignores name/args hides the
+    drift, because run_collectors swallows the resulting error and skips.
+    """
+    from ssdf_topo.collectors.panos import PanosCollector
+
+    empty_envelope = (
+        '{"result":"<response status=\\"success\\"><result></result></response>"}'
+    )
+    calls: list[tuple[str, dict]] = []
+
+    class _RecordingClient:
+        def call_tool(self, name, args=None):
+            calls.append((name, args or {}))
+            return empty_envelope
+
+    PanosCollector("panosvm").collect(_RecordingClient(), NOW)
+
+    assert [c[0] for c in calls] == ["execute_panos_op", "execute_panos_op"]
+    for _, args in calls:
+        assert set(args) == {"device", "command"}
+        assert args["device"] == "panosvm"

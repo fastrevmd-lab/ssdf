@@ -129,8 +129,8 @@ if err != null {
     _obs_short = downcase(string(_obs_parts[0]) ?? "")
     _obs_known = false
     if _obs_short == "panosvm" { _obs_known = true }
-    # Dual-accept during fleet role-rename: NEW role names + legacy test-fleet names + current on-box names (mnha-router literal; vSRX-ISP-A/B -> isp-a/b after downcase). Prune legacy alternates after the rename settles.
-    _om, _oe = parse_regex(_obs_short, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2])|test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)$|^mnha-router$')
+    # Known-device gate (M14a Phase 1D, 2026-08-19): role-standard names only. The dual-accept legacy alternates (test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router) were pruned once the 30-day events/graph_nodes TTL horizon passed and 30d of live events showed zero legacy names. See docs/naming-standard.md.
+    _om, _oe = parse_regex(_obs_short, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2]))$')
     if _oe == null { _obs_known = true }
     if !_obs_known { obs_host = "" }
 
@@ -265,8 +265,8 @@ _obs_parts = split(obs_host, ".")
 _obs_short = downcase(string(_obs_parts[0]) ?? "")
 _obs_known = false
 if _obs_short == "panosvm" { _obs_known = true }
-# Dual-accept during fleet role-rename: NEW role names + legacy test-fleet names + current on-box names (mnha-router literal; vSRX-ISP-A/B -> isp-a/b after downcase). Prune legacy alternates after the rename settles.
-_om, _oe = parse_regex(_obs_short, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2])|test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)$|^mnha-router$')
+# Known-device gate (M14a Phase 1D, 2026-08-19): role-standard names only. The dual-accept legacy alternates (test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router) were pruned once the 30-day events/graph_nodes TTL horizon passed and 30d of live events showed zero legacy names. See docs/naming-standard.md.
+_om, _oe = parse_regex(_obs_short, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2]))$')
 if _oe == null { _obs_known = true }
 if !_obs_known { obs_host = "" }
 ev.observer_hostname = obs_host
@@ -837,7 +837,7 @@ if perr != null {
     _obs_known = false
     if _obs_short_lower == "panosvm" { _obs_known = true }
     # Dual-accept during fleet role-rename: NEW role names + legacy test-fleet names
-    _om, _oe = parse_regex(_obs_short_lower, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2])|test\d+|production|twin|node\d|mm-[ab]|ci-tester|mnha-router)$|^mnha-router$')
+    _om, _oe = parse_regex(_obs_short_lower, r'^vsrx-(prod|wan-edge|core-[ab]|dc(-n[01])?|dmz|campus-[ab]|isp-[ab]|ci|br(0[1-9]|1[0-2]))$')
     if _oe == null { _obs_known = true }
     if _obs_known { ev.observer_hostname = _obs_short } else { ev.observer_hostname = "" }
 
@@ -1058,7 +1058,7 @@ assert_eq!(.user_name, "")
 '''
 
 [[tests]]
-name = "srx_observer_hostname_from_syslog_host"
+name = "srx_observer_hostname_legacy_testfleet_is_blanked"
 [[tests.inputs]]
 insert_at = "srx_ecs"
 type = "raw"
@@ -1068,7 +1068,7 @@ extract_from = "srx_ecs"
 [[tests.outputs.conditions]]
 type = "vrl"
 source = '''
-assert_eq!(.observer_hostname, "vSRX-test10")
+assert_eq!(.observer_hostname, "")
 assert_eq!(.rule_name, "baseline-permit(global)")
 '''
 
@@ -1102,7 +1102,7 @@ assert_eq!(.rule_name, "baseline-permit(global)")
 '''
 
 [[tests]]
-name = "srx_observer_hostname_production_is_known"
+name = "srx_observer_hostname_legacy_production_is_blanked"
 [[tests.inputs]]
 insert_at = "srx_ecs"
 type = "raw"
@@ -1112,12 +1112,12 @@ extract_from = "srx_ecs"
 [[tests.outputs.conditions]]
 type = "vrl"
 source = '''
-assert_eq!(.observer_hostname, "vSRX-Production")
+assert_eq!(.observer_hostname, "")
 assert_eq!(.rule_name, "baseline-permit(global)")
 '''
 
 [[tests]]
-name = "srx_observer_hostname_mnha_router_accepted"
+name = "srx_observer_hostname_legacy_mnha_router_is_blanked"
 [[tests.inputs]]
 insert_at = "srx_ecs"
 type = "raw"
@@ -1127,7 +1127,7 @@ extract_from = "srx_ecs"
 [[tests.outputs.conditions]]
 type = "vrl"
 source = '''
-assert_eq!(.observer_hostname, "mnha-router")
+assert_eq!(.observer_hostname, "")
 '''
 
 [[tests]]
@@ -1159,17 +1159,17 @@ assert_eq!(.observer_hostname, "vsrx-br05")
 '''
 
 [[tests]]
-name = "srx_observer_hostname_fleet_name_is_known"
+name = "srx_observer_hostname_fleet_role_name_is_known"
 [[tests.inputs]]
 insert_at = "srx_ecs"
 type = "raw"
-value = '<14>1 2026-06-08T12:00:00.000Z vSRX-twin RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+value = '<14>1 2026-06-08T12:00:00.000Z vsrx-core-a RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit(global)" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
 [[tests.outputs]]
 extract_from = "srx_ecs"
 [[tests.outputs.conditions]]
 type = "vrl"
 source = '''
-assert_eq!(.observer_hostname, "vSRX-twin")
+assert_eq!(.observer_hostname, "vsrx-core-a")
 '''
 
 [[tests]]

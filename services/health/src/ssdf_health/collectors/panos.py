@@ -93,14 +93,14 @@ class PanosCollector:
 
     def collect(self, client, now: str) -> list[Gauge]:
         resources = client.call_tool(
-            "execute_pan_op",
-            {"host": self.device,
-             "cmd": "<show><system><resources></resources></system></show>"},
+            "execute_panos_op",
+            {"device": self.device,
+             "command": "<show><system><resources></resources></system></show>"},
         )
         environmentals = client.call_tool(
-            "execute_pan_op",
-            {"host": self.device,
-             "cmd": "<show><system><environmentals></environmentals></system></show>"},
+            "execute_panos_op",
+            {"device": self.device,
+             "command": "<show><system><environmentals></environmentals></system></show>"},
         )
         return (parse_resources(resources, self.device, now)
                 + parse_environmentals(environmentals, self.device, now))

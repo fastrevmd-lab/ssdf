@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 import re
 
 from ..gauge import Gauge
 from .base import register
+
+logger = logging.getLogger(__name__)
 
 _MEM_RE = re.compile(r"Memory utilization\s+(\d+)\s+percent", re.IGNORECASE)
 _IDLE_RE = re.compile(r"Idle\s+(\d+)\s+percent", re.IGNORECASE)
@@ -62,16 +66,33 @@ class JunosCollector:
         self.devices = devices or []
 
     def collect(self, client, now: str) -> list[Gauge]:
+        """Poll each device, skipping ones that fail.
+
+        Per-device resilient: run_collectors catches at collector granularity, so
+        an uncaught error here would discard every other device's gauges too. The
+        two commands are independent, so one unsupported command never drops the
+        other's gauges.
+        """
         gauges: list[Gauge] = []
         for dev in self.devices:
-            re_text = client.call_tool(
-                "execute_junos_command",
-                {"router_name": dev, "command": "show chassis routing-engine"},
-            )
-            gauges.extend(parse_routing_engine(re_text, dev, now))
-            env_text = client.call_tool(
-                "execute_junos_command",
-                {"router_name": dev, "command": "show chassis environment"},
-            )
-            gauges.extend(parse_environment(env_text, dev, now))
+            try:
+                re_text = client.call_tool(
+                    "execute_junos_command",
+                    {"router_name": dev, "command": "show chassis routing-engine"},
+                )
+            except Exception:
+                logger.warning("junos device %r unreachable; skipping", dev, exc_info=True)
+                continue
+            try:
+                gauges.extend(parse_routing_engine(re_text, dev, now))
+            except Exception:
+                logger.warning("junos %r: routing-engine parse failed", dev, exc_info=True)
+            try:
+                env_text = client.call_tool(
+                    "execute_junos_command",
+                    {"router_name": dev, "command": "show chassis environment"},
+                )
+                gauges.extend(parse_environment(env_text, dev, now))
+            except Exception:
+                logger.warning("junos %r: environment failed; continuing", dev, exc_info=True)
         return gauges

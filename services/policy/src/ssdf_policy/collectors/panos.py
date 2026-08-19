@@ -1,4 +1,4 @@
-"""PAN-OS configured-policy collector: security rulebase via get_pan_config (XML/JSON)."""
+"""PAN-OS configured-policy collector: security rulebase via get_panos_config (XML/JSON)."""
 
 from __future__ import annotations
 
@@ -19,8 +19,16 @@ def _root(text: str) -> ET.Element | None:
     xml_text = text
     try:
         data = json.loads(text)
-        if isinstance(data, dict) and isinstance(data.get("result"), str):
-            xml_text = data["result"]
+        if isinstance(data, dict):
+            # get_panos_config nests the payload: {"output": {"content": "<xml>"}}.
+            # The older get_pan_config used a flat {"result": "<xml>"}; accept both.
+            output = data.get("output")
+            if isinstance(output, dict) and isinstance(output.get("content"), str):
+                xml_text = output["content"]
+            elif isinstance(output, str):
+                xml_text = output
+            elif isinstance(data.get("result"), str):
+                xml_text = data["result"]
         elif isinstance(data, str):
             xml_text = data
     except json.JSONDecodeError:
@@ -101,7 +109,7 @@ class PanosPolicyCollector:
         self.device = device
 
     def collect(self, client, now: str) -> list[dict]:
-        # Real get_pan_config(host, fmt, location) returns the full running config;
+        # Real get_panos_config(device, ...) returns the full running config;
         # parse_security_rules scopes to the security rulebase itself.
-        text = client.call_tool("get_pan_config", {"host": self.device})
+        text = client.call_tool("get_panos_config", {"device": self.device})
         return parse_security_rules(text, self.device, now)

@@ -107,12 +107,12 @@ class PanosCollector:
     def collect(self, client, now: str) -> list[Observation]:
         """Pull LLDP neighbors and ARP table from PAN-OS via the MCP client."""
         lldp_text = client.call_tool(
-            "execute_pan_op",
-            {"host": self.device, "cmd": "<show><lldp><neighbors>all</neighbors></lldp></show>"},
+            "execute_panos_op",
+            {"device": self.device, "command": "<show><lldp><neighbors>all</neighbors></lldp></show>"},
         )
         arp_text = client.call_tool(
-            "execute_pan_op",
-            {"host": self.device, "cmd": "<show><arp><entry name='all'/></arp></show>"},
+            "execute_panos_op",
+            {"device": self.device, "command": "<show><arp><entry name='all'/></arp></show>"},
         )
         return (
             parse_lldp_xml(lldp_text, self.device, now)

@@ -40,3 +40,38 @@ def test_parse_environment_multi_sensor_temps():
 
 def test_parse_routing_engine_garbage_returns_empty():
     assert parse_routing_engine("nonsense", "d", "2026-06-20T00:00:00Z") == []
+
+
+def test_collect_skips_unreachable_device_and_keeps_the_rest():
+    """One unreachable vSRX must not zero the whole fleet's health gauges."""
+    from ssdf_health.collectors.junos import JunosCollector
+
+    class _FlakyClient:
+        def call_tool(self, name, args=None):
+            args = args or {}
+            if args.get("router_name") == "vsrx-down":
+                raise RuntimeError("netconf error: host key mismatch")
+            return _RE_TEXT if "routing-engine" in args.get("command", "") else _ENV_TEXT
+
+    gauges = JunosCollector(["vsrx-down", "vsrx-up"]).collect(
+        _FlakyClient(), "2026-08-19T00:00:00Z"
+    )
+
+    assert {g.device for g in gauges} == {"vsrx-up"}
+    assert "cpu_util_pct" in {g.metric_name for g in gauges}
+
+
+def test_collect_continues_when_one_command_fails():
+    """A device answering routing-engine but not environment still yields gauges."""
+    from ssdf_health.collectors.junos import JunosCollector
+
+    class _PartialClient:
+        def call_tool(self, name, args=None):
+            args = args or {}
+            if "environment" in args.get("command", ""):
+                raise RuntimeError("unsupported command")
+            return _RE_TEXT
+
+    gauges = JunosCollector(["vsrx-up"]).collect(_PartialClient(), "2026-08-19T00:00:00Z")
+
+    assert {g.metric_name for g in gauges} == {"mem_util_pct", "cpu_util_pct"}
