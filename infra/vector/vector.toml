@@ -64,10 +64,20 @@ condition.source = '''
 result = true
 parsed, err = parse_syslog(string(.message) ?? "")
 if err == null {
-    # Parsed cleanly: keep only the security-log stream. Junos emits every
-    # security category (RT_FLOW, RT_SCREEN, RT_IDP, RT_UTM, ...) under an RT_
-    # msgid; system syslog never does.
-    result = starts_with(string(parsed.msgid) ?? "", "RT_")
+    # Parsed cleanly: keep only the security-log stream, identified by its
+    # RFC5424 APP-NAME. Junos emits every security category under an RT_ app-name
+    # (RT_FLOW, RT_IDS, RT_IDP, RT_UTM, RT_AAMW, ...), while system syslog uses
+    # the emitting process (kernel, mgd, sshd, aamwd, ipfd, cron).
+    #
+    # Classify on APP-NAME, not MSGID: `security log stream ... category all`
+    # also carries records whose MSGID is not RT_-prefixed — AppTrack emits
+    # APPTRACK_SESSION_CREATE/CLOSE/VOL_UPDATE under app-name RT_FLOW. Matching
+    # MSGID alone would silently discard that security telemetry. The MSGID test
+    # is kept as a second path so an RT_ msgid under an unexpected app-name is
+    # still admitted.
+    app = string(parsed.appname) ?? ""
+    msg_id = string(parsed.msgid) ?? ""
+    result = starts_with(app, "RT_") || starts_with(msg_id, "RT_")
 }
 result
 '''
@@ -164,6 +174,30 @@ if err != null {
     if _oe == null { _obs_known = true }
     if !_obs_known { obs_host = "" }
 
+    # ssdf.events.source_ip/destination_ip are Nullable(IPv4). Junos logs IPv6
+    # flows through the same RT_FLOW records (link-local and multicast are routine),
+    # and a v6 value makes ClickHouse reject the ENTIRE insert batch with
+    # CANNOT_PARSE_IPV4 — silently discarding every unrelated event batched with it
+    # (369 dropped batches in 24h before this guard). Keep the typed columns null
+    # for non-IPv4 and let `ext` carry the real addresses, which it already does
+    # because it is built from the same `fields` map. Mirrors panos_ecs/unifi_ips.
+    # Bound once and reused: parse_regex accepts a variable pattern here
+    # (verified by `vector test`), unlike the filter predicates elsewhere in
+    # this file that must inline their literal.
+    _v4 = r'^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$'
+    _src_raw = string(fields."source-address") ?? ""
+    _dst_raw = string(fields."destination-address") ?? ""
+    src_ip_v4 = null
+    if _src_raw != "" {
+        _sm, _se = parse_regex(_src_raw, _v4)
+        if _se == null { src_ip_v4 = _src_raw }
+    }
+    dst_ip_v4 = null
+    if _dst_raw != "" {
+        _dm, _de = parse_regex(_dst_raw, _v4)
+        if _de == null { dst_ip_v4 = _dst_raw }
+    }
+
     . = {
         "timestamp": parsed.timestamp,
         "event_id": uuid_v4(),
@@ -173,10 +207,10 @@ if err != null {
         "event_action": event_action,
         "event_outcome": event_outcome,
         "event_provider": "juniper",
-        "source_ip": fields."source-address",
+        "source_ip": src_ip_v4,
         "source_port": to_int(fields."source-port"),
         "source_bytes": src_bytes,
-        "destination_ip": fields."destination-address",
+        "destination_ip": dst_ip_v4,
         "destination_port": to_int(fields."destination-port"),
         "destination_bytes": dst_bytes,
         "network_transport": transport,
@@ -2005,4 +2039,65 @@ source = '''
 assert_eq!(.event_provider, "juniper")
 assert_eq!(.observer_hostname, "vsrx-prod")
 assert!(starts_with(string!(.event_action), "configuration"))
+'''
+
+[[tests]]
+name = "srx_sec_passes_apptrack_under_rt_flow_appname"
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = '<14>1 2026-08-19T12:00:00.000Z vsrx-prod RT_FLOW - APPTRACK_SESSION_CLOSE [junos@2636.1.1.1.2.42 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="baseline-permit" source-zone-name="trust" destination-zone-name="untrust" application="HTTP" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.event_provider, "juniper")
+assert_eq!(.observer_hostname, "vsrx-prod")
+assert!(.event_action != "parse_error", "AppTrack security record must reach srx_ecs")
+'''
+
+[[tests]]
+name = "srx_sec_drops_daemon_appname_even_with_rich_sd"
+no_outputs_from = ["srx_sec"]
+[[tests.inputs]]
+insert_at = "srx_sec"
+type = "raw"
+value = '<27>1 2026-08-19T12:00:00.000Z vsrx-prod aamwd 4321 AAMWD_NETWORK_CONNECT_FAILED [junos@2636.1.1.1.2.129 message="failed to connect"] failed'
+
+[[tests]]
+name = "srx_ipv6_flow_does_not_poison_the_ipv4_column"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-08-19T12:00:00.000Z vsrx-prod RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="fe80::1" source-port="546" destination-address="ff05:0:0:0:0:0::" destination-port="547" protocol-id="17" policy-name="v6-permit" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="10" bytes-from-server="20" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+# ssdf.events.source_ip/destination_ip are Nullable(IPv4); a v6 address here makes
+# ClickHouse reject the WHOLE batch (CANNOT_PARSE_IPV4), silently discarding every
+# unrelated event batched with it. Keep the typed columns null and preserve the
+# real addresses in ext.
+assert_eq!(.source_ip, null)
+assert_eq!(.destination_ip, null)
+assert_eq!(.event_action, "flow_session_close")
+assert_eq!(.ext."source-address", "fe80::1")
+assert_eq!(.ext."destination-address", "ff05:0:0:0:0:0::")
+'''
+
+[[tests]]
+name = "srx_ipv4_flow_still_populates_typed_columns"
+[[tests.inputs]]
+insert_at = "srx_ecs"
+type = "raw"
+value = '<14>1 2026-08-19T12:00:00.000Z vsrx-prod RT_FLOW - RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.36 source-address="10.65.1.10" source-port="51514" destination-address="10.66.2.20" destination-port="443" protocol-id="6" policy-name="v4-permit" source-zone-name="trust" destination-zone-name="untrust" bytes-from-client="1500" bytes-from-server="6000" username="N/A"]'
+[[tests.outputs]]
+extract_from = "srx_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+assert_eq!(.source_ip, "10.65.1.10")
+assert_eq!(.destination_ip, "10.66.2.20")
 '''
