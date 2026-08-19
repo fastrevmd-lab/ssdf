@@ -12,17 +12,14 @@ exclude_slash_tmp = true
 [mcp_servers.gbrain]
 enabled = false
 
-[mcp_servers.hpe-mcp]
-enabled = false
-
-[mcp_servers.rust-junosmcp]
+[mcp_servers.prod-labmode-junos]
 enabled = true
 enabled_tools = ["get_router_list", "gather_device_facts", "get_junos_config", "junos_config_diff"]
 default_tools_approval_mode = "writes"
 
-[mcp_servers.panos-mcp]
+[mcp_servers.prod-labmode-panos]
 enabled = true
-enabled_tools = ["list_devices", "get_pan_config", "pan_config_diff"]
+enabled_tools = ["list_devices", "get_panos_config", "gather_device_facts"]
 default_tools_approval_mode = "writes"
 
 [mcp_servers.proxmox-mcp]
