@@ -75,3 +75,46 @@ def test_collect_continues_when_one_command_fails():
     gauges = JunosCollector(["vsrx-up"]).collect(_PartialClient(), "2026-08-19T00:00:00Z")
 
     assert {g.metric_name for g in gauges} == {"mem_util_pct", "cpu_util_pct"}
+
+
+def test_collect_still_probes_environment_when_routing_engine_fails():
+    """The two commands are independent; a routing-engine failure must not
+    suppress the temperature probe on a device that is plainly reachable."""
+    from ssdf_health.collectors.junos import JunosCollector
+
+    class _NoRoutingEngineClient:
+        def call_tool(self, name, args=None):
+            args = args or {}
+            if "routing-engine" in args.get("command", ""):
+                raise RuntimeError("unsupported command on this platform")
+            return _ENV_TEXT
+
+    gauges = JunosCollector(["vsrx-up"]).collect(
+        _NoRoutingEngineClient(), "2026-08-19T00:00:00Z"
+    )
+
+    assert {g.metric_class for g in gauges} == {"temperature"}
+    assert {g.device for g in gauges} == {"vsrx-up"}
+
+
+def test_collect_stops_probing_a_device_that_is_unreachable():
+    """A transport failure means the device is down: don't pay a second timeout.
+
+    Most of the lab fleet is powered off, so probing every command against every
+    dead device would push a pass past its 5-minute timer interval.
+    """
+    from ssdf_health.collectors.junos import JunosCollector
+
+    calls: list[str] = []
+
+    class _UnreachableClient:
+        def call_tool(self, name, args=None):
+            calls.append((args or {}).get("command", ""))
+            raise RuntimeError("netconf error: transport error: connection failed")
+
+    gauges = JunosCollector(["vsrx-down"]).collect(
+        _UnreachableClient(), "2026-08-19T00:00:00Z"
+    )
+
+    assert gauges == []
+    assert len(calls) == 1, "unreachable device should not be probed twice"

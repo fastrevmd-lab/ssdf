@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import re
 
 from defusedxml.ElementTree import fromstring as _xml_fromstring, ParseError as _XmlParseError
 
 from ..gauge import Gauge
+from ssdf_common.mcp_envelope import unwrap_mcp_text
+
 from .base import register
 
 _IDLE_RE = re.compile(r"([\d.]+)\s*id", re.IGNORECASE)
@@ -18,17 +19,8 @@ _MEM_RE = re.compile(
 
 
 def _result_text(text: str) -> str:
-    """Unwrap a JSON {'result': '<text>'} or XML <result>...</result> envelope."""
-    stripped = text.strip()
-    try:
-        data = json.loads(stripped)
-        if isinstance(data, dict) and isinstance(data.get("result"), str):
-            return data["result"]
-        if isinstance(data, str):
-            return data
-    except json.JSONDecodeError:
-        pass
-    return stripped
+    """Unwrap the MCP response envelope around a tool's text payload."""
+    return unwrap_mcp_text(text)
 
 
 def parse_resources(text: str, device: str, now: str) -> list[Gauge]:

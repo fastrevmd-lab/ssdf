@@ -3,27 +3,18 @@
 
 from __future__ import annotations
 
-import json
 import xml.etree.ElementTree as ET  # serialization only (ET.tostring)
 from defusedxml.ElementTree import fromstring as _xml_fromstring, ParseError as _XmlParseError
+
+from ssdf_common.mcp_envelope import unwrap_mcp_text
 
 from ..models import Observation
 from .base import firewall_inventory, register
 
 
 def _entries(text: str) -> list[ET.Element]:
-    """Unwrap JSON envelope (if present) and return all <entry> elements found."""
-    xml_text: str
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict) and isinstance(data.get("result"), str):
-            xml_text = data["result"]
-        elif isinstance(data, str):
-            xml_text = data
-        else:
-            xml_text = text
-    except json.JSONDecodeError:
-        xml_text = text
+    """Unwrap the MCP response envelope and return all <entry> elements found."""
+    xml_text = unwrap_mcp_text(text)
     try:
         root = _xml_fromstring(xml_text)
     except (_XmlParseError, Exception):  # ParseError + defused EntitiesForbidden/DTDForbidden

@@ -2,37 +2,25 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from defusedxml.ElementTree import fromstring as _xml_fromstring, ParseError as _XmlParseError
 import xml.etree.ElementTree as ET  # type annotations only (ET.Element)
 
 logger = logging.getLogger(__name__)
 
+from ssdf_common.mcp_envelope import envelope_truncated, unwrap_mcp_text
+
 from .base import register
 
 PROVIDER = "paloalto"
 
+# vsys1 security rulebase — the only subtree this collector needs.
+RULES_XPATH = "/config/devices/entry/vsys/entry[@name='vsys1']/rulebase/security"
+
 
 def _root(text: str) -> ET.Element | None:
     """Unwrap an optional JSON envelope and parse to an XML root element."""
-    xml_text = text
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            # get_panos_config nests the payload: {"output": {"content": "<xml>"}}.
-            # The older get_pan_config used a flat {"result": "<xml>"}; accept both.
-            output = data.get("output")
-            if isinstance(output, dict) and isinstance(output.get("content"), str):
-                xml_text = output["content"]
-            elif isinstance(output, str):
-                xml_text = output
-            elif isinstance(data.get("result"), str):
-                xml_text = data["result"]
-        elif isinstance(data, str):
-            xml_text = data
-    except json.JSONDecodeError:
-        pass
+    xml_text = unwrap_mcp_text(text)
     try:
         return _xml_fromstring(xml_text)
     except (_XmlParseError, Exception) as exc:  # ParseError + defused entity/DTD errors
@@ -109,7 +97,20 @@ class PanosPolicyCollector:
         self.device = device
 
     def collect(self, client, now: str) -> list[dict]:
-        # Real get_panos_config(device, ...) returns the full running config;
-        # parse_security_rules scopes to the security rulebase itself.
-        text = client.call_tool("get_panos_config", {"device": self.device})
+        """Read the device's configured security rulebase.
+
+        Scoped to RULES_XPATH rather than pulling the whole running config: the
+        tool caps output at 512 KiB by default, and the full config is several
+        times larger than the rulebase for no benefit here.
+        """
+        text = client.call_tool(
+            "get_panos_config", {"device": self.device, "xpath": RULES_XPATH}
+        )
+        if envelope_truncated(text):
+            # Parsing a cut-short rulebase would drop real rules and read
+            # downstream as though policy had been deleted. Refuse instead.
+            raise RuntimeError(
+                f"panos {self.device}: get_panos_config returned a truncated "
+                "rulebase; refusing to emit a partial policy set"
+            )
         return parse_security_rules(text, self.device, now)

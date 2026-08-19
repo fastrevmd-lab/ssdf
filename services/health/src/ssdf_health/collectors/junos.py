@@ -56,6 +56,18 @@ def parse_environment(text: str, device: str, now: str) -> list[Gauge]:
     return gauges
 
 
+def _is_unreachable(exc: Exception) -> bool:
+    """True if the error means the device is down rather than the command bad.
+
+    rust-junosmcp surfaces reachability problems as "netconf error: transport
+    error: ..." (connection refused, no route to host, host key mismatch). Those
+    are worth short-circuiting; a command the platform simply does not support
+    is not, because the device's other probes may still answer.
+    """
+    text = str(exc).lower()
+    return "transport error" in text or "connection failed" in text
+
+
 @register("junos")
 class JunosCollector:
     """Collects CPU/mem + temps from one or more Junos devices via rust-junosmcp."""
@@ -66,33 +78,30 @@ class JunosCollector:
         self.devices = devices or []
 
     def collect(self, client, now: str) -> list[Gauge]:
-        """Poll each device, skipping ones that fail.
+        """Poll each device, skipping only the probes that actually fail.
 
         Per-device resilient: run_collectors catches at collector granularity, so
-        an uncaught error here would discard every other device's gauges too. The
-        two commands are independent, so one unsupported command never drops the
-        other's gauges.
+        an uncaught error here would discard every other device's gauges too.
+        The two commands are independent and are attempted independently — a
+        platform that rejects one still yields the other's gauges, so neither is
+        treated as a reachability gate for the device.
         """
         gauges: list[Gauge] = []
         for dev in self.devices:
-            try:
-                re_text = client.call_tool(
-                    "execute_junos_command",
-                    {"router_name": dev, "command": "show chassis routing-engine"},
-                )
-            except Exception:
-                logger.warning("junos device %r unreachable; skipping", dev, exc_info=True)
-                continue
-            try:
-                gauges.extend(parse_routing_engine(re_text, dev, now))
-            except Exception:
-                logger.warning("junos %r: routing-engine parse failed", dev, exc_info=True)
-            try:
-                env_text = client.call_tool(
-                    "execute_junos_command",
-                    {"router_name": dev, "command": "show chassis environment"},
-                )
-                gauges.extend(parse_environment(env_text, dev, now))
-            except Exception:
-                logger.warning("junos %r: environment failed; continuing", dev, exc_info=True)
+            for command, parser in (
+                ("show chassis routing-engine", parse_routing_engine),
+                ("show chassis environment", parse_environment),
+            ):
+                try:
+                    text = client.call_tool(
+                        "execute_junos_command", {"router_name": dev, "command": command}
+                    )
+                    gauges.extend(parser(text, dev, now))
+                except Exception as exc:
+                    if _is_unreachable(exc):
+                        logger.warning("junos device %r unreachable; skipping", dev, exc_info=True)
+                        break
+                    logger.warning(
+                        "junos %r: command %r failed; continuing", dev, command, exc_info=True
+                    )
         return gauges

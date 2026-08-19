@@ -91,7 +91,10 @@ def test_collect_uses_current_panos_mcp_tool_contract():
     PanosPolicyCollector("panosvm").collect(_RecordingClient(), "2026-08-19T00:00:00Z")
 
     assert [c[0] for c in calls] == ["get_panos_config"]
-    assert calls[0][1] == {"device": "panosvm"}
+    assert calls[0][1]["device"] == "panosvm"
+    # Scoped to the rulebase: the full running config is ~5x larger and rises
+    # toward the tool's 512 KiB default output cap.
+    assert calls[0][1]["xpath"].endswith("/rulebase/security")
 
 
 def test_root_unwraps_panos_mcp_output_content_envelope():
@@ -143,3 +146,27 @@ def test_parse_security_rules_reads_output_content_envelope():
     rules = parse_security_rules(envelope, "panosvm", "2026-08-19T00:00:00Z")
     assert len(rules) == 1
     assert rules[0]["rule_name"] == "allow-web"
+
+
+def test_collect_refuses_a_truncated_config_rather_than_under_reporting():
+    """A cut-short payload must fail loudly, not silently yield fewer rules.
+
+    get_panos_config caps output at 512 KiB by default and reports
+    output.truncated. Parsing a truncated rulebase would drop real rules and
+    read downstream as though policy had been deleted.
+    """
+    import json as _json
+    import pytest
+    from ssdf_policy.collectors.panos import PanosPolicyCollector
+
+    truncated = _json.dumps({
+        "device": "panosvm",
+        "output": {"content": "<security><rules><entry name='r1'>", "truncated": True},
+    })
+
+    class _TruncatingClient:
+        def call_tool(self, name, args=None):
+            return truncated
+
+    with pytest.raises(RuntimeError, match="truncated"):
+        PanosPolicyCollector("panosvm").collect(_TruncatingClient(), "2026-08-19T00:00:00Z")
