@@ -3,13 +3,20 @@
 
 from __future__ import annotations
 
+import logging
 import xml.etree.ElementTree as ET  # serialization only (ET.tostring)
 from defusedxml.ElementTree import fromstring as _xml_fromstring, ParseError as _XmlParseError
 
-from ssdf_common.mcp_envelope import unwrap_mcp_text
+from ssdf_common.mcp_envelope import envelope_truncated, unwrap_mcp_text
 
 from ..models import Observation
 from .base import firewall_inventory, register
+
+logger = logging.getLogger(__name__)
+
+# execute_panos_op caps output at 512 KiB by default; this is the tool's
+# documented maximum, so an ARP/LLDP table has room to arrive whole.
+MAX_OUTPUT_BYTES = 5 * 1024 * 1024
 
 
 def _entries(text: str) -> list[ET.Element]:
@@ -96,17 +103,29 @@ class PanosCollector:
         self.device = device
 
     def collect(self, client, now: str) -> list[Observation]:
-        """Pull LLDP neighbors and ARP table from PAN-OS via the MCP client."""
-        lldp_text = client.call_tool(
-            "execute_panos_op",
-            {"device": self.device, "command": "<show><lldp><neighbors>all</neighbors></lldp></show>"},
-        )
-        arp_text = client.call_tool(
-            "execute_panos_op",
-            {"device": self.device, "command": "<show><arp><entry name='all'/></arp></show>"},
-        )
-        return (
-            parse_lldp_xml(lldp_text, self.device, now)
-            + parse_arp_xml(arp_text, self.device, now)
-            + [firewall_inventory("panos", self.device, now)]
-        )
+        """Pull LLDP neighbors and ARP table from PAN-OS via the MCP client.
+
+        The inventory node is emitted unconditionally so the firewall stays in
+        the graph, which also means a quietly truncated table would leave the
+        collector looking healthy while under-reporting hosts. Each payload is
+        therefore checked for truncation and dropped rather than half-parsed.
+        """
+        observations: list[Observation] = []
+        for command, parser in (
+            ("<show><lldp><neighbors>all</neighbors></lldp></show>", parse_lldp_xml),
+            ("<show><arp><entry name='all'/></arp></show>", parse_arp_xml),
+        ):
+            text = client.call_tool(
+                "execute_panos_op",
+                {"device": self.device, "command": command, "max_bytes": MAX_OUTPUT_BYTES},
+            )
+            if envelope_truncated(text):
+                logger.warning(
+                    "panos %r: %r response truncated at %d bytes; dropping these "
+                    "observations rather than reporting a partial table",
+                    self.device, command, MAX_OUTPUT_BYTES,
+                )
+                continue
+            observations.extend(parser(text, self.device, now))
+        observations.append(firewall_inventory("panos", self.device, now))
+        return observations

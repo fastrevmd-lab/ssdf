@@ -96,5 +96,64 @@ def test_collect_uses_current_panos_mcp_tool_contract():
 
     assert [c[0] for c in calls] == ["execute_panos_op", "execute_panos_op"]
     for _, args in calls:
-        assert set(args) == {"device", "command"}
+        assert set(args) == {"device", "command", "max_bytes"}
         assert args["device"] == "panosvm"
+
+
+_ARP_XML = ("<response status='success'><result>"
+            "<entry><ip>10.64.0.9</ip><mac>aa:bb:cc:dd:ee:ff</mac>"
+            "<interface>ethernet1/1</interface></entry></result></response>")
+
+
+def _envelope(content: str, truncated: bool = False) -> str:
+    import json
+    return json.dumps({"device": "panosvm", "status": "success",
+                       "output": {"content": content, "truncated": truncated}})
+
+
+def test_collect_requests_a_generous_output_cap():
+    """execute_panos_op caps output at 512 KiB by default; an ARP table on a
+    real firewall can exceed that, and a cut-off table parses as fewer hosts."""
+    from ssdf_topo.collectors.panos import PanosCollector
+
+    calls: list[dict] = []
+
+    class _RecordingClient:
+        def call_tool(self, name, args=None):
+            calls.append(args or {})
+            return _envelope("<response status='success'><result></result></response>")
+
+    PanosCollector("panosvm").collect(_RecordingClient(), NOW)
+
+    assert all(c.get("max_bytes", 0) > 512 * 1024 for c in calls)
+
+
+def test_collect_drops_truncated_observations_but_keeps_the_inventory_node():
+    """A truncated response must not become a quietly short ARP table.
+
+    The firewall_inventory item is emitted unconditionally, so a collector that
+    swallowed truncation would still look healthy while under-reporting hosts.
+    Dropping the inventory node instead would age the firewall out of the graph,
+    so keep it and refuse only the incomplete payload.
+    """
+    from ssdf_topo.collectors.panos import PanosCollector
+
+    class _TruncatingClient:
+        def call_tool(self, name, args=None):
+            return _envelope(_ARP_XML, truncated=True)
+
+    obs = PanosCollector("panosvm").collect(_TruncatingClient(), NOW)
+
+    assert [o.observation_type for o in obs] == ["device_inventory"]
+
+
+def test_collect_keeps_observations_when_not_truncated():
+    from ssdf_topo.collectors.panos import PanosCollector
+
+    class _CompleteClient:
+        def call_tool(self, name, args=None):
+            return _envelope(_ARP_XML, truncated=False)
+
+    obs = PanosCollector("panosvm").collect(_CompleteClient(), NOW)
+
+    assert "arp_entry" in {o.observation_type for o in obs}
