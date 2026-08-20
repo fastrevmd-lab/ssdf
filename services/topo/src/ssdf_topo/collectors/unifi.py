@@ -45,24 +45,27 @@ def parse_clients(text: str, source_device: str, now: str) -> list[Observation]:
         vlan_raw = row.get("vlan")
         vlan = str(vlan_raw) if vlan_raw is not None else ""
         sw_port = str(row.get("sw_port", "") or "")
-        connected_device = sw_mac or ap_mac or source_device
-
+        # Without an uplink MAC there is no real attachment to record. Falling back
+        # to source_device manufactured an edge to the collector's own placeholder
+        # and leaked a junk `unifi-site` device node into the graph.
+        uplink = sw_mac or ap_mac
         obs_type = "mac_entry" if is_wired else "wlan_assoc"
-        observations.append(
-            Observation(
-                observed_at=now,
-                collector="unifi",
-                source_device=source_device,
-                layer="l2",
-                observation_type=obs_type,
-                subj_kind="host",
-                subj_id=f"mac:{mac}",
-                obj_kind="device",
-                obj_id=f"device:{connected_device}",
-                attrs={"vlan": vlan, "port": sw_port, "wired": str(is_wired)},
-                raw=json.dumps(row),
+        if uplink:
+            observations.append(
+                Observation(
+                    observed_at=now,
+                    collector="unifi",
+                    source_device=source_device,
+                    layer="l2",
+                    observation_type=obs_type,
+                    subj_kind="host",
+                    subj_id=f"mac:{mac}",
+                    obj_kind="device",
+                    obj_id=f"device:{uplink}",
+                    attrs={"vlan": vlan, "port": sw_port, "wired": str(is_wired)},
+                    raw=json.dumps(row),
+                )
             )
-        )
 
         ip = str(row.get("ip") or "").strip()
         if ip:

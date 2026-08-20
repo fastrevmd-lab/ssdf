@@ -196,3 +196,74 @@ def test_device_inventory_role_merges_onto_named_device_node():
     fw = [n for n in nodes if n["kind"] == "device" and n["name"] == "vSRX-test10"]
     assert len(fw) == 1, "device_inventory must merge onto the named device node, not duplicate it"
     assert fw[0]["attrs"]["role"] == "firewall"
+
+
+def test_device_seen_by_mac_and_by_name_resolves_to_one_node():
+    """A switch/AP referenced by MAC in client observations and by name in
+    device_inventory must fuse into one device, not two.
+
+    _merge_devices already fuses on a shared `mac:` identity token; the MAC-named
+    node just never had identifiers["mac"] set, so there was nothing to fuse on.
+    Live effect: 8 role-less MAC-named phantoms sat alongside the real named
+    devices, inflating every device count in the graph.
+    """
+    from ssdf_topo.models import Observation
+    from ssdf_topo.resolver.resolve import resolve_graph
+
+    now = "2026-08-20T00:00:00Z"
+    obs = [
+        # A client attached to a switch, which the client view knows only by MAC.
+        Observation(
+            observed_at=now,
+            collector="unifi",
+            source_device="unifi-site",
+            layer="l2",
+            observation_type="mac_entry",
+            subj_kind="host",
+            subj_id="mac:aa:bb:cc:dd:ee:ff",
+            obj_kind="device",
+            obj_id="device:02:02:01:4c:24:cf",
+            attrs={"port": "6", "vlan": "1", "wired": "True"},
+            raw="",
+        ),
+        # The same switch, from device inventory, which knows its name.
+        Observation(
+            observed_at=now,
+            collector="unifi",
+            source_device="unifi-site",
+            layer="l2",
+            observation_type="device_inventory",
+            subj_kind="device",
+            subj_id="device:02:02:01:4c:24:cf",
+            obj_kind="",
+            obj_id="",
+            attrs={
+                "role": "switch",
+                "name": "USW Pro HD 24 PoE",
+                "mac": "02:02:01:4c:24:cf",
+                "ip": "198.51.100.193",
+            },
+            raw="",
+        ),
+    ]
+    nodes, _edges = resolve_graph(obs, [], "t_main")
+
+    devices = [n for n in nodes if n["kind"] == "device"]
+    assert len(devices) == 1, f"expected one fused device, got {[d['name'] for d in devices]}"
+    assert devices[0]["name"] == "USW Pro HD 24 PoE"
+    assert devices[0]["attrs"]["role"] == "switch"
+
+
+def test_client_with_no_uplink_mac_creates_no_placeholder_device():
+    """A client reporting neither sw_mac nor ap_mac must not manufacture an
+    attachment to the collector's own source_device placeholder — that leaked a
+    junk `unifi-site` device node into the graph."""
+    from ssdf_topo.collectors.unifi import parse_clients
+
+    payload = '{"result": [{"mac": "aa:bb:cc:dd:ee:ff", "is_wired": true, "ip": "10.64.0.5"}]}'
+    obs = parse_clients(payload, "unifi-site", "2026-08-20T00:00:00Z")
+
+    attach = [o for o in obs if o.observation_type in ("mac_entry", "wlan_assoc")]
+    assert attach == [], "no uplink MAC means no attachment observation"
+    # the ARP/IP observation is still useful and should survive
+    assert any(o.observation_type == "arp_entry" for o in obs)

@@ -23,6 +23,10 @@ from .unionfind import UnionFind
 _MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", re.IGNORECASE)
 
 
+# A bare 6-octet MAC used as a device name, e.g. "02:02:01:4c:24:cf".
+_MAC_RE = re.compile(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}")
+
+
 def _device_identity_tokens(node: dict) -> list[str]:
     """Identity tokens that should fuse two device nodes into one entity:
     a shared management MAC, name, or management IP."""
@@ -65,7 +69,13 @@ def _merge_devices(nodes: dict, edges: dict, edge_evidence: dict, tenant: str) -
         src, dst = nodes[nid], nodes[root]
         dst["first_seen"] = min(dst["first_seen"], src["first_seen"])
         dst["last_seen"] = max(dst["last_seen"], src["last_seen"])
-        if src["name"] and not dst["name"]:
+        # A MAC is a fallback identity, a real name is a better one: when a
+        # client-view node (named by MAC) fuses with an inventory node, whichever
+        # side carries the human name should win regardless of which became root.
+        if src["name"] and (
+            not dst["name"]
+            or (_MAC_RE.fullmatch(dst["name"]) and not _MAC_RE.fullmatch(src["name"]))
+        ):
             dst["name"] = src["name"]
         for key, value in src["identifiers"].items():
             dst["identifiers"].setdefault(key, value)
@@ -182,6 +192,12 @@ def resolve_graph(
             host = host_node(mac, at)
             dev_name = o.obj_id.split(":", 1)[-1] if o.obj_id else o.source_device
             dev = device_node(dev_name, at)
+            # Client views know an uplink only by MAC, while device_inventory knows
+            # it by name, so the same switch/AP arrives under two identities.
+            # _merge_devices already fuses devices sharing a `mac:` token — it just
+            # needs the token to exist on this side too.
+            if _MAC_RE.fullmatch(dev_name):
+                dev["identifiers"].setdefault("mac", dev_name.lower())
             add_edge(
                 host["node_id"],
                 dev["node_id"],
