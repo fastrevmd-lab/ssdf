@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from ..models import Observation
 from .base import register
+
+logger = logging.getLogger(__name__)
 
 _ENVELOPE_KEYS = ("result", "data", "clients", "devices", "items")
 
@@ -77,7 +80,17 @@ def parse_clients(text: str, source_device: str, now: str) -> list[Observation]:
     return observations
 
 
-_ROLE_MAP = {"usw": "switch", "uap": "ap", "ugw": "router", "udm": "router"}
+# UniFi device `type` codes -> SSDF role. The Gateway Max reports `uxg`
+# (model UXGB); `ugw` is the older Security Gateway and returns nothing on this
+# site. Without a uxg entry the gateway fell through to the generic "device"
+# role and could not be picked out of the graph.
+_ROLE_MAP = {
+    "usw": "switch",
+    "uap": "ap",
+    "uxg": "gateway",
+    "ugw": "gateway",
+    "udm": "gateway",
+}
 
 
 def parse_devices(text: str, source_device: str, now: str) -> list[Observation]:
@@ -113,14 +126,45 @@ def parse_devices(text: str, source_device: str, now: str) -> list[Observation]:
     return observations
 
 
+# unifi-mcp has no "list every device" tool: list_devices_by_type requires an
+# explicit type, so inventory means asking for each type we care about.
+DEVICE_TYPES = ("uxg", "ugw", "udm", "usw", "uap")
+
+
 @register("unifi")
 class UnifiCollector:
     """Collects device inventory and active client data from a UniFi site."""
 
     name = "unifi"
 
+    def __init__(self, site_id: str = "default",
+                 device_types: tuple[str, ...] = DEVICE_TYPES):
+        self.site_id = site_id
+        self.device_types = device_types
+
     def collect(self, client, now: str) -> list[Observation]:
-        """Pull device list and active clients from the UniFi MCP server."""
-        devices_text = client.call_tool("list_devices_by_type", {})
-        clients_text = client.call_tool("list_active_clients", {})
-        return parse_devices(devices_text, "unifi-site", now) + parse_clients(clients_text, "unifi-site", now)
+        """Pull device inventory and active clients from the UniFi MCP server.
+
+        `site_id` is mandatory on both tools and `device_type` on the first; the
+        collector previously called them with `{}` and every run failed validation,
+        which run_collectors swallowed — UniFi topology went silently missing while
+        UniFi health telemetry kept working.
+        """
+        observations: list[Observation] = []
+        for device_type in self.device_types:
+            try:
+                devices_text = client.call_tool(
+                    "list_devices_by_type",
+                    {"site_id": self.site_id, "device_type": device_type},
+                )
+                observations.extend(parse_devices(devices_text, "unifi-site", now))
+            except Exception:
+                logger.warning(
+                    "unifi: device type %r query failed; continuing", device_type, exc_info=True
+                )
+        try:
+            clients_text = client.call_tool("list_active_clients", {"site_id": self.site_id})
+            observations.extend(parse_clients(clients_text, "unifi-site", now))
+        except Exception:
+            logger.warning("unifi: active-client query failed; continuing", exc_info=True)
+        return observations

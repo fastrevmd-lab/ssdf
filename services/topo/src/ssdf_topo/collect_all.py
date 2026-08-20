@@ -31,6 +31,8 @@ def _build_collector(name: str):
         return cls(devices=devices)
     if name == "panos":
         return cls(device=os.environ.get("PANOS_DEVICE", "panosvm"))
+    if name == "unifi":
+        return cls(site_id=os.environ.get("UNIFI_SITE_ID", "default"))
     return cls()
 
 
