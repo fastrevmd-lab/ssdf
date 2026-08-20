@@ -91,6 +91,74 @@ _UNREACHABLE_MARKERS = (
 )
 
 
+# "2026-08-18 23:05:33 UTC  Minor  AAMWD control channel down, ..."
+# Junos prints a banner ("N alarms currently active" / "No alarms currently
+# active") and a column header before the rows; anchoring on a leading timestamp
+# is what distinguishes a real alarm line from both.
+_ALARM_RE = re.compile(
+    r"^(?P<raised>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \w+)?)\s+"
+    r"(?P<cls>\S+)\s+(?P<desc>.+?)\s*$"
+)
+
+
+def parse_alarms(text: str, device: str, now: str) -> list[Gauge]:
+    """Parse `show system alarms` / `show chassis alarms` into alarm gauges.
+
+    Emits one `active_alarm_count` gauge plus one `alarm` gauge per active alarm.
+    The count is emitted even when zero: a device with no alarms must be
+    distinguishable from a collector that stopped running, and absence of rows
+    cannot make that distinction.
+
+    Severity rides the `sensor` axis and the raise time and description ride
+    `raw`, so no schema change is needed — M13a designed metric_class + sensor as
+    the discovery axes precisely so a new signal lands as new rows.
+    """
+    lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return []
+
+    banner = any(
+        "alarms currently active" in ln.lower() or "no alarms" in ln.lower() for ln in lines
+    )
+    if not banner:
+        return []  # not alarm output at all
+
+    gauges: list[Gauge] = []
+    for line in lines:
+        m = _ALARM_RE.match(line)
+        if not m:
+            continue
+        gauges.append(
+            Gauge(
+                provider="juniper",
+                device=device,
+                scope="device",
+                metric_class="alarm",
+                sensor=m.group("cls").strip().lower(),
+                metric_name="alarm",
+                value=1.0,
+                unit="count",
+                raw=f"{m.group('raised')} | {m.group('desc').strip()}",
+            )
+        )
+
+    gauges.insert(
+        0,
+        Gauge(
+            provider="juniper",
+            device=device,
+            scope="device",
+            metric_class="alarm",
+            sensor="",
+            metric_name="active_alarm_count",
+            value=float(len(gauges)),
+            unit="count",
+            raw=lines[0],
+        ),
+    )
+    return gauges
+
+
 def _is_unreachable(exc: Exception) -> bool:
     """True if the error means the device is down rather than the command bad.
 
@@ -140,4 +208,51 @@ class JunosCollector:
                     logger.warning(
                         "junos %r: command %r failed; continuing", dev, command, exc_info=True
                     )
+            else:
+                gauges.extend(self._collect_alarms(client, dev, now))
         return gauges
+
+    def _collect_alarms(self, client, dev: str, now: str) -> list[Gauge]:
+        """Collect active alarms, deduped across the two commands that report them.
+
+        A vSRX returns the same alarm from BOTH `show system alarms` and
+        `show chassis alarms`, so counting each command's output independently
+        would double every device's alarm total.
+        """
+        seen: dict[tuple[str, str], Gauge] = {}
+        saw_alarm_output = False
+        for command in ("show system alarms", "show chassis alarms"):
+            try:
+                text = client.call_tool(
+                    "execute_junos_command", {"router_name": dev, "command": command}
+                )
+            except Exception:
+                logger.warning("junos %r: %r failed; continuing", dev, command, exc_info=True)
+                continue
+            parsed = parse_alarms(text, dev, now)
+            if not parsed:
+                continue  # not alarm output; do not infer a count from it
+            saw_alarm_output = True
+            for g in parsed:
+                if g.metric_name == "alarm":
+                    seen.setdefault((g.sensor, g.raw), g)
+
+        # Report a count ONLY when a command actually answered with alarm output.
+        # "No alarms currently active" parses to a real zero; unparseable output
+        # must not be reported as zero, which would look identical to a healthy
+        # device while actually meaning we learned nothing.
+        if not saw_alarm_output:
+            return []
+        alarms = list(seen.values())
+        count = Gauge(
+            provider="juniper",
+            device=dev,
+            scope="device",
+            metric_class="alarm",
+            sensor="",
+            metric_name="active_alarm_count",
+            value=float(len(alarms)),
+            unit="count",
+            raw=f"{len(alarms)} active",
+        )
+        return [count, *alarms]
