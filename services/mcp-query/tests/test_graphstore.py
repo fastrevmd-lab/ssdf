@@ -129,3 +129,86 @@ def test_nodes_by_attr_sql_combines_role_and_kind():
     assert "attrs['role'] = {role:String}" in sql
     assert "kind = {kind:String}" in sql
     assert params == {"tenant": "t_main", "role": "firewall", "kind": "device"}
+
+
+def test_nodes_by_attr_collapses_superseded_rows_for_one_device():
+    """graph_nodes keys on node_id, so a device that changes identity leaves its
+    previous row behind until TTL — both rows carry the same name and both match.
+
+    The fix is dedupe by identity, NOT a staleness filter: a node lingering stale
+    during a collector lull is still part of the inventory, and hiding it would
+    defeat ingest_status, whose whole job is to surface a device that stopped
+    reporting. Age is the wrong axis; identity is the right one.
+    """
+    from ssdf_mcp_query.graphstore import ClickHouseGraphStore
+
+    rows = [
+        {
+            "node_id": "old",
+            "kind": "device",
+            "name": "Gateway Max",
+            "identifiers": {"mac": "02:00:01:27:fb:2b"},
+            "attrs": {"role": "gateway"},
+            "first_seen": "2026-08-01T00:00:00Z",
+            "last_seen": "2026-08-20T14:11:25Z",
+        },
+        {
+            "node_id": "new",
+            "kind": "device",
+            "name": "Gateway Max",
+            "identifiers": {"mac": "02:00:01:27:fb:2b"},
+            "attrs": {"role": "gateway"},
+            "first_seen": "2026-08-01T00:00:00Z",
+            "last_seen": "2026-08-20T14:16:43Z",
+        },
+        {
+            "node_id": "other",
+            "kind": "device",
+            "name": "vsrx-prod",
+            "identifiers": {},
+            "attrs": {"role": "firewall"},
+            "first_seen": "2026-08-01T00:00:00Z",
+            "last_seen": "2026-08-20T14:16:43Z",
+        },
+    ]
+
+    class _CH:
+        def run(self, sql, params=None):
+            return {"rows": rows}
+
+    out = ClickHouseGraphStore(_CH()).nodes_by_attr(kind="device")
+
+    assert len(out) == 2, [n["name"] for n in out]
+    gateway = next(n for n in out if n["name"] == "Gateway Max")
+    assert gateway["node_id"] == "new", "the freshest row must win"
+
+
+def test_nodes_by_attr_keeps_distinct_devices_that_share_no_name():
+    from ssdf_mcp_query.graphstore import ClickHouseGraphStore
+
+    rows = [
+        {
+            "node_id": "a",
+            "kind": "device",
+            "name": "vsrx-prod",
+            "identifiers": {},
+            "attrs": {"role": "firewall"},
+            "first_seen": "x",
+            "last_seen": "2026-08-20T10:00:00Z",
+        },
+        {
+            "node_id": "b",
+            "kind": "device",
+            "name": "vsrx-ci",
+            "identifiers": {},
+            "attrs": {"role": "firewall"},
+            "first_seen": "x",
+            "last_seen": "2026-08-20T10:00:00Z",
+        },
+    ]
+
+    class _CH:
+        def run(self, sql, params=None):
+            return {"rows": rows}
+
+    assert len(ClickHouseGraphStore(_CH()).nodes_by_attr(kind="device")) == 2
