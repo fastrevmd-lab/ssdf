@@ -24,6 +24,7 @@ from .topo_tools import TopoTools
 from .entitystore import ClickHouseEntityStore
 from .access_tools import AccessTools
 from .liveness_tools import LivenessTools
+from .fabric_tools import FabricTools
 from .metrics_store import MetricsStore
 from .metric_tools import MetricTools
 from .alerts import AlertTools
@@ -47,6 +48,7 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         entity_store = ClickHouseEntityStore(client, tenant="t_main")
         access = AccessTools(entity_store, topo)
         liveness = LivenessTools(graph_store, entity_store)
+        fabric = FabricTools(entity_store._ch, liveness=liveness)
 
     metrics_store = MetricsStore(client, tenant="t_main")
     metrics = MetricTools(metrics_store)
@@ -184,6 +186,16 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         stale}], summary:{total, stale, fresh}}. staleness_hours default 2."""
         return liveness.ingest_status(staleness_hours=staleness_hours)
 
+    def fabric_status() -> dict:
+        """Is the whole data fabric still producing? Checks EVERY ingest source
+        (juniper, paloalto, proxmox, unifi) and EVERY resolver (topo, entity,
+        policy, health, public-metrics) against a declared freshness budget.
+        Use for "is anything broken/stale", "is ingest healthy", "did a collector
+        stop" questions. Returns {healthy, subjects:[{name, kind, signal,
+        last_seen, hours_since, budget_hours, stale}], devices:{total,fresh,stale},
+        summary}. For per-device firewall detail use ingest_status instead."""
+        return fabric.fabric_status()
+
     def metric_timeseries(metric: str, since: str | None = None, until: str | None = None) -> dict:
         """De-identified AGGREGATE time series for one metric (no per-entity detail).
         metric is one of the catalog names: bytes|flows|connections (Tier 1) or the
@@ -247,6 +259,7 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         raw_tools["recent_alerts"] = recent_alerts
     if liveness is not None:  # sovereign-only: ingest liveness
         raw_tools["ingest_status"] = ingest_status
+        raw_tools["fabric_status"] = fabric_status
     if tier == "public":
         selected = public_tool_names(classification, list(raw_tools))
         if not selected:

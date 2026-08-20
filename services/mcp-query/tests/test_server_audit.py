@@ -20,6 +20,7 @@ EXPECTED_TOOLS = {
     "configured_policies",
     "observed_by",
     "ingest_status",
+    "fabric_status",
     "recent_alerts",
     "metric_timeseries",
     "top_series",
