@@ -172,17 +172,35 @@ the sink cannot tell whether the row landed; the high-water read before its
 retry can answer "nothing", and the original can then commit alongside the
 retry. Two identical rows, in a plain `MergeTree` that will not reject them.
 
-This is a genuine residual risk, not a theoretical one, and it is *not* closed
-by anything in this document. What exists today is detection rather than
-prevention: `verify_audit.py` counts occurrences of each `row_hash` and reports
+Closing it needs the database, because no ordering of two client-side
+statements can be atomic against a request already in flight. Migration
+[`016_audit_insert_dedup.sql`](../infra/clickhouse/016_audit_insert_dedup.sql)
+enables ClickHouse's own insert deduplication on the table:
+
+```sql
+ALTER TABLE ssdf.audit MODIFY SETTING non_replicated_deduplication_window = 10000;
+```
+
+and writers send a token identifying the segment:
+
+```
+insert_deduplication_token=<server_id>:<run_id>:<segment_seq>
+```
+
+A retried block carrying a token ClickHouse has already seen is dropped, so the
+duplicate never lands. `ssdf.audit` is a plain (non-replicated) `MergeTree` —
+verified live — and those have supported this since 22.2; ct104 runs 26.6.
+
+Not `ReplacingMergeTree`, which was the first proposal on #49: it rewrites a
+live table and pushes `FINAL`/`argMax` semantics onto every reader, where this
+changes one setting and leaves reads exactly as they are.
+
+**Until the migration is applied**, the window is open and the mitigation is
+detection: `verify_audit.py` counts occurrences of each `row_hash` and reports
 `duplicate_row`, because the pair is invisible to every other check — identical
 content means an identical hash, so hash-keyed linkage and reachability both
-pass.
-
-Closing it needs the database: a `ReplacingMergeTree` keyed
-`(server_id, run_id, segment_seq)`, or a deduplicating insert path. That is a
-migration against a live audit table and a schema decision for SSDF to make
-deliberately — tracked separately rather than settled here.
+pass. Sending the token before the setting exists is harmless, so writers need
+no coordination with the migration.
 
 ## Query Contract
 

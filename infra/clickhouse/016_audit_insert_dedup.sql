@@ -1,0 +1,34 @@
+-- infra/clickhouse/016_audit_insert_dedup.sql
+-- Close the ambiguous-timeout duplicate on ssdf.audit (ssdf#49). Run as CH admin.
+--
+-- The high-water-mark protocol makes a *replay* idempotent, but a read-then-
+-- insert is not atomic against an insert already in flight: when an HTTP INSERT
+-- times out while ClickHouse is still committing it, the sink's pre-retry read
+-- can answer "nothing landed", and the original then commits alongside the
+-- retry. Two identical rows, which the hash chain cannot see — same content
+-- means the same row_hash, so linkage and reachability both pass.
+--
+-- This is the cheap half of the fix. `ssdf.audit` is a plain (non-replicated)
+-- MergeTree, verified live, and since 22.2 those support insert deduplication
+-- via a window of recently-seen block tokens. Writers then send
+-- `insert_deduplication_token=<server_id>:<run_id>:<segment_seq>` and a retried
+-- block is dropped server-side.
+--
+-- Deliberately NOT ReplacingMergeTree, which was the first proposal on #49: it
+-- would rewrite a live table and push `FINAL`/`argMax` semantics onto every
+-- reader. This changes one setting, rewrites nothing, and leaves reads exactly
+-- as they are.
+--
+-- The window counts recent inserted blocks, not rows or time. Evidence segments
+-- arrive one block at a time, so 10000 covers far more than any plausible
+-- retry gap while staying small in ZooKeeper-free local state.
+--
+--   clickhouse-client --host <ct104> --multiquery < 016_audit_insert_dedup.sql
+--
+-- Idempotent: re-running sets the same value.
+ALTER TABLE ssdf.audit MODIFY SETTING non_replicated_deduplication_window = 10000;
+
+-- Verify (as an identity with SELECT on system.tables):
+--   SELECT engine_full FROM system.tables
+--   WHERE database = 'ssdf' AND name = 'audit';
+-- The SETTINGS clause must now include non_replicated_deduplication_window.
