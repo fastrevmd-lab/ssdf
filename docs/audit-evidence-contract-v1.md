@@ -12,7 +12,8 @@ This contract defines the ingestion schema for firewall configuration-change evi
 ## Schema Ownership
 
 - **Table:** `ssdf.audit` (existing, created by migration 007, hash-chained by 009)
-- **Write Identity:** `ssdf_audit` (INSERT-only, no SELECT)
+- **Write Identity:** `ssdf_audit` (INSERT-only, no SELECT — deliberately; see
+  [ingestion](./audit-evidence-ingestion.md) for how dedup works without it)
 - **Verify Identity:** `ssdf_audit_verify` (SELECT-only, hash-chain verification)
 - **Schema Steward:** ssdf repo (this contract document)
 - **Primary Consumer:** mecmcp-audit (rustsdcmcp audit sink, will implement in Task 7+9)
@@ -29,6 +30,64 @@ Evidence records use the existing `ssdf.audit` schema with the following `tool` 
 | `evidence:result_receipt` | Execution result returned from the device | Execution complete |
 
 All evidence records share `tier = "evidence"` to enable chain verification independent of the MCP tool audit trail.
+
+### The chain is per writer, not per tier
+
+**Revised 2026-08-20 (ssdf#47).** A chain is `(tier, server_id)`, and each
+writer has exactly **one** root.
+
+Chaining the whole tier would require every writer to serialise against a shared
+head, and fifteen MCP servers write `tier = "evidence"` with no such lock. Each
+would seed `prev_hash = ""`, the tier would acquire one accepted root per
+server, and the verifier — which traverses every root — would report clean.
+Worse, with many roots, deleting an **entire run** removes a whole independent
+root and leaves nothing unreachable: the one failure this mechanism exists to
+catch would be invisible.
+
+Grouped by writer, each server has one root, and a run that continues its
+predecessor's head makes a wholesale deletion show up as `missing_predecessor`.
+
+Consequences for a writer:
+
+- Seed a new run from the writer's **current head**, not from `""`. Only a
+  genuinely empty `(tier, server_id)` starts at `""`.
+- Never run two recorders for one `server_id` concurrently. They would fork the
+  chain, and a fork verifies as two valid chains rather than as an error.
+
+Rows carrying no `server_id` — every `sovereign` row — group by tier alone and
+verify exactly as before.
+
+## Scope: this contract covers the change lifecycle only
+
+**Decided 2026-08-20 (ssdf#47, mecmcp#292).** The four record types above are
+the complete set. `ssdf.audit` takes **`tier = "evidence"`** from mecmcp and
+nothing else.
+
+The question was whether the MCP fleet's per-call stream — reads, denials,
+transport events — should also land here under a `tier = "mcp"`. It should not,
+for three reasons:
+
+1. **Volume swamps the signal.** One production server emits roughly 30,000
+   records in three weeks, almost all reads. Evidence records are a handful per
+   change. Mixed in the same table, the chain-verifiable rows become a rounding
+   error in something sized and tuned for telemetry.
+2. **The retention is wrong for it.** `ssdf.audit` has a 90-day TTL. That is
+   generous for telemetry and short for evidence: the record of who approved a
+   configuration change should outlive the record of who listed a device. One
+   TTL cannot serve both, and raising it to suit evidence means keeping three
+   months of reads that nobody wants.
+3. **The chain is per-tier.** Adding a high-volume tier to a table whose value
+   is a verifiable chain means the verifier walks far more rows to check far
+   fewer, and a gap in the noisy tier looks like a gap in the table.
+
+**Where per-call records go instead:** they stay where they already are —
+structured JSON in each server's journald, sealed with Forward Secure Sealing,
+with stated 90-day retention and device names pseudonymised (`hmac:…`, stable,
+so they correlate without exporting the inventory). That trail is already
+tamper-evident at rest and does not need this table to become so.
+
+If a per-call tier is ever wanted here, it should be a **separate table** with
+its own TTL and its own chain, not a tier in this one.
 
 ## Field Schema
 
@@ -91,7 +150,65 @@ Re-ingestion after a demo reset or test re-run MUST be idempotent. The deduplica
 (server_id, run_id, segment_seq)
 ```
 
-**Implementation note:** ClickHouse `ReplacingMergeTree` or application-level `INSERT ... WHERE NOT EXISTS` using this tuple ensures no duplicate evidence rows for the same run segment.
+**Implementation note:** dedup is a **high-water mark read before the insert**,
+not a guard on the insert itself. Before replaying, the sink reads the highest
+`segment_seq` it already has for `(server_id, run_id)` as `ssdf_audit_verify`
+and inserts only what is above it; see
+[audit-evidence-ingestion.md](audit-evidence-ingestion.md) for the query and
+its `count()`, which is what keeps segment 0 from being skipped.
+
+An earlier version of this note recommended `ReplacingMergeTree` or
+`INSERT ... WHERE NOT EXISTS`. Neither is available: `ssdf.audit` is a
+`MergeTree`, and the guarded insert needs a `SELECT` that the INSERT-only
+`ssdf_audit` identity is specified not to have — verified against the live
+table, where it is refused with `Code: 497 ... Not enough privileges`. Every
+guarded insert would have been rejected.
+
+### What the high-water mark does not cover
+
+A read-then-insert is not atomic against an insert that is **already in
+flight**. If an HTTP INSERT times out while ClickHouse is still committing it,
+the sink cannot tell whether the row landed; the high-water read before its
+retry can answer "nothing", and the original can then commit alongside the
+retry. Two identical rows, in a plain `MergeTree` that will not reject them.
+
+Closing it needs the database, because no ordering of two client-side
+statements can be atomic against a request already in flight. Migration
+[`016_audit_insert_dedup.sql`](../infra/clickhouse/016_audit_insert_dedup.sql)
+enables ClickHouse's own insert deduplication on the table:
+
+```sql
+ALTER TABLE ssdf.audit MODIFY SETTING non_replicated_deduplication_window = 10000;
+```
+
+and writers send a token identifying the segment:
+
+```
+insert_deduplication_token=<len(server_id)>:<server_id>:<len(run_id)>:<run_id>:<segment_seq>
+```
+
+for example `9:junos-950:5:run-7:42`. The **byte length of each identifier
+precedes it**, and that is not decoration: identifiers are free-form, so
+joining on a separator alone is not one-to-one — `("a:b", "c", 1)` and
+`("a", "b:c", 1)` both give `a:b:c:1`. Two segments sharing a token is the
+worst outcome available here, because ClickHouse acknowledges the insert and
+drops the block: a real segment disappears while the writer is told it
+succeeded. Lengths make the field boundaries unambiguous.
+
+A retried block carrying a token ClickHouse has already seen is dropped, so the
+duplicate never lands. `ssdf.audit` is a plain (non-replicated) `MergeTree` —
+verified live — and those have supported this since 22.2; ct104 runs 26.6.
+
+Not `ReplacingMergeTree`, which was the first proposal on #49: it rewrites a
+live table and pushes `FINAL`/`argMax` semantics onto every reader, where this
+changes one setting and leaves reads exactly as they are.
+
+**Until the migration is applied**, the window is open and the mitigation is
+detection: `verify_audit.py` counts occurrences of each `row_hash` and reports
+`duplicate_row`, because the pair is invisible to every other check — identical
+content means an identical hash, so hash-keyed linkage and reachability both
+pass. Sending the token before the setting exists is harmless, so writers need
+no coordination with the migration.
 
 ## Query Contract
 
@@ -131,11 +248,70 @@ No new authentication identity is required for this contract — the existing `s
 
 ## Hash Chain Integrity
 
-Evidence records participate in the tier-specific hash chain (migration 009):
+Evidence records participate in a hash chain **per writer**, keyed
+`(tier, server_id)` — not one chain per tier (migration 009):
 
-1. **First evidence record** per tier has `prev_hash = ""` (chain start)
-2. **Subsequent records** include `prev_hash = <previous row_hash>`
+1. **First evidence record of a `server_id`** has `prev_hash = ""` (chain start)
+2. **Subsequent records** include `prev_hash = <previous row_hash>`, where
+   "previous" means this writer's previous record, across all of its runs
 3. **row_hash** computation includes: `(ts, principal, tool, args, prev_hash)`
+
+### Why per writer
+
+One chain per tier would require every server writing evidence to agree on a
+shared head. They do not: they are separate processes on separate hosts,
+inserting concurrently. Their records interleave, so a tier-wide verifier
+compares each row's `prev_hash` against a predecessor written by a different
+server and every check fails — not because anything was tampered with, but
+because it is reading two chains as one.
+
+### Seeding a new run
+
+A writer's second run continues its first run's chain, so on startup it reads
+its own head — the `row_hash` of its most recent row — rather than starting a
+new root:
+
+```sql
+-- as ssdf_audit_verify
+SELECT DISTINCT row_hash
+FROM ssdf.audit
+WHERE tier = 'evidence'
+  AND JSONExtractString(args, 'server_id') = {server_id:String}
+  AND row_hash NOT IN (
+      SELECT prev_hash
+      FROM ssdf.audit
+      WHERE tier = 'evidence'
+        AND JSONExtractString(args, 'server_id') = {server_id:String}
+        AND prev_hash != ''
+  )
+```
+
+The tail is the row **nothing else points at** — it is found by following the
+links, not by sorting. Ordering by `ts` and `segment_seq` looks equivalent and
+is not: `segment_seq` restarts at 0 for each run, so an older run's segment 40
+outranks the real tail's segment 0, and two records sharing a millisecond or a
+clock that stepped backwards break the tiebreak as well. A writer seeded from
+an interior hash forks its own chain, and a fork verifies as two valid chains.
+
+An empty result means a genuinely new writer, which starts a root.
+
+Note the `DISTINCT`. Two *rows* can share one unreferenced `row_hash` — that is
+exactly what an ambiguous-timeout duplicate of the current tail looks like, and
+it is one chain head, not two. Comparing row counts would call it a fork and
+stall ingestion over a condition that is merely a duplicate, which
+`verify_audit.py` already reports as `duplicate_row`.
+
+**More than one _distinct_ hash is the answer to a different question.** A
+healthy chain has exactly one unreferenced tail; two distinct ones mean it has
+already forked, and a writer that resumes from either deepens the fork. Treat
+that as a fault to investigate, not as a tie to break. This is separate from the run-scoped high-water mark in
+[audit-evidence-ingestion.md](audit-evidence-ingestion.md), which answers a
+different question — what to skip on replay, not where to attach.
+
+**One writer per `server_id`, one run at a time.** Two processes sharing a
+`server_id`, or one process running two runs concurrently, both fork the chain,
+and a fork verifies as two valid chains rather than as an error — so nothing
+downstream will tell you it happened. Give each container its own `server_id`.
 
 The hash chain is verified offline via:
 

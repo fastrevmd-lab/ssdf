@@ -1,7 +1,19 @@
 """Offline tamper-evidence verifier for the ssdf.audit hash chain (M3).
 
-Reads as the read-only ``ssdf_audit_verify`` identity, groups rows by tier, and
-follows each tier's prev_hash -> row_hash linkage from genesis (prev_hash == "").
+Reads as the read-only ``ssdf_audit_verify`` identity, groups rows by
+**(tier, server_id)**, and follows each chain's prev_hash -> row_hash linkage
+from genesis (prev_hash == "").
+
+Why per writer rather than per tier: the ``evidence`` tier has fifteen MCP
+servers writing it. A single chain per tier would require every writer to
+serialise against a shared head, and there is no such lock — so each seeds
+``prev_hash=""`` and the tier acquires one accepted root per server. With many
+roots, deleting an entire run removes a whole independent root and leaves
+nothing unreachable, so the verifier reports clean on missing evidence. Grouped
+by writer, each server has exactly one root, and a run that continues its
+predecessor makes a wholesale deletion visible as ``missing_predecessor``
+(ssdf#47). Rows without a ``server_id`` — every ``sovereign`` row — group by
+tier alone and verify exactly as before.
 Detects: content edits (recomputed hash != stored), deletions (a prev_hash naming
 a missing row), and insertions/reorders (rows unreachable from genesis). Follows
 the linkage, NOT ts ordering, so same-millisecond ts ties never false-positive.
@@ -12,6 +24,7 @@ Exit code 0 = all tiers clean; 1 = at least one issue (or 2 = config error).
 
 from __future__ import annotations
 
+import json
 import sys
 from collections import defaultdict
 
@@ -33,6 +46,54 @@ _VERIFY_COLUMNS = [
 ]
 
 
+def group_key(row: dict) -> tuple[str, str]:
+    """The chain a row belongs to: its tier, and its writer when it names one.
+
+    ``server_id`` lives inside the JSON ``args`` payload rather than in a
+    column, so this parses defensively: a row whose args are absent, malformed
+    or lack the field falls back to tier-only grouping, which is the historical
+    behaviour and the right answer for sovereign rows.
+
+    For an **evidence** row that fallback is a defect rather than a default, and
+    :func:`writer_issue` reports it — see the note there.
+    """
+    raw = row.get("args") or ""
+    server_id = ""
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            parsed = None
+        if isinstance(parsed, dict):
+            value = parsed.get("server_id")
+            if isinstance(value, str):
+                server_id = value
+    return (row["tier"], server_id)
+
+
+def writer_issue(row: dict) -> dict | None:
+    """Report an evidence row that does not name the chain it belongs to.
+
+    Evidence chains are keyed ``(tier, server_id)``. A row whose ``args`` are
+    malformed, omit ``server_id``, or carry a non-string or empty one has no
+    usable key, and grouping it under the tier alone is not harmless: several
+    such rows share that bucket, each contributes its own root, and the whole
+    set verifies as clean. That is precisely the deletion blind spot per-writer
+    grouping was introduced to close, arrived at from the other direction.
+
+    Only the evidence tier is held to this. Sovereign rows never carried a
+    writer — all 20,193 of them predate the field — so requiring one there would
+    turn every historical row into an issue over a rule that was never made
+    about them.
+    """
+    if row.get("tier") != "evidence":
+        return None
+    _, server_id = group_key(row)
+    if server_id:
+        return None
+    return {"type": "unidentified_writer", "row_hash": row.get("row_hash", "")}
+
+
 def verify_tier(rows: list[dict]) -> list[dict]:
     """Verify one tier's rows. Returns a list of issue dicts (empty == clean).
 
@@ -44,6 +105,20 @@ def verify_tier(rows: list[dict]) -> list[dict]:
     rows = [r for r in rows if r["row_hash"] != ""]
     issues: list[dict] = []
     by_hash = {r["row_hash"]: r for r in rows}
+
+    # 0. Duplicates. A retry after an ambiguous INSERT timeout can land the same
+    #    row twice: the sink cannot tell whether the timed-out request committed,
+    #    its high-water read can answer "nothing landed", and the original then
+    #    commits alongside the retry. The pair is invisible to every check below
+    #    -- identical content means an identical row_hash, so `by_hash` collapses
+    #    them into one entry and linkage and reachability both pass. Counting is
+    #    the only thing that sees it.
+    seen: dict[str, int] = defaultdict(int)
+    for r in rows:
+        seen[r["row_hash"]] += 1
+    for row_hash, count in seen.items():
+        if count > 1:
+            issues.append({"type": "duplicate_row", "row_hash": row_hash})
 
     # 1. Content integrity: each stored row_hash must equal H(prev_hash, fields).
     for r in rows:
@@ -95,16 +170,20 @@ def main() -> int:
         print("CH_AUDIT_VERIFY_PASSWORD is required to verify the audit chain", file=sys.stderr)
         return 2
     rows = _fetch_rows(config)
-    by_tier: dict[str, list[dict]] = defaultdict(list)
+    by_chain: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for r in rows:
-        by_tier[r["tier"]].append(r)
+        by_chain[group_key(r)].append(r)
     total = 0
-    for tier, tier_rows in sorted(by_tier.items()):
-        issues = verify_tier(tier_rows)
+    for (tier, server_id), chain_rows in sorted(by_chain.items()):
+        issues = verify_tier(chain_rows)
+        # An evidence row with no usable writer cannot be chained to anything,
+        # so it is reported rather than quietly folded into the tier bucket.
+        issues.extend(issue for row in chain_rows if (issue := writer_issue(row)))
         total += len(issues)
-        legacy = sum(1 for r in tier_rows if r["row_hash"] == "")
+        legacy = sum(1 for r in chain_rows if r["row_hash"] == "")
         status = "OK" if not issues else f"{len(issues)} ISSUE(S)"
-        print(f"tier={tier} rows={len(tier_rows)} legacy_unhashed={legacy} {status}")
+        writer = f" server={server_id}" if server_id else ""
+        print(f"tier={tier}{writer} rows={len(chain_rows)} legacy_unhashed={legacy} {status}")
         for issue in issues:
             print(f"  {issue['type']}: row_hash={issue['row_hash'][:16]}…")
     return 0 if total == 0 else 1

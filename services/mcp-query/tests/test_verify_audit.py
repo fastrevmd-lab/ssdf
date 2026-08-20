@@ -83,3 +83,157 @@ def test_detects_unreachable_orphan():
     rows.append(orphan)
     issues = verify_tier(rows)
     assert any(i["type"] in ("unreachable", "missing_predecessor") for i in issues)
+
+
+def _evidence_chain(n, server_id, first_prev=""):
+    """Build n correctly-chained evidence rows for one writer."""
+    rows = []
+    prev = first_prev
+    for i in range(n):
+        row = dict(
+            ts=dt.datetime(2026, 8, 20, 12, 0, i, 0, tzinfo=dt.timezone.utc),
+            principal="agent:mecmcp",
+            tier="evidence",
+            tool="evidence:proposal",
+            args=('{"server_id":"' + server_id + '","run_id":"run-1","segment_seq":0}'),
+            data_classes=["device:vsrx-ci"],
+            decision="",
+            row_count=1,
+            error="",
+        )
+        row["prev_hash"] = prev
+        row["row_hash"] = compute_row_hash(prev, row)
+        prev = row["row_hash"]
+        rows.append(row)
+    return rows
+
+
+def test_two_writers_are_verified_as_separate_chains():
+    """The evidence tier has many writers; one chain per tier cannot work.
+
+    Fifteen MCP servers write ``tier='evidence'``. Chaining per tier would need
+    every writer to serialise against a shared head — there is no such lock, so
+    each seeds ``prev_hash=""`` and the tier acquires one accepted root per
+    server. Grouping by writer gives each exactly one root, which is what makes
+    a deleted run detectable (ssdf#47).
+    """
+    from ssdf_mcp_query.verify_audit import group_key
+
+    rows = _evidence_chain(3, "mecmcp-950") + _evidence_chain(3, "mecmcp-960")
+
+    keys = {group_key(r) for r in rows}
+    assert keys == {
+        ("evidence", "mecmcp-950"),
+        ("evidence", "mecmcp-960"),
+    }, "each writer must be its own chain"
+
+    for key in keys:
+        subset = [r for r in rows if group_key(r) == key]
+        assert verify_tier(subset) == [], f"{key} must verify clean on its own"
+
+
+def test_a_deleted_run_leaves_a_missing_predecessor():
+    """The failure this whole mechanism exists to catch.
+
+    A run that continues its writer's chain (``resume_from``) means deleting
+    that run outright breaks the link its successor names — rather than removing
+    an entire independent root, which leaves nothing to notice.
+    """
+    first_run = _evidence_chain(2, "mecmcp-950")
+    second_run = _evidence_chain(2, "mecmcp-950", first_prev=first_run[-1]["row_hash"])
+
+    surviving = second_run  # the first run is deleted wholesale
+
+    issues = verify_tier(surviving)
+    assert any(i["type"] == "missing_predecessor" for i in issues), (
+        "deleting a whole run must be visible; it is only visible because the "
+        "later run chained onto the earlier one"
+    )
+
+
+def test_rows_without_a_server_id_group_by_tier_alone():
+    """Sovereign rows carry no server_id and must keep verifying as they did."""
+    from ssdf_mcp_query.verify_audit import group_key
+
+    assert group_key(_chain(1)[0]) == ("sovereign", "")
+
+
+def test_an_evidence_row_without_a_writer_is_a_violation():
+    """An evidence row must name the chain it belongs to.
+
+    Grouping such a row under the tier alone is not a harmless default: several
+    malformed writers land in one bucket, each contributes its own root, and the
+    result verifies as clean. That is the deletion blind spot the per-writer
+    grouping exists to close, reached from the other side — so an evidence row
+    with no usable ``server_id`` has to be an issue, not a fallback.
+    """
+    from ssdf_mcp_query.verify_audit import writer_issue
+
+    assert writer_issue({"tier": "evidence", "args": "", "row_hash": "sha256:a"})
+    assert writer_issue({"tier": "evidence", "args": "not json", "row_hash": "sha256:b"})
+    assert writer_issue({"tier": "evidence", "args": '{"server_id": 7}', "row_hash": "sha256:c"})
+    assert writer_issue({"tier": "evidence", "args": '{"server_id": ""}', "row_hash": "sha256:d"})
+    assert not writer_issue(
+        {"tier": "evidence", "args": '{"server_id": "junos-950"}', "row_hash": "sha256:e"}
+    )
+
+
+def test_a_sovereign_row_without_a_writer_is_not_a_violation():
+    """The 20,193 existing sovereign rows name no writer and never did.
+
+    Requiring one of them would turn every historical row into an issue, which
+    is a rule about a different tier applied where it was never promised.
+    """
+    from ssdf_mcp_query.verify_audit import writer_issue
+
+    assert not writer_issue({"tier": "sovereign", "args": "", "row_hash": "sha256:f"})
+
+
+def test_detects_a_replayed_duplicate_row():
+    """A retry after an ambiguous timeout lands the same row twice.
+
+    An HTTP INSERT that times out while ClickHouse is still committing leaves
+    the sink unable to tell whether the row landed. Its pre-retry high-water
+    read can say "nothing", the retry inserts, and the original commits too --
+    two identical rows in a plain MergeTree.
+
+    The chain checks alone cannot see this: the duplicate carries the *same*
+    row_hash, so hash-keyed lookups collapse the pair into one entry and every
+    linkage and reachability check passes. Counting occurrences is what makes
+    it visible.
+    """
+    rows = _chain(4)
+    rows.append(dict(rows[2]))  # the replayed row, byte-for-byte
+
+    issues = verify_tier(rows)
+
+    duplicates = [i for i in issues if i["type"] == "duplicate_row"]
+    assert len(duplicates) == 1, issues
+    assert duplicates[0]["row_hash"] == rows[2]["row_hash"]
+
+
+def test_a_clean_chain_reports_no_duplicates():
+    """Guards the counting against firing on ordinary chains."""
+    assert not [i for i in verify_tier(_chain(6)) if i["type"] == "duplicate_row"]
+
+
+def test_dedup_token_counts_utf8_bytes_not_code_points():
+    """The token must be byte-identical to the Rust sink's, or dedup fails open.
+
+    Python's ``len()`` counts code points and Rust's ``str::len()`` counts UTF-8
+    bytes. For an ASCII identifier they agree, which is why this went unnoticed;
+    for anything else they diverge, and a retry issued by the other
+    implementation carries a different token. ClickHouse then sees a new block
+    and the duplicate lands -- the failure the token exists to prevent, arrived
+    at by disagreeing about how to spell it.
+    """
+    from ssdf_mcp_query.audit_chain import dedup_token
+
+    # Known-answer vectors, shared with the Rust `dedup_token` and with
+    # scripts/verify_evidence_contract.py. Changing either side alone breaks
+    # deduplication silently, so these are pinned rather than computed.
+    assert dedup_token("junos-950", "run-7", 42) == "9:junos-950:5:run-7:42"
+    assert dedup_token("café", "run-7", 0) == "5:café:5:run-7:0"
+
+    # The encoding is injective even when an identifier contains the separator.
+    assert dedup_token("a:b", "c", 1) != dedup_token("a", "b:c", 1)
