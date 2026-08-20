@@ -190,8 +190,8 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         """Is the whole data fabric still producing? Checks EVERY ingest source
         (juniper, paloalto, proxmox, unifi) and EVERY resolver (topo, entity,
         policy, health, public-metrics) against a declared freshness budget.
-        Use for "is anything broken/stale", "is ingest healthy", "did a collector
-        stop" questions. Returns {healthy, subjects:[{name, kind, signal,
+        Use for "is anything broken/stale", "is the whole fabric healthy", "did a
+        collector or resolver stop" questions. Returns {healthy, subjects:[{name, kind, signal,
         last_seen, hours_since, budget_hours, stale}], devices:{total,fresh,stale},
         summary}. For per-device firewall detail use ingest_status instead."""
         return fabric.fabric_status()
