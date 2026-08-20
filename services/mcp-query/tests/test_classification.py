@@ -23,6 +23,7 @@ EXPECTED = {
     "observed_by": {"security_log"},
     "ingest_status": {"security_log"},
     "fabric_status": {"security_log"},
+    "lab_topology_snapshot": {"topology"},
     "recent_alerts": {"security_log"},
     "metric_timeseries": {"metrics"},
     "top_series": {"metrics"},
