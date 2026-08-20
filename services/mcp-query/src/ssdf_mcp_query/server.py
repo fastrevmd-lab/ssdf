@@ -25,6 +25,7 @@ from .entitystore import ClickHouseEntityStore
 from .access_tools import AccessTools
 from .liveness_tools import LivenessTools
 from .fabric_tools import FabricTools
+from .public_snapshot import PublicSnapshotTools
 from .metrics_store import MetricsStore
 from .metric_tools import MetricTools
 from .alerts import AlertTools
@@ -49,6 +50,7 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         access = AccessTools(entity_store, topo)
         liveness = LivenessTools(graph_store, entity_store)
         fabric = FabricTools(entity_store._ch, liveness=liveness)
+        public_snapshot = PublicSnapshotTools(graph_store)
 
     metrics_store = MetricsStore(client, tenant="t_main")
     metrics = MetricTools(metrics_store)
@@ -196,6 +198,16 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         summary}. For per-device firewall detail use ingest_status instead."""
         return fabric.fabric_status()
 
+    def lab_topology_snapshot() -> dict:
+        """De-identified lab topology for PUBLIC/static consumers (example.com hero).
+        Returns ONLY opaque snapshot-local ids plus booleans: {schema_version,
+        generated_at, nodes:[{id, reachable, ollama, site}], edges:[{source, target,
+        remote, recent_activity}], node_count, edge_count, truncated}. Carries NO
+        names, IPs, MACs, ports, VLANs, timestamps or attributes, and covers only
+        explicitly allowlisted display devices. For real topology detail use
+        topology_snapshot / neighbors instead."""
+        return public_snapshot.lab_topology_snapshot()
+
     def metric_timeseries(metric: str, since: str | None = None, until: str | None = None) -> dict:
         """De-identified AGGREGATE time series for one metric (no per-entity detail).
         metric is one of the catalog names: bytes|flows|connections (Tier 1) or the
@@ -257,6 +269,7 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         raw_tools["observed_by"] = observed_by
         raw_tools["reidentify"] = reidentify
         raw_tools["recent_alerts"] = recent_alerts
+        raw_tools["lab_topology_snapshot"] = lab_topology_snapshot
     if liveness is not None:  # sovereign-only: ingest liveness
         raw_tools["ingest_status"] = ingest_status
         raw_tools["fabric_status"] = fabric_status

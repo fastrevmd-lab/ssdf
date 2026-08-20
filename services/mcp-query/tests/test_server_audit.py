@@ -21,6 +21,7 @@ EXPECTED_TOOLS = {
     "observed_by",
     "ingest_status",
     "fabric_status",
+    "lab_topology_snapshot",
     "recent_alerts",
     "metric_timeseries",
     "top_series",

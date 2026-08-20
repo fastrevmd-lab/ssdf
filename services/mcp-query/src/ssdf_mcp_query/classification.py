@@ -37,6 +37,7 @@ TOOL_DATA_CLASSES: dict[str, frozenset[str]] = {
     "observed_by": frozenset({"security_log"}),
     "ingest_status": frozenset({"security_log"}),
     "fabric_status": frozenset({"security_log"}),
+    "lab_topology_snapshot": frozenset({"topology"}),
     "recent_alerts": frozenset({"security_log"}),
     "metric_timeseries": frozenset({"metrics"}),
     "top_series": frozenset({"metrics"}),
