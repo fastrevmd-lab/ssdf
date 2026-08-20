@@ -6,7 +6,9 @@ Exercises the high-water-mark ingestion protocol end to end:
 1. read the writer's high-water mark as ``ssdf_audit_verify``
 2. insert a hand-built evidence record as ``ssdf_audit``
 3. replay the identical record, which the protocol must skip
-4. read back and assert exactly one row landed
+4. insert again *without* consulting the mark, carrying the same dedup token,
+   which the database must drop
+5. read back and assert exactly one row landed
 
 The replay step is the point. An earlier version of this script re-inserted
 unconditionally and reported the resulting duplicate as expected, because the
@@ -20,8 +22,13 @@ accept that it appends one evidence row to whatever it is aimed at. The cleanup
 statement it prints needs an identity with DELETE rights, which neither of the
 identities used here has.
 
+Step 4 is what tests the *unknown-outcome* case -- a timed-out insert whose
+fate the sink never learned, where the high-water read cannot help because it
+may run before the original commits. That is the database's job, via migration
+016; without it applied, step 4 fails and should.
+
 This script requires:
-- ClickHouse running with ssdf.audit table (migrations 007+009 applied)
+- ClickHouse running with ssdf.audit table (migrations 007+009+016 applied)
 - CH_HOST, CH_AUDIT_PASSWORD, CH_AUDIT_VERIFY_PASSWORD in environment
 - Local ClickHouse OR lab instance accessible (read safety rules in CLAUDE.md)
 
@@ -51,6 +58,17 @@ def compute_evidence_hash(ts: str, principal: str, tool: str, args: str, prev_ha
     payload = f"{ts}|{principal}|{tool}|{args}|{prev_hash}"
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"
+
+
+def dedup_token(server_id: str, run_id: str, segment_seq: int) -> str:
+    """Injective identity for one segment, matching the sink's encoding.
+
+    Length-prefixed because the identifiers are free-form: joining on a
+    separator alone is not one-to-one when a field contains it, and two
+    segments sharing a token means the database drops one while reporting
+    success.
+    """
+    return f"{len(server_id)}:{server_id}:{len(run_id)}:{run_id}:{segment_seq}"
 
 
 def high_water(verify_client, server_id: str, run_id: str) -> int | None:
@@ -157,7 +175,7 @@ def main():
     print(f"timestamp: {test_ts_str}")
 
     # Step 1: read the high-water mark BEFORE writing anything.
-    print("\n[1/4] Reading the high-water mark as ssdf_audit_verify...")
+    print("\n[1/5] Reading the high-water mark as ssdf_audit_verify...")
     try:
         mark = high_water(verify_client, test_server_id, test_run_id)
     except Exception as e:
@@ -197,19 +215,24 @@ def main():
     ]
 
     # Step 2: insert, exactly as a sink would -- only when the mark says to.
-    print("\n[2/4] Inserting segment 0 as ssdf_audit...")
+    print("\n[2/5] Inserting segment 0 as ssdf_audit...")
     if mark is not None and mark >= 0:
         print(f"✗ Expected a fresh run, but segment {mark} already landed", file=sys.stderr)
         sys.exit(1)
     try:
-        client.insert("ssdf.audit", insert_data, column_names=columns)
+        client.insert(
+            "ssdf.audit",
+            insert_data,
+            column_names=columns,
+            settings={"insert_deduplication_token": dedup_token(test_server_id, test_run_id, 0)},
+        )
         print("✓ Insert succeeded")
     except Exception as e:
         print(f"✗ Insert failed: {e}", file=sys.stderr)
         sys.exit(1)
 
     # Step 3: replay. The protocol must skip it, and the skip is the whole test.
-    print("\n[3/4] Replaying the identical segment (idempotency)...")
+    print("\n[3/5] Replaying the identical segment (idempotency)...")
     replay_mark = high_water(verify_client, test_server_id, test_run_id)
     print(f"  high_water is now {replay_mark!r}")
     if replay_mark is None:
@@ -221,10 +244,28 @@ def main():
         print("✗ The mark did not advance; a sink would re-insert", file=sys.stderr)
         sys.exit(1)
 
-    # Step 4: prove it, by counting. A protocol that says "skip" and a table
+    # Step 4: the unknown-outcome case. A sink whose insert timed out never
+    # learns whether it committed, so it retries -- and its high-water read can
+    # run before the original lands, meaning the read cannot save it. Only the
+    # database can, by recognising the token. Insert deliberately WITHOUT
+    # consulting the mark, exactly as that sink would.
+    print("\n[4/5] Replaying with the same dedup token, ignoring the mark...")
+    try:
+        client.insert(
+            "ssdf.audit",
+            insert_data,
+            column_names=columns,
+            settings={"insert_deduplication_token": dedup_token(test_server_id, test_run_id, 0)},
+        )
+        print("✓ Insert accepted (the database must now drop it as a seen block)")
+    except Exception as e:
+        print(f"✗ Tokened insert failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Step 5: prove it, by counting. A protocol that says "skip" and a table
     # that holds two rows would both be reported as success by the assertions
     # above alone.
-    print("\n[4/4] Confirming exactly one row landed...")
+    print("\n[5/5] Confirming exactly one row landed...")
     rows = verify_client.query(
         """
         SELECT count()
@@ -238,6 +279,15 @@ def main():
     ).result_rows[0][0]
     if rows != 1:
         print(f"✗ Expected exactly 1 row for segment 0, found {rows}", file=sys.stderr)
+        if rows > 1:
+            print(
+                "  If step 4 is what duplicated it, migration 016 is not applied:",
+                file=sys.stderr,
+            )
+            print(
+                "  non_replicated_deduplication_window must be set or the token is ignored.",
+                file=sys.stderr,
+            )
         sys.exit(1)
     print("✓ Exactly one row")
 
@@ -246,6 +296,7 @@ def main():
     print("✓ INSERT via ssdf_audit works, and the payload shape is accepted")
     print("✓ Hash chain fields (prev_hash, row_hash) populate")
     print("✓ A replay is skipped, and the table holds one row -- no guard needed")
+    print("✓ A tokened insert of a settled segment is dropped by the database")
 
     print(f"\nTest run_id: {test_run_id}")
     print(

@@ -144,6 +144,34 @@ open**, and the mitigation is detection: `verify_audit.py` reports
 `duplicate_row`. A sink implemented from the high-water protocol alone is not
 finished, and a test suite that only replays known failures will not show it.
 
+### Startup order, when an outcome was left unknown
+
+The token suppresses a *second copy* of a segment. It does not stop a writer
+from seeding its chain from a **stale head**, and that produces a fork with no
+duplicate anywhere in it:
+
+1. segment B's insert times out; the sink restarts before learning the outcome
+2. on startup it reads the tail and gets A, B's predecessor — B has not
+   committed yet
+3. B commits
+4. the replay pass reads the high-water mark, which now includes B, and skips
+   it as already landed
+5. the next record is written with `prev_hash = A`
+
+Two branches from A, both internally valid, and no duplicated row for
+`verify_audit.py` to report. The token cannot help: nothing was inserted twice.
+
+**So the two reads are ordered, and the tail read comes last.** Resolve unknown
+outcomes first — read the high-water mark per pending run and finish the replay
+— and only then read the tail to seed the chain. The head a writer starts from
+must reflect every insert whose fate has been settled, including the ones
+settled during startup.
+
+A sink that reads the tail once at boot, before replaying, has this bug. So
+does one that caches the tail across a replay pass. If the tail changes between
+the read and the first new record, that is not a race to retry through: another
+writer holds the same `server_id`, and it should stop.
+
 ### What it does not do
 
 It does not protect against two processes writing the same `(server_id,
@@ -171,6 +199,16 @@ This query runs as `ssdf_ro` (sovereign MCP tools) or `ssdf_audit_verify` (hash-
 - [ ] ClickHouse auth via Basic auth (`ssdf_audit` to write, `ssdf_audit_verify` to seed)
 - [ ] JSONEachRow serialization (evidence record → ndjson)
 - [ ] High-water-mark read as `ssdf_audit_verify` before replay (see above)
+- [ ] Tail read for chain seeding, ordered **after** replay resolves unknown
+      outcomes (see "Startup order" above) — reading it at boot forks the chain
+      after a timeout
+- [ ] `insert_deduplication_token=<server_id>:<run_id>:<segment_seq>` on every
+      insert, injectively encoded (a separator inside an identifier must not
+      let two segments collide)
+- [ ] Migration `016_audit_insert_dedup.sql` applied — without it the setting
+      is absent and the token is ignored, so the in-flight window stays open
+- [ ] Test: retry after an **unknown** outcome, not only after a known failure
+      — a replay-only suite passes with none of the above
 - [ ] TLS trust anchor (ssdf CA cert in rustsdcmcp container)
 - [ ] Retry/backoff on transient failures
 - [ ] Unit test: mock ClickHouse response
