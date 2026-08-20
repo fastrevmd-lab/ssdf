@@ -11,7 +11,55 @@ The live fleet runs NTP-synced UTC. An accurate UTC clock is ideal, but **not re
 for Junos SYSTEM streams (RFC5424 includes the UTC offset). What matters is that the
 clock is **not skewed** (NTP-synced).
 
-## 1. Device config (forward to Vector ct102 on UDP 518)
+## 1. Device config (forward to the Vector ingest guest on UDP 518)
+
+> **The `port` statement is version-dependent — verify on the wire, never from a
+> clean commit.** On Junos **25.4R1.12** (vsrx-prod, 2026-08-19)
+> `set system syslog host <ip> port 518` commit-checks clean, commits clean, and
+> is then **ignored**: a packet capture during the change showed 108 packets
+> still going to 514 and zero to 518. A successful commit proves nothing here.
+> Confirm with a capture on the ingest guest before believing it. Watch **both**
+> ports — filtering on 518 alone cannot show the baseline traffic the next step
+> depends on, so a healthy capture and a dead one look identical:
+>
+> ```
+> tcpdump -i any -nn "src host <device-ip> and (udp port 514 or udp port 518)"
+> ```
+>
+> Start the capture BEFORE committing and confirm it is live (baseline packets on
+> 514 are visible) — a capture that fails to start looks exactly like a device
+> that has stopped sending, and mistaking one for the other is how this gets
+> misdiagnosed. Apply with `confirm_timeout_mins` so a silent failure
+> auto-reverts, and do not send the confirming commit until packets appear with
+> destination port 518.
+>
+> **If 518 never appears, do not simply let the commit expire on a fresh
+> onboarding.** The auto-revert removes the whole `system syslog host` stanza you
+> just added, not merely the `port` line, leaving the device forwarding nothing at
+> all. Re-apply the host stanza without `port 518` and confirm it:
+>
+> ```
+> set system syslog host 198.51.100.150 any info
+> set system syslog host 198.51.100.150 structured-data
+> ```
+>
+> **Do not add `routing-instance mgmt_junos` to this fallback**, including on Case A
+> devices. On the current fleet that line is rejected at commit with
+> `Referenced routing instance must be defined under [edit routing-instances]`
+> even where `system management-instance` IS configured — observed on vsrx-ci
+> (24.4R1.9) on 2026-08-19. Both live devices forward correctly to 514 today with
+> the plain two-line stanza and no routing-instance, so the Case A requirement in
+> §1 below is itself version- and state-dependent: treat it as something to test,
+> not assume. Verify traffic before walking away:
+>
+> ```
+> tcpdump -i any -nn "src host <device-ip> and udp port 514"
+> ``` On an
+> existing device that already forwarded to 514, reverting is enough on its own.
+>
+> Ingest handles that case: `srx_sec` in `infra/vector/vector.toml` classifies the
+> security stream by RFC5424 APP-NAME and routes system-syslog audit msgids to
+> `junos_sys_sec`, so both streams are parsed correctly when they share 514.
 
 **Check which case the device is in FIRST — the routing-instance line is conditional:**
 
@@ -46,7 +94,7 @@ directly connected in inet.0 and syslog egresses correctly on its own. Adding th
 does not merely fail to help — the commit is **rejected** with
 `Routing-instance must be defined`, because `mgmt_junos` does not exist on these devices.
 
-Verified live 2026-07-19 on vsrx-dmz: 7 packets captured on ct102
+Verified live 2026-07-19 on vsrx-dmz (Junos version not recorded): 7 packets captured on the ingest guest
 (`198.51.100.224.514 > 198.51.100.150.518 SYSLOG auth.info`) with no routing-instance
 configured.
 
@@ -85,7 +133,11 @@ The legacy RT_FLOW security logs (UDP 514) use stream-mode via the data-plane in
 (ge-0/0/0, no routing-instance needed) regardless of case; only SYSTEM syslog egresses fxp0.
 
 ## 2. Verify on the wire
-On ct102:  tcpdump -n -A -i any udp port 518 -c 20
+On guest 700 (was ct102). Scope to the device's system-syslog SOURCE address — 514 is
+continuously busy with the rest of the fleet, so an unfiltered `-c 20` fills up with
+unrelated traffic before your event is generated. Watch both ports so the check works
+whether the device landed on 518 or fell back to the shared 514 (see the caution in §1):
+  tcpdump -n -A -i any "src host <device-ip> and (udp port 514 or udp port 518)" -c 20
 Trip an event (e.g. from another host: `ssh baduser@vsrx-ci` with a wrong password) and
 confirm the line arrives. A successful commit from the NETCONF-based MCP collector also
 emits a UI_COMMIT line.
@@ -109,10 +161,10 @@ lines (every rust-junosmcp `get_junos_config` or `execute_junos_command` emits 1
 Dropping them at the filter gate keeps only the actionable audit stream.
 
 ## 4. Deployment-specific values
-  - VECTOR_IP       = **198.51.100.150** (ct102 LAN IP)
+  - VECTOR_IP       = **198.51.100.150** (guest 700 (was ct102) LAN IP)
   - VECTOR_UDP_PORT = **518** (Junos SYSTEM; 514=SRX security, 515=PAN-OS, 516=UniFi, 517=Proxmox)
   - SOURCE_RANGES   = 198.51.100.219-245 (full fleet) + 198.51.100.150-175 (data-plane range)
-                      (nft allow-list on ct102; see infra/firewall/ct102-ingest.nft)
+                      (nft allow-list on guest 700 (was ct102); see infra/firewall/ct102-ingest.nft)
 
 ## 5. Captured samples (real lines from live-proof 2026-07-06 — the VRL test fixtures)
 parse_syslog yields msgid + structured-data; the junos_sys_ecs transform maps them as:
@@ -161,4 +213,4 @@ A commit-bearing query:
 ## 7. Rollback (remove the syslog host config)
 Apply via rust-junosmcp:
   delete system syslog host 198.51.100.150
-Commit. The nft allow-list on ct102 stays — it harms nothing when the source is silent.
+Commit. The nft allow-list on guest 700 (was ct102) stays — it harms nothing when the source is silent.

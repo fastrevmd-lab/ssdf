@@ -1,14 +1,16 @@
 # SSDF M3 — PAN-OS log-forwarding onboarding.
-# Applied to panosvm (PAN-OS 12.1.5, PA-VM) via panos-mcp (load_and_commit_pan_config).
+# Applied to panosvm (PAN-OS 12.1.5, PA-VM) via panos-mcp. NOTE: load_and_commit_pan_config
+# was retired 2026-08-15; the server now requires the approval-gated change-set lifecycle,
+# which takes XPath/XML rather than this set-format file. See onboarding/panos/README.md.
 # Substitutions (as-built 2026-06-06, panosvm):
-#   <vector-host-ip> = 198.51.100.150  (ssdf-vector LXC ct102, UDP/515)
+#   <vector-host-ip> = 198.51.100.150  (ssdf-vector LXC guest 700 (was ct102), UDP/515)
 #   <vector-port>    = 515             (SRX already uses 514; PAN-OS gets 515)
 #
 # Prerequisites:
-#   - The SSDF Vector collector (ct102) must already be listening on UDP:515
+#   - The SSDF Vector collector (guest 700 (was ct102)) must already be listening on UDP:515
 #     (panos_syslog source live in infra/vector/vector.toml) before applying.
 #   - Apply via panos-mcp against host "panosvm" only.
-#   - Review diff with pan_config_diff before committing.
+#   - Review the diff before committing (diff_panos_candidate, against an existing operation).
 
 # ---------------------------------------------------------------------------
 # 1. Shared syslog server profile
