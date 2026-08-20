@@ -45,3 +45,6 @@ dist/
 build/
 *.agekey
 *.decrypted.*
+
+# pytest tmp_path basetemp, created when the suite runs from the service dir
+pytest-of-*/
