@@ -41,7 +41,9 @@ class _FakeCH:
 
 
 def test_fresh_subject_is_not_stale():
-    ch = _FakeCH({"ssdf.events": {"n": 5, "last_seen": "2026-08-19T12:00:00Z", "hours_since": 0.5}})
+    ch = _FakeCH(
+        {"ssdf.events": {"n": 5, "probe_max_ts": "2026-08-19T12:00:00Z", "hours_since": 0.5}}
+    )
     result = FabricTools(ch, manifest=(FRESH,)).fabric_status()
 
     assert result["healthy"] is True
@@ -55,7 +57,7 @@ def test_fresh_subject_is_not_stale():
 
 def test_subject_past_its_budget_is_stale_and_makes_the_fabric_unhealthy():
     ch = _FakeCH(
-        {"ssdf.entities": {"n": 22, "last_seen": "2026-08-15T18:00:00Z", "hours_since": 97.3}}
+        {"ssdf.entities": {"n": 22, "probe_max_ts": "2026-08-15T18:00:00Z", "hours_since": 97.3}}
     )
     result = FabricTools(ch, manifest=(SLOW,)).fabric_status()
 
@@ -67,7 +69,7 @@ def test_subject_past_its_budget_is_stale_and_makes_the_fabric_unhealthy():
 def test_exactly_at_budget_is_not_stale():
     """Boundary: stale means strictly past budget, so a 0.25h timer checked at
     exactly 0.25h does not flap."""
-    ch = _FakeCH({"ssdf.events": {"n": 1, "last_seen": "x", "hours_since": 1.0}})
+    ch = _FakeCH({"ssdf.events": {"n": 1, "probe_max_ts": "x", "hours_since": 1.0}})
     result = FabricTools(ch, manifest=(FRESH,)).fabric_status()
     assert result["subjects"][0]["stale"] is False
 
@@ -75,7 +77,7 @@ def test_exactly_at_budget_is_not_stale():
 def test_never_observed_is_stale_not_absent():
     """UniFi went unnoticed for 30 days because nothing was there to age.
     Absence must be loud."""
-    ch = _FakeCH({"ssdf.events": {"n": 0, "last_seen": None, "hours_since": None}})
+    ch = _FakeCH({"ssdf.events": {"n": 0, "probe_max_ts": None, "hours_since": None}})
     result = FabricTools(ch, manifest=(FRESH,)).fabric_status()
 
     subject = result["subjects"][0]
@@ -90,7 +92,7 @@ def test_a_failing_subject_is_surfaced_not_swallowed():
     bug on 2026-08-19. The tool built to detect that must not repeat it."""
     ch = _FakeCH(
         {
-            "ssdf.events": {"n": 5, "last_seen": "2026-08-19T12:00:00Z", "hours_since": 0.5},
+            "ssdf.events": {"n": 5, "probe_max_ts": "2026-08-19T12:00:00Z", "hours_since": 0.5},
             "ssdf.entities": RuntimeError("table does not exist"),
         }
     )
@@ -107,8 +109,8 @@ def test_a_failing_subject_is_surfaced_not_swallowed():
 def test_subjects_sort_stale_first():
     ch = _FakeCH(
         {
-            "ssdf.events": {"n": 5, "last_seen": "x", "hours_since": 0.1},
-            "ssdf.entities": {"n": 1, "last_seen": "y", "hours_since": 99.0},
+            "ssdf.events": {"n": 5, "probe_max_ts": "x", "hours_since": 0.1},
+            "ssdf.entities": {"n": 1, "probe_max_ts": "y", "hours_since": 99.0},
         }
     )
     result = FabricTools(ch, manifest=(FRESH, SLOW)).fabric_status()
@@ -120,14 +122,14 @@ def test_devices_rollup_delegates_to_ingest_status():
         def ingest_status(self):
             return {"firewalls": [{}, {}, {}], "summary": {"total": 3, "stale": 1, "fresh": 2}}
 
-    ch = _FakeCH({"ssdf.events": {"n": 5, "last_seen": "x", "hours_since": 0.1}})
+    ch = _FakeCH({"ssdf.events": {"n": 5, "probe_max_ts": "x", "hours_since": 0.1}})
     result = FabricTools(ch, liveness=_FakeLiveness(), manifest=(FRESH,)).fabric_status()
 
     assert result["devices"] == {"total": 3, "stale": 1, "fresh": 2}
 
 
 def test_devices_is_null_when_no_liveness_store_is_wired():
-    ch = _FakeCH({"ssdf.events": {"n": 5, "last_seen": "x", "hours_since": 0.1}})
+    ch = _FakeCH({"ssdf.events": {"n": 5, "probe_max_ts": "x", "hours_since": 0.1}})
     result = FabricTools(ch, manifest=(FRESH,)).fabric_status()
     assert result["devices"] is None
 
@@ -137,7 +139,7 @@ def test_device_rollup_failure_does_not_lose_subject_results():
         def ingest_status(self):
             raise RuntimeError("graph unavailable")
 
-    ch = _FakeCH({"ssdf.events": {"n": 5, "last_seen": "x", "hours_since": 0.1}})
+    ch = _FakeCH({"ssdf.events": {"n": 5, "probe_max_ts": "x", "hours_since": 0.1}})
     result = FabricTools(ch, liveness=_BrokenLiveness(), manifest=(FRESH,)).fabric_status()
 
     assert result["subjects"][0]["name"] == "juniper"

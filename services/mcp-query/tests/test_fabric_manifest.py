@@ -111,3 +111,22 @@ def test_public_metrics_uses_write_time_not_bucket_time():
     budget while the resolver is healthy. Measured on the live fabric."""
     subject = next(s for s in MANIFEST if s.name == "ssdf-public-metrics")
     assert subject.ts_column == "inserted_at"
+
+
+def test_sql_max_alias_cannot_shadow_ts_column():
+    """Regression: when ts_column is 'last_seen', aliasing max(last_seen) AS
+    last_seen makes the second max(last_seen) in dateDiff reference the alias
+    (an aggregate), which ClickHouse rejects as ILLEGAL_AGGREGATION. The alias
+    must not collide with any ts_column name."""
+    for subject in MANIFEST:
+        sql, _ = build_subject_sql(subject)
+        # The SQL must contain max(ts_column) AS <something>, where <something> != ts_column
+        assert f"max({subject.ts_column})" in sql, (
+            f"{subject.name}: missing max({subject.ts_column})"
+        )
+        # The alias must be probe_max_ts, not the ts_column name
+        assert f"AS {subject.ts_column}" not in sql, (
+            f"{subject.name}: max() aliased as {subject.ts_column} shadows the source column"
+        )
+        # Confirm the probe_max_ts alias is present (not just asserting absence)
+        assert "AS probe_max_ts" in sql, f"{subject.name}: missing probe_max_ts alias"

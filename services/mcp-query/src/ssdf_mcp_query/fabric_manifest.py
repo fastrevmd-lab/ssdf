@@ -157,7 +157,7 @@ def build_subject_sql(subject: Subject) -> tuple[str, dict]:
         where = f" WHERE {subject.filter_column} = {{fval:String}}"
         params["fval"] = subject.filter_value
     sql = (
-        f"SELECT count() AS n, max({subject.ts_column}) AS last_seen, "
+        f"SELECT count() AS n, max({subject.ts_column}) AS probe_max_ts, "
         f"dateDiff('second', max({subject.ts_column}), now()) / 3600.0 AS hours_since "
         f"FROM {subject.table}{where}"
     )

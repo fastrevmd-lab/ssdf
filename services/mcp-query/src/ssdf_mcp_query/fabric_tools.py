@@ -50,7 +50,7 @@ class FabricTools:
             # Never observed. Absence is the signal, not a missing row.
             return {**base, "last_seen": None, "hours_since": None, "stale": True}
 
-        last_seen = row.get("last_seen")
+        last_seen = row.get("probe_max_ts")
         return {
             **base,
             "last_seen": str(last_seen) if last_seen is not None else None,
