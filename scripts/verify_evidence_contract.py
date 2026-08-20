@@ -1,20 +1,34 @@
 #!/usr/bin/env python3
 """Round-trip verification for the audit evidence contract v1.0.
 
-Tests the complete evidence ingestion flow:
-1. Insert a hand-built evidence record via ssdf_audit user
-2. Query it back to verify the shape
-3. Re-insert the SAME record (same server_id/run_id/segment_seq)
-4. Verify deduplication (no duplicate rows)
+Exercises the high-water-mark ingestion protocol end to end:
+
+1. read the writer's high-water mark as ``ssdf_audit_verify``
+2. insert a hand-built evidence record as ``ssdf_audit``
+3. replay the identical record, which the protocol must skip
+4. read back and assert exactly one row landed
+
+The replay step is the point. An earlier version of this script re-inserted
+unconditionally and reported the resulting duplicate as expected, because the
+contract then called for an ``INSERT ... WHERE NOT EXISTS`` guard that the
+INSERT-only writer identity cannot execute. The guard is gone; idempotency now
+comes from reading the high-water mark first, so the script has to perform that
+read or it is testing nothing.
+
+**This writes to the table it verifies.** Point it at a scratch ClickHouse, or
+accept that it appends one evidence row to whatever it is aimed at. The cleanup
+statement it prints needs an identity with DELETE rights, which neither of the
+identities used here has.
 
 This script requires:
 - ClickHouse running with ssdf.audit table (migrations 007+009 applied)
-- CH_HOST, CH_AUDIT_PASSWORD in environment
+- CH_HOST, CH_AUDIT_PASSWORD, CH_AUDIT_VERIFY_PASSWORD in environment
 - Local ClickHouse OR lab instance accessible (read safety rules in CLAUDE.md)
 
 Usage:
     export CH_HOST=localhost  # or 198.51.100.104 for lab ct104
     export CH_AUDIT_PASSWORD=<from-vault>
+    export CH_AUDIT_VERIFY_PASSWORD=<from-vault>
     python scripts/verify_evidence_contract.py
 """
 
@@ -39,14 +53,43 @@ def compute_evidence_hash(ts: str, principal: str, tool: str, args: str, prev_ha
     return f"sha256:{digest}"
 
 
+def high_water(verify_client, server_id: str, run_id: str) -> int | None:
+    """Highest ``segment_seq`` already landed for this writer and run.
+
+    ``None`` means nothing has landed, which is **not** the same as ``0``:
+    ``max()`` over no rows returns ``0`` and ``segment_seq`` is 0-based, so a
+    caller that cannot tell the two apart skips segment 0 of every new run --
+    the first record a writer produces, and the root of its chain. The
+    ``count()`` is what separates them.
+    """
+    landed, highest = verify_client.query(
+        """
+        SELECT count(),
+               max(JSONExtractUInt(args, 'segment_seq'))
+        FROM ssdf.audit
+        WHERE tier = 'evidence'
+          AND JSONExtractString(args, 'server_id') = {server_id:String}
+          AND JSONExtractString(args, 'run_id')    = {run_id:String}
+        """,
+        parameters={"server_id": server_id, "run_id": run_id},
+    ).result_rows[0]
+    return int(highest) if landed else None
+
+
 def main():
     ch_host = os.getenv("CH_HOST", "localhost")
     ch_port = int(os.getenv("CH_PORT", "8443"))
     ch_secure = os.getenv("CH_SECURE", "1") == "1"
     audit_password = os.getenv("CH_AUDIT_PASSWORD")
+    verify_password = os.getenv("CH_AUDIT_VERIFY_PASSWORD")
 
     if not audit_password:
         print("ERROR: CH_AUDIT_PASSWORD not set", file=sys.stderr)
+        sys.exit(1)
+    if not verify_password:
+        print("ERROR: CH_AUDIT_VERIFY_PASSWORD not set", file=sys.stderr)
+        print("The write identity cannot SELECT; the high-water read needs", file=sys.stderr)
+        print("ssdf_audit_verify. See migration 009.", file=sys.stderr)
         sys.exit(1)
 
     print(f"Connecting to ClickHouse: {ch_host}:{ch_port} (secure={ch_secure})")
@@ -64,6 +107,22 @@ def main():
     except Exception as e:
         print(f"ERROR: Failed to connect: {e}", file=sys.stderr)
         print("Is ClickHouse running? Are migrations 007+009 applied?", file=sys.stderr)
+        sys.exit(1)
+
+    # Connect as ssdf_audit_verify (SELECT-only reader). Two identities, two
+    # statements, each doing only what it is granted -- the boundary migration
+    # 007 drew, and the reason the old INSERT guard was impossible.
+    try:
+        verify_client = clickhouse_connect.get_client(
+            host=ch_host,
+            port=ch_port,
+            username="ssdf_audit_verify",
+            password=verify_password,
+            secure=ch_secure,
+            verify=True if ch_secure else False,
+        )
+    except Exception as e:
+        print(f"ERROR: Failed to connect as ssdf_audit_verify: {e}", file=sys.stderr)
         sys.exit(1)
 
     # Build a test evidence record
@@ -97,8 +156,17 @@ def main():
     print(f"row_hash: {row_hash}")
     print(f"timestamp: {test_ts_str}")
 
-    # Step 1: Insert the evidence record
-    print("\n[1/4] Inserting test evidence record...")
+    # Step 1: read the high-water mark BEFORE writing anything.
+    print("\n[1/4] Reading the high-water mark as ssdf_audit_verify...")
+    try:
+        mark = high_water(verify_client, test_server_id, test_run_id)
+    except Exception as e:
+        print(f"✗ High-water read failed: {e}", file=sys.stderr)
+        print("  A failed read is not 'nothing landed' -- stopping rather than", file=sys.stderr)
+        print("  inserting blind, which is how a replay becomes a duplicate.", file=sys.stderr)
+        sys.exit(1)
+    print(f"✓ high_water = {mark!r} (None means the run is new)")
+
     insert_data = [
         (
             test_ts,
@@ -114,85 +182,76 @@ def main():
             row_hash,
         )
     ]
+    columns = [
+        "ts",
+        "principal",
+        "tier",
+        "tool",
+        "args",
+        "data_classes",
+        "decision",
+        "row_count",
+        "error",
+        "prev_hash",
+        "row_hash",
+    ]
 
+    # Step 2: insert, exactly as a sink would -- only when the mark says to.
+    print("\n[2/4] Inserting segment 0 as ssdf_audit...")
+    if mark is not None and mark >= 0:
+        print(f"✗ Expected a fresh run, but segment {mark} already landed", file=sys.stderr)
+        sys.exit(1)
     try:
-        client.insert(
-            "ssdf.audit",
-            insert_data,
-            column_names=[
-                "ts",
-                "principal",
-                "tier",
-                "tool",
-                "args",
-                "data_classes",
-                "decision",
-                "row_count",
-                "error",
-                "prev_hash",
-                "row_hash",
-            ],
-        )
+        client.insert("ssdf.audit", insert_data, column_names=columns)
         print("✓ Insert succeeded")
     except Exception as e:
         print(f"✗ Insert failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 2: Query it back (need read access — switch to verify user or check via separate query)
-    # NOTE: ssdf_audit is INSERT-only, so we CANNOT query back as this user.
-    # In a real verification, you'd use ssdf_audit_verify or ssdf_ro.
-    # For this script, we demonstrate the INSERT contract only and defer query verification.
-    print("\n[2/4] Query verification DEFERRED")
-    print("  (ssdf_audit is INSERT-only; query step requires ssdf_audit_verify or ssdf_ro)")
-    print(
-        f"  Manual check: SELECT * FROM ssdf.audit WHERE JSONExtractString(args,'run_id')='{test_run_id}'"
-    )
-
-    # Step 3: Re-insert the SAME record (idempotency test)
-    print("\n[3/4] Re-inserting same evidence record (deduplication test)...")
-    print("  NOTE: Without ReplacingMergeTree or INSERT...WHERE NOT EXISTS,")
-    print("  ClickHouse WILL create a duplicate row. Deduplication is application-layer.")
-    print("  The contract specifies (server_id, run_id, segment_seq) as the dedup key.")
-    print("  For true idempotency, mecmcp-audit must implement INSERT guard.")
-
-    # Re-insert (this WILL create a duplicate in the current schema)
-    try:
-        client.insert(
-            "ssdf.audit",
-            insert_data,
-            column_names=[
-                "ts",
-                "principal",
-                "tier",
-                "tool",
-                "args",
-                "data_classes",
-                "decision",
-                "row_count",
-                "error",
-                "prev_hash",
-                "row_hash",
-            ],
-        )
-        print("✓ Re-insert succeeded (duplicate row created; dedup is app-layer)")
-    except Exception as e:
-        print(f"✗ Re-insert failed: {e}", file=sys.stderr)
+    # Step 3: replay. The protocol must skip it, and the skip is the whole test.
+    print("\n[3/4] Replaying the identical segment (idempotency)...")
+    replay_mark = high_water(verify_client, test_server_id, test_run_id)
+    print(f"  high_water is now {replay_mark!r}")
+    if replay_mark is None:
+        print("✗ The insert did not land, so the replay proves nothing", file=sys.stderr)
+        sys.exit(1)
+    if replay_mark >= 0:
+        print("✓ Segment 0 is at or below the mark; a sink would skip it")
+    else:
+        print("✗ The mark did not advance; a sink would re-insert", file=sys.stderr)
         sys.exit(1)
 
-    # Step 4: Summary
-    print("\n[4/4] Verification Summary")
-    print("✓ Evidence contract schema is compatible with ssdf.audit")
-    print("✓ INSERT via ssdf_audit identity works")
-    print("✓ Payload shape (JSON args) is accepted")
+    # Step 4: prove it, by counting. A protocol that says "skip" and a table
+    # that holds two rows would both be reported as success by the assertions
+    # above alone.
+    print("\n[4/4] Confirming exactly one row landed...")
+    rows = verify_client.query(
+        """
+        SELECT count()
+        FROM ssdf.audit
+        WHERE tier = 'evidence'
+          AND JSONExtractString(args, 'server_id') = {server_id:String}
+          AND JSONExtractString(args, 'run_id')    = {run_id:String}
+          AND JSONExtractUInt(args, 'segment_seq') = 0
+        """,
+        parameters={"server_id": test_server_id, "run_id": test_run_id},
+    ).result_rows[0][0]
+    if rows != 1:
+        print(f"✗ Expected exactly 1 row for segment 0, found {rows}", file=sys.stderr)
+        sys.exit(1)
+    print("✓ Exactly one row")
+
+    print("\nVerification Summary")
+    print("✓ The high-water read works as ssdf_audit_verify")
+    print("✓ INSERT via ssdf_audit works, and the payload shape is accepted")
     print("✓ Hash chain fields (prev_hash, row_hash) populate")
-    print("⚠ Query-back verification requires ssdf_audit_verify/ssdf_ro (DEFERRED)")
-    print("⚠ Deduplication is application-layer (mecmcp-audit must guard re-inserts)")
+    print("✓ A replay is skipped, and the table holds one row -- no guard needed")
 
     print(f"\nTest run_id: {test_run_id}")
     print(
         f"Cleanup: DELETE FROM ssdf.audit WHERE JSONExtractString(args,'run_id')='{test_run_id}';"
     )
-    print("(Requires ssdf_ro or admin access)")
+    print("(Requires an identity with DELETE rights; neither used here has it)")
 
     return 0
 

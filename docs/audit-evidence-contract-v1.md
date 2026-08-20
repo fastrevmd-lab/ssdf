@@ -150,7 +150,19 @@ Re-ingestion after a demo reset or test re-run MUST be idempotent. The deduplica
 (server_id, run_id, segment_seq)
 ```
 
-**Implementation note:** ClickHouse `ReplacingMergeTree` or application-level `INSERT ... WHERE NOT EXISTS` using this tuple ensures no duplicate evidence rows for the same run segment.
+**Implementation note:** dedup is a **high-water mark read before the insert**,
+not a guard on the insert itself. Before replaying, the sink reads the highest
+`segment_seq` it already has for `(server_id, run_id)` as `ssdf_audit_verify`
+and inserts only what is above it; see
+[audit-evidence-ingestion.md](audit-evidence-ingestion.md) for the query and
+its `count()`, which is what keeps segment 0 from being skipped.
+
+An earlier version of this note recommended `ReplacingMergeTree` or
+`INSERT ... WHERE NOT EXISTS`. Neither is available: `ssdf.audit` is a
+`MergeTree`, and the guarded insert needs a `SELECT` that the INSERT-only
+`ssdf_audit` identity is specified not to have — verified against the live
+table, where it is refused with `Code: 497 ... Not enough privileges`. Every
+guarded insert would have been rejected.
 
 ## Query Contract
 
@@ -190,11 +202,48 @@ No new authentication identity is required for this contract — the existing `s
 
 ## Hash Chain Integrity
 
-Evidence records participate in the tier-specific hash chain (migration 009):
+Evidence records participate in a hash chain **per writer**, keyed
+`(tier, server_id)` — not one chain per tier (migration 009):
 
-1. **First evidence record** per tier has `prev_hash = ""` (chain start)
-2. **Subsequent records** include `prev_hash = <previous row_hash>`
+1. **First evidence record of a `server_id`** has `prev_hash = ""` (chain start)
+2. **Subsequent records** include `prev_hash = <previous row_hash>`, where
+   "previous" means this writer's previous record, across all of its runs
 3. **row_hash** computation includes: `(ts, principal, tool, args, prev_hash)`
+
+### Why per writer
+
+One chain per tier would require every server writing evidence to agree on a
+shared head. They do not: they are separate processes on separate hosts,
+inserting concurrently. Their records interleave, so a tier-wide verifier
+compares each row's `prev_hash` against a predecessor written by a different
+server and every check fails — not because anything was tampered with, but
+because it is reading two chains as one.
+
+### Seeding a new run
+
+A writer's second run continues its first run's chain, so on startup it reads
+its own head — the `row_hash` of its most recent row — rather than starting a
+new root:
+
+```sql
+-- as ssdf_audit_verify
+SELECT row_hash
+FROM ssdf.audit
+WHERE tier = 'evidence'
+  AND JSONExtractString(args, 'server_id') = {server_id:String}
+ORDER BY ts DESC, JSONExtractUInt(args, 'segment_seq') DESC
+LIMIT 1
+```
+
+An empty result means a genuinely new writer, which starts a root. Anything
+else is a resume. This is separate from the run-scoped high-water mark in
+[audit-evidence-ingestion.md](audit-evidence-ingestion.md), which answers a
+different question — what to skip on replay, not where to attach.
+
+**One writer per `server_id`, one run at a time.** Two processes sharing a
+`server_id`, or one process running two runs concurrently, both fork the chain,
+and a fork verifies as two valid chains rather than as an error — so nothing
+downstream will tell you it happened. Give each container its own `server_id`.
 
 The hash chain is verified offline via:
 

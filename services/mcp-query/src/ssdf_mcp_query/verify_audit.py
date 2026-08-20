@@ -53,6 +53,9 @@ def group_key(row: dict) -> tuple[str, str]:
     column, so this parses defensively: a row whose args are absent, malformed
     or lack the field falls back to tier-only grouping, which is the historical
     behaviour and the right answer for sovereign rows.
+
+    For an **evidence** row that fallback is a defect rather than a default, and
+    :func:`writer_issue` reports it — see the note there.
     """
     raw = row.get("args") or ""
     server_id = ""
@@ -66,6 +69,29 @@ def group_key(row: dict) -> tuple[str, str]:
             if isinstance(value, str):
                 server_id = value
     return (row["tier"], server_id)
+
+
+def writer_issue(row: dict) -> dict | None:
+    """Report an evidence row that does not name the chain it belongs to.
+
+    Evidence chains are keyed ``(tier, server_id)``. A row whose ``args`` are
+    malformed, omit ``server_id``, or carry a non-string or empty one has no
+    usable key, and grouping it under the tier alone is not harmless: several
+    such rows share that bucket, each contributes its own root, and the whole
+    set verifies as clean. That is precisely the deletion blind spot per-writer
+    grouping was introduced to close, arrived at from the other direction.
+
+    Only the evidence tier is held to this. Sovereign rows never carried a
+    writer — all 20,193 of them predate the field — so requiring one there would
+    turn every historical row into an issue over a rule that was never made
+    about them.
+    """
+    if row.get("tier") != "evidence":
+        return None
+    _, server_id = group_key(row)
+    if server_id:
+        return None
+    return {"type": "unidentified_writer", "row_hash": row.get("row_hash", "")}
 
 
 def verify_tier(rows: list[dict]) -> list[dict]:
@@ -136,6 +162,9 @@ def main() -> int:
     total = 0
     for (tier, server_id), chain_rows in sorted(by_chain.items()):
         issues = verify_tier(chain_rows)
+        # An evidence row with no usable writer cannot be chained to anything,
+        # so it is reported rather than quietly folded into the tier bucket.
+        issues.extend(issue for row in chain_rows if (issue := writer_issue(row)))
         total += len(issues)
         legacy = sum(1 for r in chain_rows if r["row_hash"] == "")
         status = "OK" if not issues else f"{len(issues)} ISSUE(S)"

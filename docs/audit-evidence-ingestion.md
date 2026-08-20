@@ -79,14 +79,24 @@ replaying anything, the sink reads its own high-water mark as that identity:
 
 ```sql
 -- as ssdf_audit_verify
-SELECT max(JSONExtractInt(args, 'segment_seq')) AS high_water
+SELECT count() AS landed,
+       max(JSONExtractUInt(args, 'segment_seq')) AS high_water
 FROM ssdf.audit
 WHERE tier = 'evidence'
   AND JSONExtractString(args, 'server_id') = {server_id:String}
   AND JSONExtractString(args, 'run_id')    = {run_id:String}
 ```
 
-then INSERTs, as `ssdf_audit`, only segments above `high_water`.
+then INSERTs, as `ssdf_audit`, only segments above `high_water` — **and every
+segment when `landed = 0`.**
+
+`count()` is not decoration. ClickHouse's `max()` over no rows returns `0`, and
+`segment_seq` is 0-based, so "nothing has landed" and "segment 0 has landed"
+both render as `high_water = 0`. Inserting only `> high_water` on that alone
+drops segment 0 of every new run — the first evidence record a writer ever
+produces, and the root of its chain. `count()` separates the two cases;
+`maxOrNull` returning `NULL` for the empty set would do equally well. Verified
+live against ct104: an empty run returns `[0, 0]`.
 
 Two identities, two statements, each doing only what it is granted. The security
 boundary stays where `007` put it.
@@ -97,10 +107,18 @@ boundary stays where `007` put it.
   high-water mark is therefore a complete statement of what landed; there is no
   case where segment 5 is present and 3 is missing, because the chain would not
   verify.
-- **Writers are serialised per `(server_id, run_id)`.** The hash chain requires
-  it — `prev_hash` is the previous row's `row_hash`, so a second concurrent
-  writer for the same run would fork the chain regardless of dedup. So the
-  read-then-write is not racing another writer for the same key.
+- **Writers are serialised per `server_id`, across all of its runs** — not
+  merely per `(server_id, run_id)`. The chain is per writer, so every run of one
+  `server_id` extends the *same* chain: its second run seeds from the final
+  `row_hash` of its first. Two runs of one writer proceeding concurrently would
+  therefore fork it just as surely as two writers would, and per-`(server_id,
+  run_id)` serialisation permits exactly that. One process per `server_id`, and
+  one run at a time within it.
+
+  This is a real constraint on deployment, not a modelling nicety: two
+  containers configured with the same `server_id` produce a fork that verifies
+  as two valid chains, which is the failure mode this whole document exists to
+  prevent. Give each container its own `server_id`.
 - **A duplicate is a lost ack, not a divergent row.** The retry carries the
   identical serialised record and the identical `row_hash`, so the failure this
   protects against is re-appending a row already present, which the high-water

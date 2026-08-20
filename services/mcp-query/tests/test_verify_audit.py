@@ -156,3 +156,34 @@ def test_rows_without_a_server_id_group_by_tier_alone():
     from ssdf_mcp_query.verify_audit import group_key
 
     assert group_key(_chain(1)[0]) == ("sovereign", "")
+
+
+def test_an_evidence_row_without_a_writer_is_a_violation():
+    """An evidence row must name the chain it belongs to.
+
+    Grouping such a row under the tier alone is not a harmless default: several
+    malformed writers land in one bucket, each contributes its own root, and the
+    result verifies as clean. That is the deletion blind spot the per-writer
+    grouping exists to close, reached from the other side — so an evidence row
+    with no usable ``server_id`` has to be an issue, not a fallback.
+    """
+    from ssdf_mcp_query.verify_audit import writer_issue
+
+    assert writer_issue({"tier": "evidence", "args": "", "row_hash": "sha256:a"})
+    assert writer_issue({"tier": "evidence", "args": "not json", "row_hash": "sha256:b"})
+    assert writer_issue({"tier": "evidence", "args": '{"server_id": 7}', "row_hash": "sha256:c"})
+    assert writer_issue({"tier": "evidence", "args": '{"server_id": ""}', "row_hash": "sha256:d"})
+    assert not writer_issue(
+        {"tier": "evidence", "args": '{"server_id": "junos-950"}', "row_hash": "sha256:e"}
+    )
+
+
+def test_a_sovereign_row_without_a_writer_is_not_a_violation():
+    """The 20,193 existing sovereign rows name no writer and never did.
+
+    Requiring one of them would turn every historical row into an issue, which
+    is a rule about a different tier applied where it was never promised.
+    """
+    from ssdf_mcp_query.verify_audit import writer_issue
+
+    assert not writer_issue({"tier": "sovereign", "args": "", "row_hash": "sha256:f"})
