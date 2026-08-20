@@ -54,3 +54,40 @@ def test_mcp_tool_client_init():
     ep = McpEndpoint(url="http://example.com", token="abc")
     client = McpToolClient(ep)
     assert client is not None
+
+
+def test_call_tool_times_out_instead_of_hanging_forever():
+    """A vendor MCP that accepts the request and never answers must not wedge the
+    caller. Live effect before this: one unanswered call left collect_all running
+    91 minutes, and because the collector runs in ExecStartPre — bounded by
+    TimeoutStartSec, which was infinity — systemd never killed it and the topology
+    graph stopped updating entirely.
+    """
+    import asyncio
+
+    from ssdf_common.config import McpEndpoint
+    from ssdf_common.mcp_client import McpToolClient
+
+    client = McpToolClient(
+        McpEndpoint(url="http://example.invalid/mcp", token="t"), timeout_secs=0.05
+    )
+
+    async def _never_answers(name, args):
+        await asyncio.sleep(30)
+
+    client._call = _never_answers
+
+    with pytest.raises(TimeoutError):
+        client.call_tool("execute_junos_command", {"router_name": "x"})
+
+
+def test_call_tool_returns_normally_within_the_timeout():
+    async def _fast(name, args):
+        return "ok"
+
+    from ssdf_common.config import McpEndpoint
+    from ssdf_common.mcp_client import McpToolClient
+
+    client = McpToolClient(McpEndpoint(url="http://example.invalid/mcp", token="t"), timeout_secs=5)
+    client._call = _fast
+    assert client.call_tool("t", {}) == "ok"
