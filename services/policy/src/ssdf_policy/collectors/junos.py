@@ -16,19 +16,26 @@ logger = logging.getLogger(__name__)
 
 PROVIDER = "juniper"
 _ACTION_MAP = {"permit": "allow", "deny": "deny", "reject": "reject"}
-_ZONE_RE = re.compile(
-    r"security policies from-zone (\S+) to-zone (\S+) policy (\S+) (.*)$"
-)
+_ZONE_RE = re.compile(r"security policies from-zone (\S+) to-zone (\S+) policy (\S+) (.*)$")
 _GLOBAL_RE = re.compile(r"security policies global policy (\S+) (.*)$")
 
 
 def _new_rule(name, device_name, from_zone, to_zone, now, order):
     return {
-        "provider": PROVIDER, "device_name": device_name, "rule_name": name,
-        "action": "", "from_zone": list(from_zone), "to_zone": list(to_zone),
-        "source_addresses": [], "dest_addresses": [], "application": [],
-        "service": [], "position": order, "enabled": True,
-        "vendor_extras": {}, "collected_at": now,
+        "provider": PROVIDER,
+        "device_name": device_name,
+        "rule_name": name,
+        "action": "",
+        "from_zone": list(from_zone),
+        "to_zone": list(to_zone),
+        "source_addresses": [],
+        "dest_addresses": [],
+        "application": [],
+        "service": [],
+        "position": order,
+        "enabled": True,
+        "vendor_extras": {},
+        "collected_at": now,
     }
 
 
@@ -46,7 +53,7 @@ def parse_security_policies(text: str, device_name: str, now: str) -> list[dict]
             continue
         inactive = line.startswith("inactive:")
         if inactive:
-            line = line[len("inactive:"):].strip()
+            line = line[len("inactive:") :].strip()
         if not line.startswith("set "):
             continue
         zone_match = _ZONE_RE.search(line)
@@ -113,8 +120,10 @@ class JunosPolicyCollector:
             try:
                 text = client.call_tool(
                     "execute_junos_command",
-                    {"router_name": dev,
-                     "command": "show configuration security policies | display set"},
+                    {
+                        "router_name": dev,
+                        "command": "show configuration security policies | display set",
+                    },
                 )
             except Exception:
                 logger.warning("junos device %r unreachable; skipping", dev, exc_info=True)

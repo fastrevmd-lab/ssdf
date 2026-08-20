@@ -1,11 +1,13 @@
 from ssdf_health.collectors.panos import (
-    _result_text, parse_resources, parse_environmentals,
+    _result_text,
+    parse_resources,
+    parse_environmentals,
 )
 
 _RESOURCES = (
     '{"result": "top - 12:00:00 up 1 day\\n'
-    'Tasks: 200 total\\n'
-    '%Cpu(s):  3.2 us,  1.0 sy,  0.0 ni, 95.0 id,  0.8 wa\\n'
+    "Tasks: 200 total\\n"
+    "%Cpu(s):  3.2 us,  1.0 sy,  0.0 ni, 95.0 id,  0.8 wa\\n"
     'MiB Mem :  16000.0 total,  4000.0 free,  8000.0 used,  4000.0 buff\\n"}'
 )
 
@@ -27,8 +29,8 @@ def test_result_text_unwraps_json_result():
 def test_parse_resources_cpu_and_mem():
     gauges = parse_resources(_RESOURCES, "panosvm", "2026-06-20T00:00:00Z")
     by_name = {g.metric_name: g for g in gauges}
-    assert by_name["cpu_util_pct"].value == 5.0          # 100 - 95.0 id
-    assert by_name["mem_util_pct"].value == 50.0         # 8000/16000
+    assert by_name["cpu_util_pct"].value == 5.0  # 100 - 95.0 id
+    assert by_name["mem_util_pct"].value == 50.0  # 8000/16000
     assert by_name["cpu_util_pct"].provider == "paloalto"
     assert all(g.sensor == "" for g in gauges)
 
@@ -41,8 +43,7 @@ def test_parse_environmentals_multi_sensor():
 
 
 def test_parse_resources_garbage_returns_empty():
-    assert parse_resources('{"result": "no cpu line here"}', "d",
-                           "2026-06-20T00:00:00Z") == []
+    assert parse_resources('{"result": "no cpu line here"}', "d", "2026-06-20T00:00:00Z") == []
 
 
 def test_collect_uses_current_panos_mcp_tool_contract():

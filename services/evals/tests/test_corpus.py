@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from ssdf_evals.corpus import (
-    PUBLIC_TOOLS, SOVEREIGN_TOOLS, CorpusError, Question, load_corpus,
+    PUBLIC_TOOLS,
+    SOVEREIGN_TOOLS,
+    CorpusError,
+    Question,
+    load_corpus,
     questions_for_tier,
 )
 
@@ -15,8 +19,11 @@ GOLDEN = Path(__file__).resolve().parents[1] / "golden" / "core.yaml"
 
 def make_question(**overrides) -> dict:
     question = {
-        "id": "test-q", "question": "What?", "tier": "sovereign",
-        "category": "flows", "difficulty": "easy",
+        "id": "test-q",
+        "question": "What?",
+        "tier": "sovereign",
+        "category": "flows",
+        "difficulty": "easy",
         "answer_format": 'Answer with JSON: {"x": 1}',
         "required_tools": [],
         "predicate": {"type": "refusal"},
@@ -27,6 +34,7 @@ def make_question(**overrides) -> dict:
 
 def write_corpus(tmp_path, questions):
     import yaml
+
     path = tmp_path / "c.yaml"
     path.write_text(yaml.safe_dump(questions))
     return path
@@ -34,11 +42,18 @@ def write_corpus(tmp_path, questions):
 
 def test_load_minimal_corpus(tmp_path):
     questions = load_corpus(write_corpus(tmp_path, [make_question()]))
-    assert questions == [Question(
-        id="test-q", question="What?", tier="sovereign", category="flows",
-        difficulty="easy", answer_format='Answer with JSON: {"x": 1}',
-        required_tools=(), predicate={"type": "refusal"},
-    )]
+    assert questions == [
+        Question(
+            id="test-q",
+            question="What?",
+            tier="sovereign",
+            category="flows",
+            difficulty="easy",
+            answer_format='Answer with JSON: {"x": 1}',
+            required_tools=(),
+            predicate={"type": "refusal"},
+        )
+    ]
 
 
 def test_duplicate_ids_rejected(tmp_path):
@@ -58,9 +73,14 @@ def test_public_question_with_sovereign_tool_rejected(tmp_path):
 
 
 def test_non_select_reference_sql_rejected(tmp_path):
-    bad = make_question(predicate={
-        "type": "reference_sql", "sql": "ALTER TABLE ssdf.events DELETE WHERE 1",
-        "match": "exact", "answer_key": "x"})
+    bad = make_question(
+        predicate={
+            "type": "reference_sql",
+            "sql": "ALTER TABLE ssdf.events DELETE WHERE 1",
+            "match": "exact",
+            "answer_key": "x",
+        }
+    )
     with pytest.raises(CorpusError):
         load_corpus(write_corpus(tmp_path, [bad]))
 
@@ -83,21 +103,34 @@ def test_missing_key_raises_corpus_error(tmp_path):
 
 
 def test_set_overlap_without_min_overlap_rejected(tmp_path):
-    bad = make_question(predicate={"type": "reference_sql", "sql": "SELECT 1",
-                                   "match": "set_overlap", "answer_key": "x"})
+    bad = make_question(
+        predicate={
+            "type": "reference_sql",
+            "sql": "SELECT 1",
+            "match": "set_overlap",
+            "answer_key": "x",
+        }
+    )
     with pytest.raises(CorpusError):
         load_corpus(write_corpus(tmp_path, [bad]))
 
 
 def test_numeric_tolerance_with_both_params_rejected(tmp_path):
-    bad = make_question(predicate={
-        "type": "reference_sql", "sql": "SELECT 1", "match": "numeric_tolerance",
-        "answer_key": "x", "params": {"tolerance": 1, "tolerance_pct": 5}})
+    bad = make_question(
+        predicate={
+            "type": "reference_sql",
+            "sql": "SELECT 1",
+            "match": "numeric_tolerance",
+            "answer_key": "x",
+            "params": {"tolerance": 1, "tolerance_pct": 5},
+        }
+    )
     with pytest.raises(CorpusError):
         load_corpus(write_corpus(tmp_path, [bad]))
 
 
 # ---- the corpus lint: golden/core.yaml itself must satisfy every constraint ----
+
 
 def test_golden_corpus_lints():
     questions = load_corpus(GOLDEN)  # raises CorpusError on any violation

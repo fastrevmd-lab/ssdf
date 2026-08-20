@@ -11,18 +11,18 @@ import hashlib
 # --- entity kinds ---
 ASSET = "asset"
 POLICY = "policy"
-IDENTITY = "identity"   # seam only in M6a (populated when an IDaaS source lands)
+IDENTITY = "identity"  # seam only in M6a (populated when an IDaaS source lands)
 ENTITY_KINDS = {ASSET, POLICY, IDENTITY}
 
 # --- edge types ---
 COMMUNICATED_WITH = "communicated_with"
 GOVERNED_BY = "governed_by"
-AUTHENTICATED_AS = "authenticated_as"   # seam only in M6a
+AUTHENTICATED_AS = "authenticated_as"  # seam only in M6a
 EDGE_TYPES = {COMMUNICATED_WITH, GOVERNED_BY, AUTHENTICATED_AS}
 
 # --- provenance ---
 OBSERVED = "observed"
-CONFIGURED = "configured"   # reserved; populated in M6b
+CONFIGURED = "configured"  # reserved; populated in M6b
 
 
 def _hash16(text: str) -> str:

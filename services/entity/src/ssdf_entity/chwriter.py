@@ -10,12 +10,29 @@ from ssdf_common.clickhouse import client_kwargs as _client_kwargs
 from .config import Config
 
 ENTITY_COLUMNS = [
-    "entity_id", "tenant_id", "kind", "name", "identifiers", "source",
-    "identity_basis", "confidence", "attrs", "first_seen", "last_seen",
+    "entity_id",
+    "tenant_id",
+    "kind",
+    "name",
+    "identifiers",
+    "source",
+    "identity_basis",
+    "confidence",
+    "attrs",
+    "first_seen",
+    "last_seen",
 ]
 ENTITY_EDGE_COLUMNS = [
-    "edge_id", "tenant_id", "src_id", "dst_id", "edge_type", "source",
-    "confidence", "attrs", "first_seen", "last_seen",
+    "edge_id",
+    "tenant_id",
+    "src_id",
+    "dst_id",
+    "edge_type",
+    "source",
+    "confidence",
+    "attrs",
+    "first_seen",
+    "last_seen",
 ]
 
 
@@ -54,7 +71,6 @@ def build_flow_agg_sql(window_hours: int, tenant: str) -> tuple[str, dict]:
         "GROUP BY src_ip, dst_ip, observer_hostname"
     )
     return sql, {"tenant": tenant, "window_hours": window_hours}
-
 
 
 def build_binding_sql(lookback_hours: int, tenant: str) -> tuple[str, dict]:

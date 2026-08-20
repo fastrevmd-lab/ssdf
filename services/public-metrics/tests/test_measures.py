@@ -1,7 +1,14 @@
 from ssdf_pubmetrics.measures import (
-    CATALOG, INDEX_METRICS, VOLUME_METRICS, enabled_measures, ratio_to_baseline,
-    build_aggregate_sql, build_entity_bucket_sql, build_deny_counts_sql,
-    build_alert_count_sql, AGG_VALUE_EXPR,
+    CATALOG,
+    INDEX_METRICS,
+    VOLUME_METRICS,
+    enabled_measures,
+    ratio_to_baseline,
+    build_aggregate_sql,
+    build_entity_bucket_sql,
+    build_deny_counts_sql,
+    build_alert_count_sql,
+    AGG_VALUE_EXPR,
 )
 
 
@@ -12,8 +19,13 @@ def test_catalog_has_tier1_and_tier2_enabled():
 
 def test_tier3_health_measures_present_but_disabled():
     by_id = {m.metric: m for m in CATALOG}
-    for mid in ("mem_util_pct", "cpu_util_pct", "iface_error_rate",
-                "port_flap_count", "proto_flap_count"):
+    for mid in (
+        "mem_util_pct",
+        "cpu_util_pct",
+        "iface_error_rate",
+        "port_flap_count",
+        "proto_flap_count",
+    ):
         assert by_id[mid].enabled is False
 
 

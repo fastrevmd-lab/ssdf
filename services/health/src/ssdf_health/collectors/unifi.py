@@ -27,9 +27,15 @@ def _pct_gauge(value_str, device, metric_class, metric_name) -> Gauge | None:
     except (TypeError, ValueError):
         return None
     return Gauge(
-        provider="unifi", device=device, scope="device", metric_class=metric_class,
-        sensor="", metric_name=metric_name, value=max(0.0, min(100.0, value)),
-        unit="percent", raw=str(value_str),
+        provider="unifi",
+        device=device,
+        scope="device",
+        metric_class=metric_class,
+        sensor="",
+        metric_name=metric_name,
+        value=max(0.0, min(100.0, value)),
+        unit="percent",
+        raw=str(value_str),
     )
 
 
@@ -48,12 +54,19 @@ def parse_device(device_obj: dict, device: str, now: str) -> list[Gauge]:
             value = float(temp.get("value"))
         except (TypeError, ValueError):
             continue
-        gauges.append(Gauge(
-            provider="unifi", device=device, scope="device",
-            metric_class="temperature", sensor=str(temp.get("name") or ""),
-            metric_name="temp_celsius", value=value, unit="celsius",
-            raw=json.dumps(temp, default=str),
-        ))
+        gauges.append(
+            Gauge(
+                provider="unifi",
+                device=device,
+                scope="device",
+                metric_class="temperature",
+                sensor=str(temp.get("name") or ""),
+                metric_name="temp_celsius",
+                value=value,
+                unit="celsius",
+                raw=json.dumps(temp, default=str),
+            )
+        )
     return gauges
 
 
@@ -70,9 +83,12 @@ class UnifiCollector:
     def collect(self, client, now: str) -> list[Gauge]:
         gauges: list[Gauge] = []
         for mac in self.macs:
-            device_obj = _obj(client.call_tool(
-                "get_device_by_mac", {"site_id": self.site_id, "mac": mac},
-            ))
+            device_obj = _obj(
+                client.call_tool(
+                    "get_device_by_mac",
+                    {"site_id": self.site_id, "mac": mac},
+                )
+            )
             device = str(device_obj.get("name") or mac)
             gauges.extend(parse_device(device_obj, device, now))
         return gauges

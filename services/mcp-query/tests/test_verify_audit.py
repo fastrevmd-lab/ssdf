@@ -10,8 +10,14 @@ def _chain(n, tier="sovereign"):
     for i in range(n):
         row = dict(
             ts=dt.datetime(2026, 6, 10, 12, 0, i, 0, tzinfo=dt.timezone.utc),
-            principal="agent", tier=tier, tool=f"t{i}", args="{}",
-            data_classes=["topology"], decision="allow", row_count=i, error="",
+            principal="agent",
+            tier=tier,
+            tool=f"t{i}",
+            args="{}",
+            data_classes=["topology"],
+            decision="allow",
+            row_count=i,
+            error="",
         )
         row["prev_hash"] = prev
         row["row_hash"] = compute_row_hash(prev, row)
@@ -44,9 +50,16 @@ def test_legacy_unhashed_rows_are_not_issues():
     rows must not be flagged."""
     legacy = dict(
         ts=dt.datetime(2026, 6, 9, 12, 0, 0, 0, tzinfo=dt.timezone.utc),
-        principal="agent", tier="sovereign", tool="old", args="{}",
-        data_classes=["topology"], decision="allow", row_count=0, error="",
-        prev_hash="", row_hash="",
+        principal="agent",
+        tier="sovereign",
+        tool="old",
+        args="{}",
+        data_classes=["topology"],
+        decision="allow",
+        row_count=0,
+        error="",
+        prev_hash="",
+        row_hash="",
     )
     rows = [legacy] + _chain(3)
     assert verify_tier(rows) == []
@@ -56,9 +69,16 @@ def test_detects_unreachable_orphan():
     rows = _chain(3)
     orphan = dict(
         ts=dt.datetime(2026, 6, 10, 13, 0, 0, 0, tzinfo=dt.timezone.utc),
-        principal="agent", tier="sovereign", tool="x", args="{}",
-        data_classes=["topology"], decision="allow", row_count=0, error="",
-        prev_hash="deadbeef", row_hash="feedface",
+        principal="agent",
+        tier="sovereign",
+        tool="x",
+        args="{}",
+        data_classes=["topology"],
+        decision="allow",
+        row_count=0,
+        error="",
+        prev_hash="deadbeef",
+        row_hash="feedface",
     )
     rows.append(orphan)
     issues = verify_tier(rows)

@@ -4,7 +4,8 @@ from ssdf_topo.mcp_client import extract_text
 
 def test_extract_text_joins_text_blocks():
     class Block:
-        def __init__(self, text): self.text = text
+        def __init__(self, text):
+            self.text = text
 
     class Result:
         content = [Block("line1"), Block("line2")]

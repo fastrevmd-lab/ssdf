@@ -16,8 +16,14 @@ def test_suricata_severity_inverted():
 
 def test_pan_threat_severity_strings():
     # PAN severity key: panw.panos.severity (pinned from vector.toml line 342)
-    assert normalize_severity("paloalto", "alert", {"panw.panos.severity": "critical"}) == ("critical", 4)
-    assert normalize_severity("paloalto", "alert", {"panw.panos.severity": "informational"}) == ("low", 1)
+    assert normalize_severity("paloalto", "alert", {"panw.panos.severity": "critical"}) == (
+        "critical",
+        4,
+    )
+    assert normalize_severity("paloalto", "alert", {"panw.panos.severity": "informational"}) == (
+        "low",
+        1,
+    )
 
 
 def test_syslog_numeric_severity():
@@ -30,16 +36,16 @@ def test_non_alert_row_is_none():
 
 
 def test_sql_filters_min_severity_and_providers():
-    sql, params = build_recent_alerts_sql(since="now-24h", min_severity="high",
-                                          providers="unifi,paloalto", limit=10)
+    sql, params = build_recent_alerts_sql(
+        since="now-24h", min_severity="high", providers="unifi,paloalto", limit=10
+    )
     assert "LIMIT" in sql and params["limit"] == 10
     assert "event_provider IN" in sql
 
 
 def test_sql_selects_pan_threat_via_ext_key():
     """PAN THREAT rows keep event_kind='event', so WHERE must gate on ext key."""
-    sql, _ = build_recent_alerts_sql(since="now-1h", min_severity="high",
-                                     providers="", limit=10)
+    sql, _ = build_recent_alerts_sql(since="now-1h", min_severity="high", providers="", limit=10)
     assert "ext['panw.panos.severity'] != ''" in sql
 
 
@@ -51,26 +57,39 @@ def test_recent_alerts_includes_pan_threat_row():
     class FakeCH:
         def run(self, sql, params):
             return {
-                "columns": ["event_id", "timestamp", "event_provider", "event_kind",
-                            "rule_name", "source_ip", "source_port", "destination_ip",
-                            "destination_port", "observer_hostname", "observer_ingress_zone",
-                            "observer_egress_zone", "ext"],
-                "rows": [{
-                    "event_id": "abc123",
-                    "timestamp": "2026-07-09T12:00:00+00:00",
-                    "event_provider": "paloalto",
-                    "event_kind": "event",  # PAN THREAT logs keep event_kind="event"
-                    "rule_name": "test-rule",
-                    "source_ip": "10.65.1.1",
-                    "source_port": 12345,
-                    "destination_ip": "10.66.2.2",
-                    "destination_port": 443,
-                    "observer_hostname": "panosvm",
-                    "observer_ingress_zone": "trust",
-                    "observer_egress_zone": "untrust",
-                    "ext": {"panw.panos.severity": "critical", "panw.panos.threat_id": "30001"}
-                }],
-                "row_count": 1
+                "columns": [
+                    "event_id",
+                    "timestamp",
+                    "event_provider",
+                    "event_kind",
+                    "rule_name",
+                    "source_ip",
+                    "source_port",
+                    "destination_ip",
+                    "destination_port",
+                    "observer_hostname",
+                    "observer_ingress_zone",
+                    "observer_egress_zone",
+                    "ext",
+                ],
+                "rows": [
+                    {
+                        "event_id": "abc123",
+                        "timestamp": "2026-07-09T12:00:00+00:00",
+                        "event_provider": "paloalto",
+                        "event_kind": "event",  # PAN THREAT logs keep event_kind="event"
+                        "rule_name": "test-rule",
+                        "source_ip": "10.65.1.1",
+                        "source_port": 12345,
+                        "destination_ip": "10.66.2.2",
+                        "destination_port": 443,
+                        "observer_hostname": "panosvm",
+                        "observer_ingress_zone": "trust",
+                        "observer_egress_zone": "untrust",
+                        "ext": {"panw.panos.severity": "critical", "panw.panos.threat_id": "30001"},
+                    }
+                ],
+                "row_count": 1,
             }
 
     tools = AlertTools(FakeCH())

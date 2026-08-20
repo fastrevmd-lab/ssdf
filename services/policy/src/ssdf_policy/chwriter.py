@@ -11,12 +11,29 @@ from .config import Config
 
 # Byte-identical to services/entity/src/ssdf_entity/chwriter.py column orders.
 ENTITY_COLUMNS = [
-    "entity_id", "tenant_id", "kind", "name", "identifiers", "source",
-    "identity_basis", "confidence", "attrs", "first_seen", "last_seen",
+    "entity_id",
+    "tenant_id",
+    "kind",
+    "name",
+    "identifiers",
+    "source",
+    "identity_basis",
+    "confidence",
+    "attrs",
+    "first_seen",
+    "last_seen",
 ]
 ENTITY_EDGE_COLUMNS = [
-    "edge_id", "tenant_id", "src_id", "dst_id", "edge_type", "source",
-    "confidence", "attrs", "first_seen", "last_seen",
+    "edge_id",
+    "tenant_id",
+    "src_id",
+    "dst_id",
+    "edge_type",
+    "source",
+    "confidence",
+    "attrs",
+    "first_seen",
+    "last_seen",
 ]
 
 

@@ -32,9 +32,7 @@ TOOL_DATA_CLASSES: dict[str, frozenset[str]] = {
     "find_path": frozenset({"topology"}),
     "enforcement_points": frozenset({"topology", "firewall_config"}),
     "topology_snapshot": frozenset({"topology"}),
-    "explain_access": frozenset(
-        {"security_log", "topology", "identity", "firewall_config"}
-    ),
+    "explain_access": frozenset({"security_log", "topology", "identity", "firewall_config"}),
     "configured_policies": frozenset({"firewall_config"}),
     "observed_by": frozenset({"security_log"}),
     "ingest_status": frozenset({"security_log"}),
@@ -113,8 +111,6 @@ def is_tool_shareable(classification: Classification, tool_name: str) -> bool:
     return all(classification.label_for_class(cls) == "shareable" for cls in classes)
 
 
-def public_tool_names(
-    classification: Classification, candidates: list[str]
-) -> list[str]:
+def public_tool_names(classification: Classification, candidates: list[str]) -> list[str]:
     """Return, in input order, the candidate tools exposable on the public server."""
     return [name for name in candidates if is_tool_shareable(classification, name)]

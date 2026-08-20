@@ -68,22 +68,24 @@ def parse_security_rules(text: str, device_name: str, now: str) -> list[dict]:
         name = entry.get("name", "").strip()
         if not name:
             continue
-        rules.append({
-            "provider": PROVIDER,
-            "device_name": device_name,
-            "rule_name": name,
-            "action": _text(entry, "action"),
-            "from_zone": _members(entry, "from"),
-            "to_zone": _members(entry, "to"),
-            "source_addresses": _members(entry, "source"),
-            "dest_addresses": _members(entry, "destination"),
-            "application": _members(entry, "application"),
-            "service": _members(entry, "service"),
-            "position": position,
-            "enabled": _text(entry, "disabled").lower() != "yes",
-            "vendor_extras": {"panw.panos.uuid": entry.get("uuid", "")},
-            "collected_at": now,
-        })
+        rules.append(
+            {
+                "provider": PROVIDER,
+                "device_name": device_name,
+                "rule_name": name,
+                "action": _text(entry, "action"),
+                "from_zone": _members(entry, "from"),
+                "to_zone": _members(entry, "to"),
+                "source_addresses": _members(entry, "source"),
+                "dest_addresses": _members(entry, "destination"),
+                "application": _members(entry, "application"),
+                "service": _members(entry, "service"),
+                "position": position,
+                "enabled": _text(entry, "disabled").lower() != "yes",
+                "vendor_extras": {"panw.panos.uuid": entry.get("uuid", "")},
+                "collected_at": now,
+            }
+        )
     return rules
 
 
@@ -103,9 +105,7 @@ class PanosPolicyCollector:
         tool caps output at 512 KiB by default, and the full config is several
         times larger than the rulebase for no benefit here.
         """
-        text = client.call_tool(
-            "get_panos_config", {"device": self.device, "xpath": RULES_XPATH}
-        )
+        text = client.call_tool("get_panos_config", {"device": self.device, "xpath": RULES_XPATH})
         if envelope_truncated(text):
             # Parsing a cut-short rulebase would drop real rules and read
             # downstream as though policy had been deleted. Refuse instead.

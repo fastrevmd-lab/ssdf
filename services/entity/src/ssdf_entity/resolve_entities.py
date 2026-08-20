@@ -10,8 +10,13 @@ different segments never merges. Observed Policy is keyed (provider, rule_name).
 from __future__ import annotations
 
 from .models import (
-    ASSET, POLICY, COMMUNICATED_WITH, GOVERNED_BY, OBSERVED,
-    entity_id, edge_id,
+    ASSET,
+    POLICY,
+    COMMUNICATED_WITH,
+    GOVERNED_BY,
+    OBSERVED,
+    entity_id,
+    edge_id,
 )
 
 
@@ -26,7 +31,9 @@ def normalize_segment(name: str | None) -> str:
     return label or "unknown"
 
 
-def build_binding_map(bindings: list[dict]) -> tuple[dict[tuple[str, str], str], set[tuple[str, str]]]:
+def build_binding_map(
+    bindings: list[dict],
+) -> tuple[dict[tuple[str, str], str], set[tuple[str, str]]]:
     """Build {(segment, ip) -> mac} (latest observation wins) and the set of
     (segment, ip) keys claimed by >1 MAC (genuine same-segment IP conflicts).
 
@@ -36,7 +43,7 @@ def build_binding_map(bindings: list[dict]) -> tuple[dict[tuple[str, str], str],
     i.e. one vantage saw multiple MACs for the IP over the window and argMax
     kept only the latest.
     """
-    latest: dict[tuple[str, str], tuple[str, str]] = {}   # key -> (observed_at, mac)
+    latest: dict[tuple[str, str], tuple[str, str]] = {}  # key -> (observed_at, mac)
     macs_seen: dict[tuple[str, str], set[str]] = {}
     conflicts: set[tuple[str, str]] = set()
     for binding in bindings:
@@ -57,10 +64,11 @@ def build_binding_map(bindings: list[dict]) -> tuple[dict[tuple[str, str], str],
     return binding_map, conflicts
 
 
-
 def _bump_window(record: dict, first_seen: str, last_seen: str) -> None:
     """Widen a record's [first_seen, last_seen] window (lexical ISO compare)."""
-    record["first_seen"] = min(record["first_seen"], first_seen) if record["first_seen"] else first_seen
+    record["first_seen"] = (
+        min(record["first_seen"], first_seen) if record["first_seen"] else first_seen
+    )
     record["last_seen"] = max(record["last_seen"], last_seen) if record["last_seen"] else last_seen
 
 
@@ -81,8 +89,9 @@ def _merge_set_attr(attrs: dict, key: str, values) -> None:
     attrs[key] = ",".join(sorted(current))
 
 
-def resolve_entities(flow_aggregates: list[dict], bindings: list[dict],
-                     tenant: str) -> tuple[list[dict], list[dict]]:
+def resolve_entities(
+    flow_aggregates: list[dict], bindings: list[dict], tenant: str
+) -> tuple[list[dict], list[dict]]:
     binding_map, conflict = build_binding_map(bindings)
     entities: dict[str, dict] = {}
     edges: dict[str, dict] = {}
@@ -94,11 +103,17 @@ def resolve_entities(flow_aggregates: list[dict], bindings: list[dict],
         entity = entities.get(eid)
         if entity is None:
             entity = {
-                "entity_id": eid, "tenant_id": tenant, "kind": ASSET,
-                "name": mac or ip, "identifiers": {}, "source": OBSERVED,
+                "entity_id": eid,
+                "tenant_id": tenant,
+                "kind": ASSET,
+                "name": mac or ip,
+                "identifiers": {},
+                "source": OBSERVED,
                 "identity_basis": "mac" if mac else "ip_only",
                 "confidence": 1.0 if mac else 0.5,
-                "attrs": {}, "first_seen": "", "last_seen": "",
+                "attrs": {},
+                "first_seen": "",
+                "last_seen": "",
             }
             if mac:
                 entity["identifiers"]["mac"] = mac
@@ -114,10 +129,17 @@ def resolve_entities(flow_aggregates: list[dict], bindings: list[dict],
         entity = entities.get(eid)
         if entity is None:
             entity = {
-                "entity_id": eid, "tenant_id": tenant, "kind": POLICY,
-                "name": rule, "identifiers": {"rule": rule, "provider": provider},
-                "source": OBSERVED, "identity_basis": "", "confidence": 1.0,
-                "attrs": {"provider": provider}, "first_seen": "", "last_seen": "",
+                "entity_id": eid,
+                "tenant_id": tenant,
+                "kind": POLICY,
+                "name": rule,
+                "identifiers": {"rule": rule, "provider": provider},
+                "source": OBSERVED,
+                "identity_basis": "",
+                "confidence": 1.0,
+                "attrs": {"provider": provider},
+                "first_seen": "",
+                "last_seen": "",
             }
             entities[eid] = entity
         _bump_window(entity, first_seen, last_seen)
@@ -129,17 +151,27 @@ def resolve_entities(flow_aggregates: list[dict], bindings: list[dict],
         src = asset_for(row["src_ip"], segment, first_seen, last_seen)
         dst = asset_for(row["dst_ip"], segment, first_seen, last_seen)
 
-        comm_eid = edge_id(tenant, src["entity_id"], dst["entity_id"],
-                           COMMUNICATED_WITH, OBSERVED)
+        comm_eid = edge_id(tenant, src["entity_id"], dst["entity_id"], COMMUNICATED_WITH, OBSERVED)
         comm = edges.get(comm_eid)
         if comm is None:
             comm = {
-                "edge_id": comm_eid, "tenant_id": tenant,
-                "src_id": src["entity_id"], "dst_id": dst["entity_id"],
-                "edge_type": COMMUNICATED_WITH, "source": OBSERVED, "confidence": 1.0,
-                "attrs": {"sessions": "0", "bytes": "0", "ports": "", "providers": "",
-                          "transports": "", "observer_hosts": ""},
-                "first_seen": "", "last_seen": "",
+                "edge_id": comm_eid,
+                "tenant_id": tenant,
+                "src_id": src["entity_id"],
+                "dst_id": dst["entity_id"],
+                "edge_type": COMMUNICATED_WITH,
+                "source": OBSERVED,
+                "confidence": 1.0,
+                "attrs": {
+                    "sessions": "0",
+                    "bytes": "0",
+                    "ports": "",
+                    "providers": "",
+                    "transports": "",
+                    "observer_hosts": "",
+                },
+                "first_seen": "",
+                "last_seen": "",
             }
             edges[comm_eid] = comm
         comm["attrs"]["sessions"] = str(int(comm["attrs"]["sessions"]) + int(row.get("flows", 0)))
@@ -160,11 +192,16 @@ def resolve_entities(flow_aggregates: list[dict], bindings: list[dict],
         gov = edges.get(gov_eid)
         if gov is None:
             gov = {
-                "edge_id": gov_eid, "tenant_id": tenant,
-                "src_id": comm_eid, "dst_id": policy["entity_id"],
-                "edge_type": GOVERNED_BY, "source": OBSERVED, "confidence": 1.0,
+                "edge_id": gov_eid,
+                "tenant_id": tenant,
+                "src_id": comm_eid,
+                "dst_id": policy["entity_id"],
+                "edge_type": GOVERNED_BY,
+                "source": OBSERVED,
+                "confidence": 1.0,
                 "attrs": {"rule": rule, "provider": provider},
-                "first_seen": "", "last_seen": "",
+                "first_seen": "",
+                "last_seen": "",
             }
             edges[gov_eid] = gov
         _bump_window(gov, first_seen, last_seen)

@@ -25,9 +25,15 @@ def test_plan_writes_aggregate_and_index_and_entity():
     reader = _FakeReader()
     pmap = {}  # empty -> everything minted fresh
     plan = plan_writes(
-        reader, pmap, key=b"\x00" * 16, since_iso="2026-06-19T00:00:00+00:00",
-        baseline_since_iso="2026-05-20T00:00:00+00:00", bucket_secs=300,
-        top_n=1, key_version=1, tenant_id="t_main",
+        reader,
+        pmap,
+        key=b"\x00" * 16,
+        since_iso="2026-06-19T00:00:00+00:00",
+        baseline_since_iso="2026-05-20T00:00:00+00:00",
+        bucket_secs=300,
+        top_n=1,
+        key_version=1,
+        tenant_id="t_main",
     )
     # aggregate metrics carry dim='' and a value
     agg = [r for r in plan.metric_rows if r["dim"] == "" and r["metric"] == "bytes"]

@@ -4,6 +4,7 @@ Severity normalization lives HERE (SSDF owns the schema knowledge): ssdf.events
 has no severity column; each provider hides severity in ext differently.
 Scale: critical=4, high=3, medium=2, low=1.
 """
+
 from __future__ import annotations
 
 from .timeparse import parse_time
@@ -72,7 +73,9 @@ def normalize_severity(provider: str, event_kind: str, ext: dict) -> tuple[str, 
     return None
 
 
-def build_recent_alerts_sql(since: str, min_severity: str, providers: str, limit: int) -> tuple[str, dict]:
+def build_recent_alerts_sql(
+    since: str, min_severity: str, providers: str, limit: int
+) -> tuple[str, dict]:
     """Build parameterized SQL for recent alert-class events.
 
     Args:
@@ -90,7 +93,7 @@ def build_recent_alerts_sql(since: str, min_severity: str, providers: str, limit
     # OR has PAN severity ext key (PAN THREAT logs keep event_kind='event')
     where = [
         "timestamp >= %(since)s",
-        "(event_kind IN %(kinds)s OR ext['unifi.ips.signature'] != '' OR ext['panw.panos.severity'] != '')"
+        "(event_kind IN %(kinds)s OR ext['unifi.ips.signature'] != '' OR ext['panw.panos.severity'] != '')",
     ]
     params["kinds"] = tuple(ALERT_KINDS)
 
@@ -103,8 +106,7 @@ def build_recent_alerts_sql(since: str, min_severity: str, providers: str, limit
         "event_kind, rule_name, source_ip, source_port, destination_ip, "
         "destination_port, observer_hostname, observer_ingress_zone, "
         "observer_egress_zone, ext "
-        "FROM ssdf.events WHERE " + " AND ".join(where) +
-        " ORDER BY timestamp DESC LIMIT %(limit)s"
+        "FROM ssdf.events WHERE " + " AND ".join(where) + " ORDER BY timestamp DESC LIMIT %(limit)s"
     )
     return sql, params
 
@@ -120,7 +122,7 @@ class AlertTools:
         since: str = "now-24h",
         min_severity: str = "high",
         providers: str = "",
-        limit: int = 500
+        limit: int = 500,
     ) -> dict:
         """Return recent alert-class events with normalized severity.
 
@@ -140,11 +142,7 @@ class AlertTools:
         rows = []
         for r in result.get("rows", []):
             ext = r.get("ext") or {}
-            norm = normalize_severity(
-                r.get("event_provider", ""),
-                r.get("event_kind", ""),
-                ext
-            )
+            norm = normalize_severity(r.get("event_provider", ""), r.get("event_kind", ""), ext)
             # Skip if not alert-class or below severity floor
             if norm is None or norm[1] < floor:
                 continue
@@ -152,29 +150,32 @@ class AlertTools:
             # Signature: UniFi has ext.unifi.ips.signature, else rule_name, else event_kind
             sig = ext.get("unifi.ips.signature") or r.get("rule_name") or r.get("event_kind")
 
-            rows.append({
-                "event_id": r["event_id"],
-                "timestamp": r["timestamp"],
-                "provider": r["event_provider"],
-                "event_kind": r["event_kind"],
-                "signature": sig,
-                "severity": norm[0],
-                "severity_num": norm[1],
-                "source_ip": r.get("source_ip"),
-                "source_port": r.get("source_port"),
-                "destination_ip": r.get("destination_ip"),
-                "destination_port": r.get("destination_port"),
-                "observer": r.get("observer_hostname", ""),
-                "ingress_zone": r.get("observer_ingress_zone", ""),
-                "egress_zone": r.get("observer_egress_zone", ""),
-                "ext_subset": {
-                    k: v for k, v in ext.items()
-                    if k.startswith(("unifi.ips.", "panw.", "syslog."))
-                },
-            })
+            rows.append(
+                {
+                    "event_id": r["event_id"],
+                    "timestamp": r["timestamp"],
+                    "provider": r["event_provider"],
+                    "event_kind": r["event_kind"],
+                    "signature": sig,
+                    "severity": norm[0],
+                    "severity_num": norm[1],
+                    "source_ip": r.get("source_ip"),
+                    "source_port": r.get("source_port"),
+                    "destination_ip": r.get("destination_ip"),
+                    "destination_port": r.get("destination_port"),
+                    "observer": r.get("observer_hostname", ""),
+                    "ingress_zone": r.get("observer_ingress_zone", ""),
+                    "egress_zone": r.get("observer_egress_zone", ""),
+                    "ext_subset": {
+                        k: v
+                        for k, v in ext.items()
+                        if k.startswith(("unifi.ips.", "panw.", "syslog."))
+                    },
+                }
+            )
 
         return {
             "rows": rows,
             "row_count": len(rows),
-            "truncated": len(result.get("rows", [])) >= params["limit"]
+            "truncated": len(result.get("rows", [])) >= params["limit"],
         }

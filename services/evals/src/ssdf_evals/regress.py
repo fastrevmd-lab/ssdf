@@ -41,8 +41,9 @@ def _ever_passed(model: str, results_dir: Path, exclude: Path) -> set[str]:
     return passed
 
 
-def find_regressions(new_scorecard: dict, results_dir: Path,
-                     exclude: Path = Path("/nonexistent")) -> list[str]:
+def find_regressions(
+    new_scorecard: dict, results_dir: Path, exclude: Path = Path("/nonexistent")
+) -> list[str]:
     history = _ever_passed(new_scorecard["model"], results_dir, exclude)
     now_failing = {q["id"] for q in new_scorecard["questions"] if not q["pass"]}
     return sorted(history & now_failing)
@@ -65,11 +66,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: results dir does not exist: {args.results_dir}", file=sys.stderr)
         return 2
 
-    regressions = find_regressions(new_scorecard, args.results_dir,
-                                   exclude=args.scorecard)
+    regressions = find_regressions(new_scorecard, args.results_dir, exclude=args.scorecard)
     if regressions:
-        print(f"REGRESSION: previously-passing questions now failing for "
-              f"model {new_scorecard['model']}: {regressions}", file=sys.stderr)
+        print(
+            f"REGRESSION: previously-passing questions now failing for "
+            f"model {new_scorecard['model']}: {regressions}",
+            file=sys.stderr,
+        )
         return 1
     print(f"no regressions for model {new_scorecard['model']}")
     return 0

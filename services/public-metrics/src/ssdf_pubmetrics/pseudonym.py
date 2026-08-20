@@ -30,8 +30,13 @@ def surrogate(key: bytes, kind: str, real_value: str, length: int = _BASE_LENGTH
     return PREFIXES[kind] + digest[:length]
 
 
-def mint_surrogate(existing: dict[tuple[str, str], str], key: bytes, kind: str,
-                   real_value: str, base_length: int = _BASE_LENGTH) -> str:
+def mint_surrogate(
+    existing: dict[tuple[str, str], str],
+    key: bytes,
+    kind: str,
+    real_value: str,
+    base_length: int = _BASE_LENGTH,
+) -> str:
     """Return the authoritative surrogate, reusing the map and lengthening on collision.
 
     ``existing`` maps ``(kind, real_value) -> surrogate`` (the current pseudonym_map).

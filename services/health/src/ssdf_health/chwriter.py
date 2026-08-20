@@ -12,8 +12,17 @@ from .config import Config
 from .gauge import Gauge
 
 HEALTH_COLUMNS = [
-    "timestamp", "tenant_id", "provider", "device", "scope",
-    "metric_class", "sensor", "metric_name", "metric_value", "unit", "raw",
+    "timestamp",
+    "tenant_id",
+    "provider",
+    "device",
+    "scope",
+    "metric_class",
+    "sensor",
+    "metric_name",
+    "metric_value",
+    "unit",
+    "raw",
 ]
 
 
@@ -33,8 +42,19 @@ def client_kwargs(config: Config) -> dict[str, Any]:
 def health_rows(gauges: Iterable[Gauge], now: datetime, tenant_id: str) -> list[list[Any]]:
     """Stamp each gauge with the batch timestamp + tenant and order fields by column."""
     return [
-        [now, tenant_id, g.provider, g.device, g.scope, g.metric_class,
-         g.sensor, g.metric_name, g.value, g.unit, g.raw]
+        [
+            now,
+            tenant_id,
+            g.provider,
+            g.device,
+            g.scope,
+            g.metric_class,
+            g.sensor,
+            g.metric_name,
+            g.value,
+            g.unit,
+            g.raw,
+        ]
         for g in gauges
     ]
 

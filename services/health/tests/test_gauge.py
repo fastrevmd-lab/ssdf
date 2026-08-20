@@ -21,8 +21,10 @@ def test_gauge_is_frozen_and_holds_all_fields():
 
 def test_gauge_is_immutable():
     import dataclasses
-    gauge = Gauge("unifi", "ap1", "device", "temperature", "CPU",
-                  "temp_celsius", 41.0, "celsius", "")
+
+    gauge = Gauge(
+        "unifi", "ap1", "device", "temperature", "CPU", "temp_celsius", 41.0, "celsius", ""
+    )
     try:
         gauge.value = 99.0  # type: ignore[misc]
         assert False, "Gauge should be frozen"

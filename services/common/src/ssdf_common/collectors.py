@@ -18,6 +18,7 @@ class Collector(Protocol):
     for topo/policy, Gauge for health), so this protocol doesn't enforce it — services
     adapt run_collectors to their specific types.
     """
+
     name: str
 
     def collect(self, client, now: str) -> list:
@@ -36,9 +37,11 @@ def register(name: str) -> Callable[[type], type]:
     If SSDF ever consolidates services into one process, switch to per-service
     registries or namespaced names (`topo:junos`).
     """
+
     def _wrap(cls: type) -> type:
         REGISTRY[name] = cls
         return cls
+
     return _wrap
 
 

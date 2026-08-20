@@ -4,7 +4,14 @@
 from __future__ import annotations
 
 from ..models import (
-    node_id, edge_id, HOST, ZONE, RULE, TALKED_TO, GOVERNED_BY, IN_ZONE,
+    node_id,
+    edge_id,
+    HOST,
+    ZONE,
+    RULE,
+    TALKED_TO,
+    GOVERNED_BY,
+    IN_ZONE,
 )
 
 
@@ -34,33 +41,58 @@ def flow_to_edges(agg: list[dict], tenant: str) -> list[dict]:
         provider = str(row.get("provider") or "")
         talked = {
             "edge_id": edge_id(tenant, src, dst, TALKED_TO, "flow"),
-            "tenant_id": tenant, "src_id": src, "dst_id": dst,
-            "edge_type": TALKED_TO, "layer": "flow",
-            "first_seen": first, "last_seen": last, "confidence": 1.0,
-            "attrs": {"bytes": str(row.get("bytes", 0)), "flows": str(row.get("flows", 0)),
-                      "provider": provider, "evidence": "ssdf.events"},
+            "tenant_id": tenant,
+            "src_id": src,
+            "dst_id": dst,
+            "edge_type": TALKED_TO,
+            "layer": "flow",
+            "first_seen": first,
+            "last_seen": last,
+            "confidence": 1.0,
+            "attrs": {
+                "bytes": str(row.get("bytes", 0)),
+                "flows": str(row.get("flows", 0)),
+                "provider": provider,
+                "evidence": "ssdf.events",
+            },
         }
         edges.append(talked)
         if rule:
             rule_node = node_id(tenant, RULE, f"{provider}:{rule}")
-            edges.append({
-                "edge_id": edge_id(tenant, talked["edge_id"], rule_node, GOVERNED_BY, "flow"),
-                "tenant_id": tenant, "src_id": talked["edge_id"], "dst_id": rule_node,
-                "edge_type": GOVERNED_BY, "layer": "flow",
-                "first_seen": first, "last_seen": last, "confidence": 1.0,
-                "attrs": {"rule_name": rule, "evidence": "ssdf.events"},
-            })
-        for ip, zone in ((row["src_ip"], row.get("ingress_zone")),
-                         (row["dst_ip"], row.get("egress_zone"))):
+            edges.append(
+                {
+                    "edge_id": edge_id(tenant, talked["edge_id"], rule_node, GOVERNED_BY, "flow"),
+                    "tenant_id": tenant,
+                    "src_id": talked["edge_id"],
+                    "dst_id": rule_node,
+                    "edge_type": GOVERNED_BY,
+                    "layer": "flow",
+                    "first_seen": first,
+                    "last_seen": last,
+                    "confidence": 1.0,
+                    "attrs": {"rule_name": rule, "evidence": "ssdf.events"},
+                }
+            )
+        for ip, zone in (
+            (row["src_ip"], row.get("ingress_zone")),
+            (row["dst_ip"], row.get("egress_zone")),
+        ):
             if not zone:
                 continue
             host = node_id(tenant, HOST, f"ip:{ip}")
             zone_node = node_id(tenant, ZONE, f"{provider}:{zone}")
-            edges.append({
-                "edge_id": edge_id(tenant, host, zone_node, IN_ZONE, "flow"),
-                "tenant_id": tenant, "src_id": host, "dst_id": zone_node,
-                "edge_type": IN_ZONE, "layer": "flow",
-                "first_seen": first, "last_seen": last, "confidence": 1.0,
-                "attrs": {"zone": str(zone), "evidence": "ssdf.events"},
-            })
+            edges.append(
+                {
+                    "edge_id": edge_id(tenant, host, zone_node, IN_ZONE, "flow"),
+                    "tenant_id": tenant,
+                    "src_id": host,
+                    "dst_id": zone_node,
+                    "edge_type": IN_ZONE,
+                    "layer": "flow",
+                    "first_seen": first,
+                    "last_seen": last,
+                    "confidence": 1.0,
+                    "attrs": {"zone": str(zone), "evidence": "ssdf.events"},
+                }
+            )
     return edges

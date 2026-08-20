@@ -11,9 +11,9 @@ SOURCE = "panosvm"
 
 _INLINE_LLDP = (
     '{"result":"<response status=\\"success\\"><result>'
-    '<entry><local-port>ethernet1/1</local-port>'
-    '<system-name>sw1</system-name>'
-    '<port-id>ge-0/0/1</port-id></entry>'
+    "<entry><local-port>ethernet1/1</local-port>"
+    "<system-name>sw1</system-name>"
+    "<port-id>ge-0/0/1</port-id></entry>"
     '</result></response>"}'
 )
 
@@ -43,9 +43,7 @@ def test_parse_lldp_xml():
 def test_collect_emits_firewall_inventory():
     from ssdf_topo.collectors.panos import PanosCollector
 
-    empty_envelope = (
-        '{"result":"<response status=\\"success\\"><result></result></response>"}'
-    )
+    empty_envelope = '{"result":"<response status=\\"success\\"><result></result></response>"}'
 
     class _EmptyClient:
         def call_tool(self, name, args=None):
@@ -82,9 +80,7 @@ def test_collect_uses_current_panos_mcp_tool_contract():
     """
     from ssdf_topo.collectors.panos import PanosCollector
 
-    empty_envelope = (
-        '{"result":"<response status=\\"success\\"><result></result></response>"}'
-    )
+    empty_envelope = '{"result":"<response status=\\"success\\"><result></result></response>"}'
     calls: list[tuple[str, dict]] = []
 
     class _RecordingClient:
@@ -100,15 +96,23 @@ def test_collect_uses_current_panos_mcp_tool_contract():
         assert args["device"] == "panosvm"
 
 
-_ARP_XML = ("<response status='success'><result>"
-            "<entry><ip>10.64.0.9</ip><mac>aa:bb:cc:dd:ee:ff</mac>"
-            "<interface>ethernet1/1</interface></entry></result></response>")
+_ARP_XML = (
+    "<response status='success'><result>"
+    "<entry><ip>10.64.0.9</ip><mac>aa:bb:cc:dd:ee:ff</mac>"
+    "<interface>ethernet1/1</interface></entry></result></response>"
+)
 
 
 def _envelope(content: str, truncated: bool = False) -> str:
     import json
-    return json.dumps({"device": "panosvm", "status": "success",
-                       "output": {"content": content, "truncated": truncated}})
+
+    return json.dumps(
+        {
+            "device": "panosvm",
+            "status": "success",
+            "output": {"content": content, "truncated": truncated},
+        }
+    )
 
 
 def test_collect_requests_a_generous_output_cap():

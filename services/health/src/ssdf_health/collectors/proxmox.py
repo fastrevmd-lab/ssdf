@@ -71,11 +71,19 @@ def parse_nodes(text: str) -> list[Gauge]:
             continue
         mem = _mem_pct(block)
         if mem is not None:
-            gauges.append(Gauge(
-                provider="proxmox", device=name, scope="node", metric_class="memory",
-                sensor="", metric_name="mem_util_pct", value=clamp_pct(mem),
-                unit="percent", raw=f"mem={mem}%",
-            ))
+            gauges.append(
+                Gauge(
+                    provider="proxmox",
+                    device=name,
+                    scope="node",
+                    metric_class="memory",
+                    sensor="",
+                    metric_name="mem_util_pct",
+                    value=clamp_pct(mem),
+                    unit="percent",
+                    raw=f"mem={mem}%",
+                )
+            )
     return gauges
 
 
@@ -87,18 +95,34 @@ def parse_guests(text: str, scope: str = "guest") -> list[Gauge]:
             continue
         cpu = _cpu_pct(block)
         if cpu is not None:
-            gauges.append(Gauge(
-                provider="proxmox", device=name, scope=scope, metric_class="cpu",
-                sensor="", metric_name="cpu_util_pct", value=clamp_pct(cpu),
-                unit="percent", raw=f"cpu={cpu}%",
-            ))
+            gauges.append(
+                Gauge(
+                    provider="proxmox",
+                    device=name,
+                    scope=scope,
+                    metric_class="cpu",
+                    sensor="",
+                    metric_name="cpu_util_pct",
+                    value=clamp_pct(cpu),
+                    unit="percent",
+                    raw=f"cpu={cpu}%",
+                )
+            )
         mem = _mem_pct(block)
         if mem is not None:
-            gauges.append(Gauge(
-                provider="proxmox", device=name, scope=scope, metric_class="memory",
-                sensor="", metric_name="mem_util_pct", value=clamp_pct(mem),
-                unit="percent", raw=f"mem={mem}%",
-            ))
+            gauges.append(
+                Gauge(
+                    provider="proxmox",
+                    device=name,
+                    scope=scope,
+                    metric_class="memory",
+                    sensor="",
+                    metric_name="mem_util_pct",
+                    value=clamp_pct(mem),
+                    unit="percent",
+                    raw=f"mem={mem}%",
+                )
+            )
     return gauges
 
 

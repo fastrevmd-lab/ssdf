@@ -38,20 +38,25 @@ class MetricsWriter:
     def write_metric_timeseries(self, items: list[dict]) -> int:
         if not items:
             return 0
-        self._client.insert("ssdf_public.metric_timeseries",
-                            _rows(items, METRIC_COLUMNS), column_names=METRIC_COLUMNS)
+        self._client.insert(
+            "ssdf_public.metric_timeseries",
+            _rows(items, METRIC_COLUMNS),
+            column_names=METRIC_COLUMNS,
+        )
         return len(items)
 
     def write_entity_series(self, items: list[dict]) -> int:
         if not items:
             return 0
-        self._client.insert("ssdf_public.entity_series",
-                            _rows(items, ENTITY_COLUMNS), column_names=ENTITY_COLUMNS)
+        self._client.insert(
+            "ssdf_public.entity_series", _rows(items, ENTITY_COLUMNS), column_names=ENTITY_COLUMNS
+        )
         return len(items)
 
     def write_pseudonym_map(self, items: list[dict]) -> int:
         if not items:
             return 0
-        self._client.insert("ssdf.pseudonym_map",
-                            _rows(items, MAP_COLUMNS), column_names=MAP_COLUMNS)
+        self._client.insert(
+            "ssdf.pseudonym_map", _rows(items, MAP_COLUMNS), column_names=MAP_COLUMNS
+        )
         return len(items)

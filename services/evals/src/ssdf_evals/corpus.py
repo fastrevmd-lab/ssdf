@@ -16,14 +16,24 @@ import yaml
 
 # Tool surfaces as deployed (ct106 sovereign / ct113 public). Keep in sync with
 # services/mcp-query tool registration; the corpus lint depends on these.
-PUBLIC_TOOLS = frozenset(
-    {"metric_timeseries", "top_series", "entity_metric_timeseries"}
-)
+PUBLIC_TOOLS = frozenset({"metric_timeseries", "top_series", "entity_metric_timeseries"})
 SOVEREIGN_TOOLS = PUBLIC_TOOLS | frozenset(
-    {"get_entity", "locate", "neighbors", "find_path", "topology_snapshot",
-     "enforcement_points", "describe_schema", "explain_access",
-     "query_flows", "run_sql", "top_talkers",
-     "configured_policies", "observed_by", "reidentify"}
+    {
+        "get_entity",
+        "locate",
+        "neighbors",
+        "find_path",
+        "topology_snapshot",
+        "enforcement_points",
+        "describe_schema",
+        "explain_access",
+        "query_flows",
+        "run_sql",
+        "top_talkers",
+        "configured_policies",
+        "observed_by",
+        "reidentify",
+    }
 )
 
 TIERS = ("sovereign", "public", "both")
@@ -70,8 +80,10 @@ def _validate(q: Question) -> None:
     if ptype == "reference_sql":
         sql = q.predicate.get("sql", "")
         _check(bool(_SELECT_ONLY.match(sql)), f"{q.id}: reference_sql must be a SELECT")
-        _check(q.predicate.get("match") in MATCH_MODES,
-               f"{q.id}: bad match mode {q.predicate.get('match')!r}")
+        _check(
+            q.predicate.get("match") in MATCH_MODES,
+            f"{q.id}: bad match mode {q.predicate.get('match')!r}",
+        )
         _check(bool(q.predicate.get("answer_key")), f"{q.id}: reference_sql needs answer_key")
         match = q.predicate.get("match")
         if match == "set_overlap":
@@ -99,17 +111,17 @@ def load_corpus(path: str | Path) -> list[Question]:
     for item in raw:
         try:
             q = Question(
-                id=str(item["id"]), question=str(item["question"]),
-                tier=str(item["tier"]), category=str(item["category"]),
+                id=str(item["id"]),
+                question=str(item["question"]),
+                tier=str(item["tier"]),
+                category=str(item["category"]),
                 difficulty=str(item["difficulty"]),
                 answer_format=str(item["answer_format"]),
                 required_tools=tuple(item.get("required_tools") or ()),
                 predicate=dict(item["predicate"]),
             )
         except KeyError as exc:
-            raise CorpusError(
-                f"question {item.get('id', '<no id>')!r}: missing key {exc}"
-            ) from exc
+            raise CorpusError(f"question {item.get('id', '<no id>')!r}: missing key {exc}") from exc
         _check(q.id not in seen, f"duplicate question id {q.id!r}")
         seen.add(q.id)
         _validate(q)

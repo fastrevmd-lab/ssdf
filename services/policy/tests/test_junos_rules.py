@@ -23,7 +23,7 @@ def test_groups_terms_into_rules_with_action_and_zones():
     web = by_name["ALLOW-WEB"]
     assert web["provider"] == "juniper"
     assert web["device_name"] == "vSRX-test10"
-    assert web["action"] == "allow"            # permit -> allow
+    assert web["action"] == "allow"  # permit -> allow
     assert web["from_zone"] == ["trust"] and web["to_zone"] == ["untrust"]
     assert web["application"] == ["junos-http"]
     assert web["enabled"] is True
@@ -32,13 +32,17 @@ def test_groups_terms_into_rules_with_action_and_zones():
 
 def test_position_follows_first_appearance_order():
     rules = parse_security_policies(SAMPLE, "vSRX-test10", "2026-06-08T00:00:00")
-    assert [r["rule_name"] for r in sorted(rules, key=lambda r: r["position"])] == \
-        ["ALLOW-WEB", "DENY-ALL"]
+    assert [r["rule_name"] for r in sorted(rules, key=lambda r: r["position"])] == [
+        "ALLOW-WEB",
+        "DENY-ALL",
+    ]
 
 
 def test_parses_global_policy_fixture():
     # Live lab device emits a global baseline-permit policy (XML-wrapped set lines).
-    rules = parse_security_policies(GLOBAL_FIXTURE.read_text(), "vSRX-test10", "2026-06-08T00:00:00")
+    rules = parse_security_policies(
+        GLOBAL_FIXTURE.read_text(), "vSRX-test10", "2026-06-08T00:00:00"
+    )
     by_name = {r["rule_name"]: r for r in rules}
     assert "baseline-permit" in by_name
     perm = by_name["baseline-permit"]
@@ -84,7 +88,9 @@ def test_inactive_policy_sets_enabled_false():
 
 
 def test_parses_zonepair_fixture_actions():
-    rules = parse_security_policies(ZONEPAIR_FIXTURE.read_text(), "vSRX-test11", "2026-06-08T00:00:00")
+    rules = parse_security_policies(
+        ZONEPAIR_FIXTURE.read_text(), "vSRX-test11", "2026-06-08T00:00:00"
+    )
     by_name = {r["rule_name"]: r for r in rules}
     assert by_name["allow-web"]["action"] == "allow"
     assert by_name["deny-telnet"]["action"] == "deny"

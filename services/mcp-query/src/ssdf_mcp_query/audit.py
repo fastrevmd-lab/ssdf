@@ -22,8 +22,15 @@ from .config import ch_tls_kwargs
 
 # The nine stored business fields (what build_audit_row produces).
 AUDIT_BASE_COLUMNS: list[str] = [
-    "ts", "principal", "tier", "tool", "args",
-    "data_classes", "decision", "row_count", "error",
+    "ts",
+    "principal",
+    "tier",
+    "tool",
+    "args",
+    "data_classes",
+    "decision",
+    "row_count",
+    "error",
 ]
 # Full insert column order MUST match infra/clickhouse/007_audit.sql + 009_audit_hash_chain.sql.
 AUDIT_COLUMNS: list[str] = AUDIT_BASE_COLUMNS + ["prev_hash", "row_hash"]
@@ -86,8 +93,10 @@ def _noop_insert(_row: dict) -> None:
 def _seed_last_hash(config, tier: str) -> str:
     """Seed the chain head from the latest row of this tier (read-only identity)."""
     if not config.ch_audit_verify_password:
-        print("[audit] CH_AUDIT_VERIFY_PASSWORD unset; chain starts fresh "
-              "(not seeded from history)", file=sys.stderr)
+        print(
+            "[audit] CH_AUDIT_VERIFY_PASSWORD unset; chain starts fresh (not seeded from history)",
+            file=sys.stderr,
+        )
         return ""
     import clickhouse_connect
 
@@ -100,8 +109,7 @@ def _seed_last_hash(config, tier: str) -> str:
         **ch_tls_kwargs(config),
     )
     res = verify_client.query(
-        "SELECT row_hash FROM ssdf.audit WHERE tier = {tier:String} "
-        "ORDER BY ts DESC LIMIT 1",
+        "SELECT row_hash FROM ssdf.audit WHERE tier = {tier:String} ORDER BY ts DESC LIMIT 1",
         parameters={"tier": tier},
     )
     if res.result_rows:

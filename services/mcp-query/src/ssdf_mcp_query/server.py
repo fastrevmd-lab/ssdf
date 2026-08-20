@@ -68,26 +68,47 @@ def build_app(tier: str = "sovereign") -> FastMCP:
     auth = StaticTokenVerifier(tokens=verifier_tokens)
     mcp = FastMCP("ssdf-mcp-query", auth=auth)
 
-    def query_flows(src_ip: str | None = None, dst_ip: str | None = None,
-                    dst_port: int | None = None, action: str | None = None,
-                    outcome: str | None = None, provider: str | None = None,
-                    zone: str | None = None, since: str | None = None,
-                    until: str | None = None, limit: int = 100) -> dict:
+    def query_flows(
+        src_ip: str | None = None,
+        dst_ip: str | None = None,
+        dst_port: int | None = None,
+        action: str | None = None,
+        outcome: str | None = None,
+        provider: str | None = None,
+        zone: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 100,
+    ) -> dict:
         """Query RAW normalized flow events (one row per event) with optional filters and a
         time window. `provider` is a VENDOR string (e.g. "paloalto"/"juniper"), NOT a
         firewall device identity — for "which firewall" questions use explain_access or
         observed_by. Times accept ISO-8601 or relative ("now-1h"); default window 24h.
         Returns rows plus {row_count, truncated, elapsed_ms} or {error, detail}."""
-        return tools.query_flows(src_ip=src_ip, dst_ip=dst_ip, dst_port=dst_port,
-                                 action=action, outcome=outcome, provider=provider,
-                                 zone=zone, since=since, until=until, limit=limit)
+        return tools.query_flows(
+            src_ip=src_ip,
+            dst_ip=dst_ip,
+            dst_port=dst_port,
+            action=action,
+            outcome=outcome,
+            provider=provider,
+            zone=zone,
+            since=since,
+            until=until,
+            limit=limit,
+        )
 
     def describe_schema() -> dict:
         """Return ssdf.events columns/types, distinct enum values, row count and time range."""
         return tools.describe_schema()
 
-    def top_talkers(by: str = "bytes", side: str = "src", since: str | None = None,
-                    until: str | None = None, limit: int = 10) -> dict:
+    def top_talkers(
+        by: str = "bytes",
+        side: str = "src",
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 10,
+    ) -> dict:
         """Top source/destination IPs by bytes or flow count over a time window."""
         return tools.top_talkers(by=by, side=side, since=since, until=until, limit=limit)
 
@@ -105,8 +126,9 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         this IP" use observed_by."""
         return topo.locate(identifier)
 
-    def neighbors(identifier: str, layer: str | None = None, depth: int = 1,
-                  since_hours: int | None = None) -> dict:
+    def neighbors(
+        identifier: str, layer: str | None = None, depth: int = 1, since_hours: int | None = None
+    ) -> dict:
         """L2/L3-adjacent nodes/edges around an entity, optionally filtered by layer
         (l2|l3|flow|virt). Adjacency only — for firewall attribution use explain_access
         (which rule/firewall) or observed_by (which firewall logged it)."""
@@ -120,13 +142,16 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         """Read-only: firewall device(s), zone(s), and rule(s) governing traffic between two entities."""
         return topo.enforcement_points(src, dst)
 
-    def topology_snapshot(layer: str | None = None, since_hours: int | None = None,
-                          role: str | None = None, kind: str | None = None) -> dict:
+    def topology_snapshot(
+        layer: str | None = None,
+        since_hours: int | None = None,
+        role: str | None = None,
+        kind: str | None = None,
+    ) -> dict:
         """Bounded nodes+edges subgraph for visualization/LLM context; reports truncation.
         Filter with `role` (e.g. "firewall") or `kind` (e.g. "device") to enumerate just
         those nodes — use role="firewall" to list the firewalls in the topology."""
-        return topo.topology_snapshot(layer=layer, since_hours=since_hours,
-                                      role=role, kind=kind)
+        return topo.topology_snapshot(layer=layer, since_hours=since_hours, role=role, kind=kind)
 
     def explain_access(client: str, server: str, since_hours: int | None = None) -> dict:
         """End-to-end view for a client->server pair: observed flows + observed controls +
@@ -159,8 +184,7 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         stale}], summary:{total, stale, fresh}}. staleness_hours default 2."""
         return liveness.ingest_status(staleness_hours=staleness_hours)
 
-    def metric_timeseries(metric: str, since: str | None = None,
-                          until: str | None = None) -> dict:
+    def metric_timeseries(metric: str, since: str | None = None, until: str | None = None) -> dict:
         """De-identified AGGREGATE time series for one metric (no per-entity detail).
         metric is one of the catalog names: bytes|flows|connections (Tier 1) or the
         normalized indices deny_rate_index|ips_volume_index (ratio-to-baseline, NOT
@@ -175,9 +199,9 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         to trend one. Returns {rows:[{surrogate, value}]}. NO real IP/MAC is exposed."""
         return metrics.top_series(metric, since=since, limit=limit)
 
-    def entity_metric_timeseries(surrogate: str, metric: str,
-                                 since: str | None = None,
-                                 until: str | None = None) -> dict:
+    def entity_metric_timeseries(
+        surrogate: str, metric: str, since: str | None = None, until: str | None = None
+    ) -> dict:
         """Per-bucket time series for ONE de-identified surrogate + metric over a window.
         Pass a surrogate from top_series. Returns 5-minute buckets {bucket_start, value}
         for predictive trending. The surrogate cannot be reversed on this tier."""
@@ -189,14 +213,16 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         entity:null. Never registered on the public tier."""
         return metrics.reidentify(surrogate)
 
-    def recent_alerts(since: str = "now-24h", min_severity: str = "high",
-                      providers: str = "", limit: int = 500) -> dict:
+    def recent_alerts(
+        since: str = "now-24h", min_severity: str = "high", providers: str = "", limit: int = 500
+    ) -> dict:
         """Alert-class events (IPS detections, threat logs, high-severity syslog)
         with severity normalized across providers to critical/high/medium/low.
         `min_severity` filters at or above; `providers` is a CSV of event_provider
         values; times accept ISO-8601 or relative "now-24h" style. Returns {rows, row_count, truncated}."""
-        return alert_tools.recent_alerts(since=since, min_severity=min_severity,
-                                         providers=providers, limit=limit)
+        return alert_tools.recent_alerts(
+            since=since, min_severity=min_severity, providers=providers, limit=limit
+        )
 
     raw_tools = {
         "query_flows": query_flows,
@@ -224,8 +250,7 @@ def build_app(tier: str = "sovereign") -> FastMCP:
     if tier == "public":
         selected = public_tool_names(classification, list(raw_tools))
         if not selected:
-            print("[public] no shareable classes configured; 0 tools exposed",
-                  file=sys.stderr)
+            print("[public] no shareable classes configured; 0 tools exposed", file=sys.stderr)
     else:
         selected = list(raw_tools)
 

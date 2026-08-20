@@ -25,10 +25,20 @@ class _FakeWriter:
 
 def _rule(device, name):
     return {
-        "provider": "paloalto", "device_name": device, "rule_name": name, "action": "allow",
-        "from_zone": ["trust"], "to_zone": ["untrust"], "source_addresses": ["any"],
-        "dest_addresses": ["any"], "application": ["any"], "service": ["any"],
-        "position": 0, "enabled": True, "vendor_extras": {}, "collected_at": "2026-06-08T00:00:00",
+        "provider": "paloalto",
+        "device_name": device,
+        "rule_name": name,
+        "action": "allow",
+        "from_zone": ["trust"],
+        "to_zone": ["untrust"],
+        "source_addresses": ["any"],
+        "dest_addresses": ["any"],
+        "application": ["any"],
+        "service": ["any"],
+        "position": 0,
+        "enabled": True,
+        "vendor_extras": {},
+        "collected_at": "2026-06-08T00:00:00",
     }
 
 
@@ -42,7 +52,7 @@ def test_run_once_collects_resolves_writes():
         tenant="t_main",
         now="2026-06-08T00:00:00",
     )
-    assert n_ent == 2 and n_edge == 1            # firewall + policy, 1 governed_by
+    assert n_ent == 2 and n_edge == 1  # firewall + policy, 1 governed_by
     assert {e["kind"] for e in writer.entities} == {"firewall", "policy"}
 
 
@@ -50,12 +60,16 @@ def test_run_once_skips_failing_collector():
     class _Boom:
         def collect(self, client, now):
             raise RuntimeError("mcp down")
+
     writer = _FakeWriter()
     n_ent, _ = run_once(
         enabled=["panos", "junos"],
-        collector_factory=lambda name: (_Boom() if name == "panos"
-                                        else _FakeCollector([_rule("vSRX-test10", "P1")])),
+        collector_factory=lambda name: (
+            _Boom() if name == "panos" else _FakeCollector([_rule("vSRX-test10", "P1")])
+        ),
         client_factory=lambda name: object(),
-        writer=writer, tenant="t_main", now="2026-06-08T00:00:00",
+        writer=writer,
+        tenant="t_main",
+        now="2026-06-08T00:00:00",
     )
-    assert n_ent == 2                             # only junos's firewall+policy survived
+    assert n_ent == 2  # only junos's firewall+policy survived

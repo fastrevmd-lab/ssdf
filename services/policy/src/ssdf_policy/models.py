@@ -11,7 +11,7 @@ import hashlib
 # --- entity kinds ---
 ASSET = "asset"
 POLICY = "policy"
-FIREWALL = "firewall"   # NEW in M6b: a device whose configured ruleset we ingest
+FIREWALL = "firewall"  # NEW in M6b: a device whose configured ruleset we ingest
 
 # --- edge types ---
 GOVERNED_BY = "governed_by"

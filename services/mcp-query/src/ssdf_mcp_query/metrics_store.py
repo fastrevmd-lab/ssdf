@@ -23,8 +23,9 @@ class MetricsStore:
         self._client = client
         self._tenant = tenant
 
-    def metric_timeseries(self, metric: str, since: str | None = None,
-                          until: str | None = None) -> dict:
+    def metric_timeseries(
+        self, metric: str, since: str | None = None, until: str | None = None
+    ) -> dict:
         """Aggregate (dim='') time series for one metric over a window."""
         sql = (
             f"SELECT bucket_start, value FROM {_METRIC_TABLE} FINAL "
@@ -34,12 +35,15 @@ class MetricsStore:
             "AND ({until:String} = '' OR bucket_start <= parseDateTimeBestEffortOrNull({until:String})) "
             "ORDER BY bucket_start"
         )
-        params = {"tenant": self._tenant, "metric": metric,
-                  "since": _resolve_since(since), "until": _resolve_until(until)}
+        params = {
+            "tenant": self._tenant,
+            "metric": metric,
+            "since": _resolve_since(since),
+            "until": _resolve_until(until),
+        }
         return self._client.run(sql, params)
 
-    def top_series(self, metric: str, since: str | None = None,
-                   limit: int = 10) -> dict:
+    def top_series(self, metric: str, since: str | None = None, limit: int = 10) -> dict:
         """Top-N surrogates for a per-entity metric over a window, by total value."""
         sql = (
             "SELECT surrogate, sum(value) AS value "
@@ -48,13 +52,17 @@ class MetricsStore:
             "AND bucket_start >= parseDateTimeBestEffort({since:String}) "
             "GROUP BY surrogate ORDER BY value DESC LIMIT {limit:UInt32}"
         )
-        params = {"tenant": self._tenant, "metric": metric,
-                  "since": _resolve_since(since), "limit": int(limit)}
+        params = {
+            "tenant": self._tenant,
+            "metric": metric,
+            "since": _resolve_since(since),
+            "limit": int(limit),
+        }
         return self._client.run(sql, params)
 
-    def entity_metric_timeseries(self, surrogate: str, metric: str,
-                                 since: str | None = None,
-                                 until: str | None = None) -> dict:
+    def entity_metric_timeseries(
+        self, surrogate: str, metric: str, since: str | None = None, until: str | None = None
+    ) -> dict:
         """Per-bucket series for ONE surrogate + metric over a window."""
         sql = (
             f"SELECT bucket_start, value FROM {_ENTITY_TABLE} FINAL "
@@ -64,8 +72,13 @@ class MetricsStore:
             "AND ({until:String} = '' OR bucket_start <= parseDateTimeBestEffortOrNull({until:String})) "
             "ORDER BY bucket_start"
         )
-        params = {"tenant": self._tenant, "surrogate": surrogate, "metric": metric,
-                  "since": _resolve_since(since), "until": _resolve_until(until)}
+        params = {
+            "tenant": self._tenant,
+            "surrogate": surrogate,
+            "metric": metric,
+            "since": _resolve_since(since),
+            "until": _resolve_until(until),
+        }
         return self._client.run(sql, params)
 
     def reidentify(self, surrogate: str) -> dict:

@@ -43,6 +43,7 @@ def test_parses_rules_with_position_and_enabled():
 
 def test_handles_json_wrapped_payload():
     import json
+
     wrapped = json.dumps({"result": _sample()})
     rules = parse_security_rules(wrapped, "panosvm", "2026-06-08T00:00:00")
     assert len(rules) == 2
@@ -52,8 +53,11 @@ def test_real_fixture_parses_only_security_rules():
     rules = parse_security_rules(FIXTURE.read_text(), "panosvm", "2026-06-08T00:00:00")
     # the fixture has exactly 5 security rules; must NOT pick up zone/address entries
     assert [r["rule_name"] for r in rules] == [
-        "drifttest1", "allow-trust-to-dmz", "allow-corp-to-internet",
-        "allow-untrust-to-trust", "allow-trust-to-untrust",
+        "drifttest1",
+        "allow-trust-to-dmz",
+        "allow-corp-to-internet",
+        "allow-untrust-to-trust",
+        "allow-trust-to-untrust",
     ]
     assert all(r["rule_name"] and r["action"] for r in rules)
     assert rules[0]["position"] == 0
@@ -159,10 +163,12 @@ def test_collect_refuses_a_truncated_config_rather_than_under_reporting():
     import pytest
     from ssdf_policy.collectors.panos import PanosPolicyCollector
 
-    truncated = _json.dumps({
-        "device": "panosvm",
-        "output": {"content": "<security><rules><entry name='r1'>", "truncated": True},
-    })
+    truncated = _json.dumps(
+        {
+            "device": "panosvm",
+            "output": {"content": "<security><rules><entry name='r1'>", "truncated": True},
+        }
+    )
 
     class _TruncatingClient:
         def call_tool(self, name, args=None):

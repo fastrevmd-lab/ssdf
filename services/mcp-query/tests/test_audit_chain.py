@@ -5,8 +5,14 @@ from ssdf_mcp_query.audit_chain import ts_ms_iso, canonical, compute_row_hash
 def _row(**over):
     base = dict(
         ts=dt.datetime(2026, 6, 10, 12, 0, 0, 123000, tzinfo=dt.timezone.utc),
-        principal="agent", tier="sovereign", tool="locate", args='{"x":1}',
-        data_classes=["topology"], decision="allow", row_count=1, error="",
+        principal="agent",
+        tier="sovereign",
+        tool="locate",
+        args='{"x":1}',
+        data_classes=["topology"],
+        decision="allow",
+        row_count=1,
+        error="",
     )
     base.update(over)
     return base

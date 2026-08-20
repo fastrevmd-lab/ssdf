@@ -14,7 +14,8 @@ def tools():
     from ssdf_mcp_query.config import load_config
     from ssdf_mcp_query.clickhouse import ClickHouseClient
     from ssdf_mcp_query.tools import Tools
-    os.environ.setdefault("MCP_AUTH_TOKEN", "test")   # config needs a token to load
+
+    os.environ.setdefault("MCP_AUTH_TOKEN", "test")  # config needs a token to load
     return Tools(ClickHouseClient(load_config()))
 
 

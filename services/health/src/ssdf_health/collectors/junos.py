@@ -14,9 +14,7 @@ logger = logging.getLogger(__name__)
 _MEM_RE = re.compile(r"Memory utilization\s+(\d+)\s+percent", re.IGNORECASE)
 _IDLE_RE = re.compile(r"Idle\s+(\d+)\s+percent", re.IGNORECASE)
 # "Temp  <name...>  <STATUS>  NN degrees C ..."
-_TEMP_RE = re.compile(
-    r"^Temp\s+(?P<name>.+?)\s+\S+\s+(?P<c>-?\d+)\s+degrees C", re.IGNORECASE
-)
+_TEMP_RE = re.compile(r"^Temp\s+(?P<name>.+?)\s+\S+\s+(?P<c>-?\d+)\s+degrees C", re.IGNORECASE)
 
 
 def parse_routing_engine(text: str, device: str, now: str) -> list[Gauge]:
@@ -24,19 +22,34 @@ def parse_routing_engine(text: str, device: str, now: str) -> list[Gauge]:
     gauges: list[Gauge] = []
     mem = _MEM_RE.search(text)
     if mem:
-        gauges.append(Gauge(
-            provider="juniper", device=device, scope="device", metric_class="memory",
-            sensor="", metric_name="mem_util_pct", value=float(mem.group(1)),
-            unit="percent", raw=mem.group(0),
-        ))
+        gauges.append(
+            Gauge(
+                provider="juniper",
+                device=device,
+                scope="device",
+                metric_class="memory",
+                sensor="",
+                metric_name="mem_util_pct",
+                value=float(mem.group(1)),
+                unit="percent",
+                raw=mem.group(0),
+            )
+        )
     idle = _IDLE_RE.search(text)
     if idle:
-        gauges.append(Gauge(
-            provider="juniper", device=device, scope="device", metric_class="cpu",
-            sensor="", metric_name="cpu_util_pct",
-            value=max(0.0, 100.0 - float(idle.group(1))),
-            unit="percent", raw=idle.group(0),
-        ))
+        gauges.append(
+            Gauge(
+                provider="juniper",
+                device=device,
+                scope="device",
+                metric_class="cpu",
+                sensor="",
+                metric_name="cpu_util_pct",
+                value=max(0.0, 100.0 - float(idle.group(1))),
+                unit="percent",
+                raw=idle.group(0),
+            )
+        )
     return gauges
 
 
@@ -47,12 +60,19 @@ def parse_environment(text: str, device: str, now: str) -> list[Gauge]:
         match = _TEMP_RE.match(line.strip())
         if not match:
             continue
-        gauges.append(Gauge(
-            provider="juniper", device=device, scope="device",
-            metric_class="temperature", sensor=match.group("name").strip(),
-            metric_name="temp_celsius", value=float(match.group("c")),
-            unit="celsius", raw=line.strip(),
-        ))
+        gauges.append(
+            Gauge(
+                provider="juniper",
+                device=device,
+                scope="device",
+                metric_class="temperature",
+                sensor=match.group("name").strip(),
+                metric_name="temp_celsius",
+                value=float(match.group("c")),
+                unit="celsius",
+                raw=line.strip(),
+            )
+        )
     return gauges
 
 

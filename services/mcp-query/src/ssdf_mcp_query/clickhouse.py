@@ -78,8 +78,5 @@ class ClickHouseClient:
             },
         )
         columns = list(result.column_names)
-        rows = [
-            {col: jsonify(val) for col, val in zip(columns, row)}
-            for row in result.result_rows
-        ]
+        rows = [{col: jsonify(val) for col, val in zip(columns, row)} for row in result.result_rows]
         return {"columns": columns, "rows": rows, "row_count": len(rows)}

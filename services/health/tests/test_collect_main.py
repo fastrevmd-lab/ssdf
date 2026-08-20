@@ -7,11 +7,17 @@ from ssdf_health.gauge import Gauge
 
 def _config(**over):
     base = dict(
-        ch_host="h", ch_port=8443, ch_user="ssdf_health", ch_password="p",
-        ch_database="ssdf", tenant_id="t_main",
+        ch_host="h",
+        ch_port=8443,
+        ch_user="ssdf_health",
+        ch_password="p",
+        ch_database="ssdf",
+        tenant_id="t_main",
         enabled_collectors=("junos", "panos", "unifi", "proxmox"),
-        junos_devices=["vSRX-test10"], panos_device="panosvm",
-        unifi_macs=["aa:bb:cc:dd:ee:ff"], unifi_site_id="default",
+        junos_devices=["vSRX-test10"],
+        panos_device="panosvm",
+        unifi_macs=["aa:bb:cc:dd:ee:ff"],
+        unifi_site_id="default",
     )
     base.update(over)
     return Config(**base)
@@ -35,9 +41,9 @@ def test_run_with_fakes_writes_all_gauges():
 
     class _Fake:
         name = "fake"
+
         def collect(self, client, now):
-            return [Gauge("p", "d", "device", "cpu", "", "cpu_util_pct",
-                          1.0, "percent", "")]
+            return [Gauge("p", "d", "device", "cpu", "", "cpu_util_pct", 1.0, "percent", "")]
 
     captured = []
 

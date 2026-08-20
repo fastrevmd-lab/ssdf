@@ -19,6 +19,7 @@ def test_surrogate_changes_with_key():
 
 def test_surrogate_unknown_kind_raises():
     import pytest
+
     with pytest.raises(ValueError):
         surrogate(KEY, "bogus", "x")
 

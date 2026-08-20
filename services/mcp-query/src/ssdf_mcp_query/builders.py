@@ -9,10 +9,20 @@ MAX_LIMIT = 1000
 TOP_MAX_LIMIT = 100
 
 FLOW_COLUMNS = [
-    "timestamp", "event_action", "event_outcome", "event_provider",
-    "source_ip", "source_port", "destination_ip", "destination_port",
-    "network_transport", "network_bytes", "rule_name",
-    "observer_ingress_zone", "observer_egress_zone", "user_name",
+    "timestamp",
+    "event_action",
+    "event_outcome",
+    "event_provider",
+    "source_ip",
+    "source_port",
+    "destination_ip",
+    "destination_port",
+    "network_transport",
+    "network_bytes",
+    "rule_name",
+    "observer_ingress_zone",
+    "observer_egress_zone",
+    "user_name",
 ]
 
 
@@ -37,8 +47,16 @@ def _window(since, until, params):
 
 
 def build_query_flows(
-    src_ip=None, dst_ip=None, dst_port=None, action=None, outcome=None,
-    provider=None, zone=None, since=None, until=None, limit=100,
+    src_ip=None,
+    dst_ip=None,
+    dst_port=None,
+    action=None,
+    outcome=None,
+    provider=None,
+    zone=None,
+    since=None,
+    until=None,
+    limit=100,
 ):
     params: dict = {}
     conditions = _window(since, until, params)
@@ -70,10 +88,7 @@ def build_query_flows(
     where = " AND ".join(conditions)
     cols = ", ".join(FLOW_COLUMNS)
     limit = _clamp(limit, 1, MAX_LIMIT)
-    sql = (
-        f"SELECT {cols} FROM ssdf.events WHERE {where} "
-        f"ORDER BY timestamp DESC LIMIT {limit}"
-    )
+    sql = f"SELECT {cols} FROM ssdf.events WHERE {where} ORDER BY timestamp DESC LIMIT {limit}"
     return sql, params
 
 

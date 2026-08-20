@@ -19,8 +19,17 @@ from .audit_chain import compute_row_hash
 from .config import ch_tls_kwargs, load_config
 
 _VERIFY_COLUMNS = [
-    "ts", "principal", "tier", "tool", "args", "data_classes",
-    "decision", "row_count", "error", "prev_hash", "row_hash",
+    "ts",
+    "principal",
+    "tier",
+    "tool",
+    "args",
+    "data_classes",
+    "decision",
+    "row_count",
+    "error",
+    "prev_hash",
+    "row_hash",
 ]
 
 
@@ -76,17 +85,14 @@ def _fetch_rows(config) -> list[dict]:
         database=config.ch_database,
         **ch_tls_kwargs(config),
     )
-    res = client.query(
-        f"SELECT {', '.join(_VERIFY_COLUMNS)} FROM ssdf.audit ORDER BY ts ASC"
-    )
+    res = client.query(f"SELECT {', '.join(_VERIFY_COLUMNS)} FROM ssdf.audit ORDER BY ts ASC")
     return [dict(zip(_VERIFY_COLUMNS, row)) for row in res.result_rows]
 
 
 def main() -> int:
     config = load_config()
     if not config.ch_audit_verify_password:
-        print("CH_AUDIT_VERIFY_PASSWORD is required to verify the audit chain",
-              file=sys.stderr)
+        print("CH_AUDIT_VERIFY_PASSWORD is required to verify the audit chain", file=sys.stderr)
         return 2
     rows = _fetch_rows(config)
     by_tier: dict[str, list[dict]] = defaultdict(list)

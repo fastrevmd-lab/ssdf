@@ -1,15 +1,24 @@
 from ssdf_entity import chwriter
 from ssdf_entity.chwriter import (
-    build_flow_agg_sql, build_binding_sql,
-    entity_rows, edge_rows, ENTITY_COLUMNS, ENTITY_EDGE_COLUMNS,
+    build_flow_agg_sql,
+    build_binding_sql,
+    entity_rows,
+    edge_rows,
+    ENTITY_COLUMNS,
+    ENTITY_EDGE_COLUMNS,
 )
 from ssdf_entity.config import Config
 
 
 def _config(**overrides):
     base = dict(
-        ch_host="10.64.0.151", ch_port=8123, ch_user="ssdf_entity", ch_password="pw",
-        ch_database="ssdf", tenant_id="t_main", window_hours=24,
+        ch_host="10.64.0.151",
+        ch_port=8123,
+        ch_user="ssdf_entity",
+        ch_password="pw",
+        ch_database="ssdf",
+        tenant_id="t_main",
+        window_hours=24,
         binding_lookback_hours=168,
     )
     base.update(overrides)
@@ -18,8 +27,11 @@ def _config(**overrides):
 
 def test_writer_default_is_plain_http(monkeypatch):
     captured = {}
-    monkeypatch.setattr(chwriter.clickhouse_connect, "get_client",
-                        lambda **kwargs: captured.update(kwargs) or object())
+    monkeypatch.setattr(
+        chwriter.clickhouse_connect,
+        "get_client",
+        lambda **kwargs: captured.update(kwargs) or object(),
+    )
     chwriter.ClickHouseEntityWriter(_config())
     assert captured["host"] == "10.64.0.151"
     assert captured["port"] == 8123
@@ -29,10 +41,14 @@ def test_writer_default_is_plain_http(monkeypatch):
 
 def test_writer_secure_passes_https_and_ca(monkeypatch):
     captured = {}
-    monkeypatch.setattr(chwriter.clickhouse_connect, "get_client",
-                        lambda **kwargs: captured.update(kwargs) or object())
-    chwriter.ClickHouseEntityWriter(_config(
-        ch_port=8443, ch_secure=True, ch_ca_file="/etc/ssdf/ssdf-ca.crt"))
+    monkeypatch.setattr(
+        chwriter.clickhouse_connect,
+        "get_client",
+        lambda **kwargs: captured.update(kwargs) or object(),
+    )
+    chwriter.ClickHouseEntityWriter(
+        _config(ch_port=8443, ch_secure=True, ch_ca_file="/etc/ssdf/ssdf-ca.crt")
+    )
     assert captured["interface"] == "https"
     assert captured["port"] == 8443
     assert captured["ca_cert"] == "/etc/ssdf/ssdf-ca.crt"
@@ -40,8 +56,11 @@ def test_writer_secure_passes_https_and_ca(monkeypatch):
 
 def test_writer_secure_without_ca_file_omits_ca_cert(monkeypatch):
     captured = {}
-    monkeypatch.setattr(chwriter.clickhouse_connect, "get_client",
-                        lambda **kwargs: captured.update(kwargs) or object())
+    monkeypatch.setattr(
+        chwriter.clickhouse_connect,
+        "get_client",
+        lambda **kwargs: captured.update(kwargs) or object(),
+    )
     chwriter.ClickHouseEntityWriter(_config(ch_secure=True))
     assert captured["interface"] == "https"
     assert "ca_cert" not in captured
@@ -89,7 +108,6 @@ def test_binding_sql_aggregates_latest_mac_per_device_ip():
     assert "GROUP BY source_device, subj_id" in sql
 
 
-
 def test_entity_rows_follow_column_order():
     entity = {c: c for c in ENTITY_COLUMNS}
     assert entity_rows([entity]) == [[c for c in ENTITY_COLUMNS]]
@@ -102,6 +120,7 @@ def test_edge_rows_follow_column_order():
 
 def test_assets_by_basis_sql_filters_basis():
     from ssdf_entity.chwriter import build_assets_by_basis_sql
+
     sql, params = build_assets_by_basis_sql("ip_only", tenant="t_main")
     assert "ssdf.entities FINAL" in sql
     assert "identity_basis = {basis:String}" in sql
@@ -111,6 +130,7 @@ def test_assets_by_basis_sql_filters_basis():
 
 def test_all_edges_by_type_sql():
     from ssdf_entity.chwriter import build_all_edges_by_type_sql
+
     sql, params = build_all_edges_by_type_sql("communicated_with", tenant="t_main")
     assert "ssdf.entity_edges FINAL" in sql
     assert "edge_type = {etype:String}" in sql

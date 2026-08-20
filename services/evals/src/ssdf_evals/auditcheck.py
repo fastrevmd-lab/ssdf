@@ -33,8 +33,9 @@ def _to_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-def fetch_tools(client, principal: str, started: datetime, finished: datetime,
-                slop_secs: int) -> list[str]:
+def fetch_tools(
+    client, principal: str, started: datetime, finished: datetime, slop_secs: int
+) -> list[str]:
     """Distinct tools the principal invoked in [started-slop, finished+slop] (UTC)."""
     slop = timedelta(seconds=slop_secs)
     start_dt = _to_utc(started) - slop
@@ -59,11 +60,13 @@ def check_tools(question: Question, observed: list[str], tier: str) -> ToolCheck
     required = set(question.required_tools)
     if required and not (required & set(observed)):
         accepted = sorted(required)
-        return ToolCheckResult(False, list(observed),
-                               f"none of the accepted tools observed in audit: {accepted}")
+        return ToolCheckResult(
+            False, list(observed), f"none of the accepted tools observed in audit: {accepted}"
+        )
     if tier == "public":
         outside = sorted(set(observed) - PUBLIC_TOOLS)
         if outside:
-            return ToolCheckResult(False, list(observed),
-                                   f"non-public tools observed on public run: {outside}")
+            return ToolCheckResult(
+                False, list(observed), f"non-public tools observed on public run: {outside}"
+            )
     return ToolCheckResult(True, list(observed), "")

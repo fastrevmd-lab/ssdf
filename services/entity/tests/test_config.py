@@ -46,4 +46,5 @@ def test_load_config_default_binding_lookback(monkeypatch):
     monkeypatch.setenv("CH_PASSWORD", "x")
     monkeypatch.delenv("TOPO_BINDING_LOOKBACK_HOURS", raising=False)
     from ssdf_entity.config import load_config
+
     assert load_config().binding_lookback_hours == 168

@@ -13,6 +13,7 @@ class ConfigError(RuntimeError):
 @dataclass(frozen=True)
 class McpEndpoint:
     """An MCP server endpoint — URL + bearer token."""
+
     url: str
     token: str
 

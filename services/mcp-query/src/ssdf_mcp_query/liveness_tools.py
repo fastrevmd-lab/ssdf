@@ -7,13 +7,15 @@ import datetime as _dt
 
 def _since(hours: int) -> str:
     return (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=hours)).isoformat(
-        timespec="milliseconds")
+        timespec="milliseconds"
+    )
 
 
 def _short_host(name: str) -> str:
     """First DNS label of a hostname, case preserved. Reused from access_tools."""
     try:
         import ipaddress
+
         ipaddress.ip_address(name)
         return name
     except ValueError:
@@ -85,9 +87,13 @@ class LivenessTools:
             if name:
                 # Topology nodes may not have a provider in identifiers; leave it null
                 provider = node.get("identifiers", {}).get("provider")
-                topo_by_name[name] = {"name": name, "provider": provider,
-                                     "last_event": None, "hours_since": None,
-                                     "stale": True}  # assume stale until proven fresh
+                topo_by_name[name] = {
+                    "name": name,
+                    "provider": provider,
+                    "last_event": None,
+                    "hours_since": None,
+                    "stale": True,
+                }  # assume stale until proven fresh
 
         # Expected set part 2: distinct observer_hostname over last 7d (per-provider max)
         seven_days_ago = _since(24 * 7)
@@ -113,14 +119,20 @@ class LivenessTools:
                 existing = event_by_name[short_name]
                 if hours_since < existing["hours_since"]:
                     event_by_name[short_name] = {
-                        "name": short_name, "provider": provider,
-                        "last_event": max_ts_str, "hours_since": hours_since,
-                        "stale": is_stale}
+                        "name": short_name,
+                        "provider": provider,
+                        "last_event": max_ts_str,
+                        "hours_since": hours_since,
+                        "stale": is_stale,
+                    }
             else:
                 event_by_name[short_name] = {
-                    "name": short_name, "provider": provider,
-                    "last_event": max_ts_str, "hours_since": hours_since,
-                    "stale": is_stale}
+                    "name": short_name,
+                    "provider": provider,
+                    "last_event": max_ts_str,
+                    "hours_since": hours_since,
+                    "stale": is_stale,
+                }
 
         # Merge: topology firewalls get their event data stamped if present
         for name in topo_by_name:
@@ -133,14 +145,10 @@ class LivenessTools:
                 topo_by_name[name] = event_data
 
         # Build result: sort stale-first, then by name
-        firewalls = sorted(topo_by_name.values(),
-                          key=lambda fw: (not fw["stale"], fw["name"]))
+        firewalls = sorted(topo_by_name.values(), key=lambda fw: (not fw["stale"], fw["name"]))
 
         total = len(firewalls)
         stale = sum(1 for fw in firewalls if fw["stale"])
         fresh = total - stale
 
-        return {
-            "firewalls": firewalls,
-            "summary": {"total": total, "stale": stale, "fresh": fresh}
-        }
+        return {"firewalls": firewalls, "summary": {"total": total, "stale": stale, "fresh": fresh}}

@@ -2,7 +2,9 @@ import datetime as _dt
 import pytest
 
 from ssdf_mcp_query.liveness_tools import (
-    LivenessTools, _short_host, build_recent_observer_hostnames_sql
+    LivenessTools,
+    _short_host,
+    build_recent_observer_hostnames_sql,
 )
 
 
@@ -50,8 +52,7 @@ def test_short_host_preserves_ipv6():
 
 
 def test_recent_observer_hostnames_sql_shape():
-    sql, params = build_recent_observer_hostnames_sql(
-        "2026-07-05T00:00:00+00:00", "t_main")
+    sql, params = build_recent_observer_hostnames_sql("2026-07-05T00:00:00+00:00", "t_main")
     assert "observer_hostname" in sql
     assert "event_provider AS provider" in sql
     assert "max(timestamp) AS max_timestamp" in sql
@@ -69,12 +70,20 @@ def test_ingest_status_fresh_firewall():
     hours_since = 0.5
 
     topo_nodes = [
-        {"name": "panosvm", "kind": "device", "attrs": {"role": "firewall"},
-         "identifiers": {"provider": "paloalto"}}
+        {
+            "name": "panosvm",
+            "kind": "device",
+            "attrs": {"role": "firewall"},
+            "identifiers": {"provider": "paloalto"},
+        }
     ]
     event_rows = [
-        {"observer_hostname": "panosvm.example.com", "provider": "paloalto",
-         "max_timestamp": recent, "hours_since": hours_since}
+        {
+            "observer_hostname": "panosvm.example.com",
+            "provider": "paloalto",
+            "max_timestamp": recent,
+            "hours_since": hours_since,
+        }
     ]
 
     graph = _FakeGraphStore(topo_nodes)
@@ -99,12 +108,20 @@ def test_ingest_status_stale_firewall():
     hours_since = 5.0
 
     topo_nodes = [
-        {"name": "vSRX-test10", "kind": "device", "attrs": {"role": "firewall"},
-         "identifiers": {"provider": "juniper"}}
+        {
+            "name": "vSRX-test10",
+            "kind": "device",
+            "attrs": {"role": "firewall"},
+            "identifiers": {"provider": "juniper"},
+        }
     ]
     event_rows = [
-        {"observer_hostname": "vSRX-test10", "provider": "juniper",
-         "max_timestamp": stale_ts, "hours_since": hours_since}
+        {
+            "observer_hostname": "vSRX-test10",
+            "provider": "juniper",
+            "max_timestamp": stale_ts,
+            "hours_since": hours_since,
+        }
     ]
 
     graph = _FakeGraphStore(topo_nodes)
@@ -124,8 +141,7 @@ def test_ingest_status_stale_firewall():
 def test_ingest_status_missing_entirely():
     # A topology firewall with NO events in the 7d window
     topo_nodes = [
-        {"name": "vSRX-silent", "kind": "device", "attrs": {"role": "firewall"},
-         "identifiers": {}}
+        {"name": "vSRX-silent", "kind": "device", "attrs": {"role": "firewall"}, "identifiers": {}}
     ]
     event_rows = []  # no events for this device
 
@@ -149,12 +165,20 @@ def test_ingest_status_panosvm_fqdn_short_label_join():
     recent = (now - _dt.timedelta(minutes=10)).isoformat()
 
     topo_nodes = [
-        {"name": "panosvm", "kind": "device", "attrs": {"role": "firewall"},
-         "identifiers": {"provider": "paloalto"}}
+        {
+            "name": "panosvm",
+            "kind": "device",
+            "attrs": {"role": "firewall"},
+            "identifiers": {"provider": "paloalto"},
+        }
     ]
     event_rows = [
-        {"observer_hostname": "panosvm.example.com", "provider": "paloalto",
-         "max_timestamp": recent, "hours_since": 0.17}
+        {
+            "observer_hostname": "panosvm.example.com",
+            "provider": "paloalto",
+            "max_timestamp": recent,
+            "hours_since": 0.17,
+        }
     ]
 
     graph = _FakeGraphStore(topo_nodes)
@@ -181,10 +205,18 @@ def test_ingest_status_summary_counts():
         {"name": "fw3", "kind": "device", "attrs": {"role": "firewall"}, "identifiers": {}},
     ]
     event_rows = [
-        {"observer_hostname": "fw1", "provider": "juniper", "max_timestamp": fresh_ts,
-         "hours_since": 0.17},
-        {"observer_hostname": "fw2", "provider": "paloalto", "max_timestamp": stale_ts,
-         "hours_since": 4.0},
+        {
+            "observer_hostname": "fw1",
+            "provider": "juniper",
+            "max_timestamp": fresh_ts,
+            "hours_since": 0.17,
+        },
+        {
+            "observer_hostname": "fw2",
+            "provider": "paloalto",
+            "max_timestamp": stale_ts,
+            "hours_since": 4.0,
+        },
     ]
     # fw3 has no events
 
@@ -208,12 +240,24 @@ def test_ingest_status_sorts_stale_first_then_name():
         {"name": "charlie", "kind": "device", "attrs": {"role": "firewall"}, "identifiers": {}},
     ]
     event_rows = [
-        {"observer_hostname": "alpha", "provider": "juniper", "max_timestamp": fresh_ts,
-         "hours_since": 0.17},
-        {"observer_hostname": "bravo", "provider": "juniper", "max_timestamp": stale_ts,
-         "hours_since": 3.0},
-        {"observer_hostname": "charlie", "provider": "paloalto", "max_timestamp": fresh_ts,
-         "hours_since": 0.17},
+        {
+            "observer_hostname": "alpha",
+            "provider": "juniper",
+            "max_timestamp": fresh_ts,
+            "hours_since": 0.17,
+        },
+        {
+            "observer_hostname": "bravo",
+            "provider": "juniper",
+            "max_timestamp": stale_ts,
+            "hours_since": 3.0,
+        },
+        {
+            "observer_hostname": "charlie",
+            "provider": "paloalto",
+            "max_timestamp": fresh_ts,
+            "hours_since": 0.17,
+        },
     ]
 
     graph = _FakeGraphStore(topo_nodes)
@@ -234,8 +278,12 @@ def test_ingest_status_event_only_device():
 
     topo_nodes = []  # no topology nodes
     event_rows = [
-        {"observer_hostname": "rogue-fw", "provider": "juniper", "max_timestamp": recent,
-         "hours_since": 0.33}
+        {
+            "observer_hostname": "rogue-fw",
+            "provider": "juniper",
+            "max_timestamp": recent,
+            "hours_since": 0.33,
+        }
     ]
 
     graph = _FakeGraphStore(topo_nodes)

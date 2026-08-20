@@ -8,15 +8,25 @@ from ssdf_evals.regress import find_regressions, main
 
 def card(model, run_id, results: dict[str, bool]):
     return {
-        "schema_version": 1, "run_id": run_id, "model": model, "runner": "t@1",
-        "tier": "sovereign", "principal": "eval-test", "corpus_version": "v1",
+        "schema_version": 1,
+        "run_id": run_id,
+        "model": model,
+        "runner": "t@1",
+        "tier": "sovereign",
+        "principal": "eval-test",
+        "corpus_version": "v1",
         "scored_at": "2026-06-12T19:00:00Z",
-        "questions": [{"id": qid, "pass": passed, "reasons": [],
-                       "predicate_detail": {}, "tools_observed": []}
-                      for qid, passed in results.items()],
-        "rollups": {"total": len(results),
-                    "passed": sum(results.values()),
-                    "by_category": {}, "by_difficulty": {}, "by_tier": {}},
+        "questions": [
+            {"id": qid, "pass": passed, "reasons": [], "predicate_detail": {}, "tools_observed": []}
+            for qid, passed in results.items()
+        ],
+        "rollups": {
+            "total": len(results),
+            "passed": sum(results.values()),
+            "by_category": {},
+            "by_difficulty": {},
+            "by_tier": {},
+        },
     }
 
 

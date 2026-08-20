@@ -48,35 +48,39 @@ def parse_clients(text: str, source_device: str, now: str) -> list[Observation]:
         connected_device = sw_mac or ap_mac or source_device
 
         obs_type = "mac_entry" if is_wired else "wlan_assoc"
-        observations.append(Observation(
-            observed_at=now,
-            collector="unifi",
-            source_device=source_device,
-            layer="l2",
-            observation_type=obs_type,
-            subj_kind="host",
-            subj_id=f"mac:{mac}",
-            obj_kind="device",
-            obj_id=f"device:{connected_device}",
-            attrs={"vlan": vlan, "port": sw_port, "wired": str(is_wired)},
-            raw=json.dumps(row),
-        ))
-
-        ip = str(row.get("ip") or "").strip()
-        if ip:
-            observations.append(Observation(
+        observations.append(
+            Observation(
                 observed_at=now,
                 collector="unifi",
                 source_device=source_device,
-                layer="l3",
-                observation_type="arp_entry",
+                layer="l2",
+                observation_type=obs_type,
                 subj_kind="host",
-                subj_id=f"ip:{ip}",
-                obj_kind="host",
-                obj_id=f"mac:{mac}",
-                attrs={"source": "unifi_client"},
-                raw="",
-            ))
+                subj_id=f"mac:{mac}",
+                obj_kind="device",
+                obj_id=f"device:{connected_device}",
+                attrs={"vlan": vlan, "port": sw_port, "wired": str(is_wired)},
+                raw=json.dumps(row),
+            )
+        )
+
+        ip = str(row.get("ip") or "").strip()
+        if ip:
+            observations.append(
+                Observation(
+                    observed_at=now,
+                    collector="unifi",
+                    source_device=source_device,
+                    layer="l3",
+                    observation_type="arp_entry",
+                    subj_kind="host",
+                    subj_id=f"ip:{ip}",
+                    obj_kind="host",
+                    obj_id=f"mac:{mac}",
+                    attrs={"source": "unifi_client"},
+                    raw="",
+                )
+            )
     return observations
 
 
@@ -105,24 +109,26 @@ def parse_devices(text: str, source_device: str, now: str) -> list[Observation]:
             (role_val for key, role_val in _ROLE_MAP.items() if key in model),
             "device",
         )
-        observations.append(Observation(
-            observed_at=now,
-            collector="unifi",
-            source_device=source_device,
-            layer="l2",
-            observation_type="device_inventory",
-            subj_kind="device",
-            subj_id=f"device:{mac}",
-            obj_kind="",
-            obj_id="",
-            attrs={
-                "role": role,
-                "name": str(row.get("name") or ""),
-                "mac": mac,
-                "ip": str(row.get("ip") or ""),
-            },
-            raw=json.dumps(row),
-        ))
+        observations.append(
+            Observation(
+                observed_at=now,
+                collector="unifi",
+                source_device=source_device,
+                layer="l2",
+                observation_type="device_inventory",
+                subj_kind="device",
+                subj_id=f"device:{mac}",
+                obj_kind="",
+                obj_id="",
+                attrs={
+                    "role": role,
+                    "name": str(row.get("name") or ""),
+                    "mac": mac,
+                    "ip": str(row.get("ip") or ""),
+                },
+                raw=json.dumps(row),
+            )
+        )
     return observations
 
 
@@ -137,8 +143,7 @@ class UnifiCollector:
 
     name = "unifi"
 
-    def __init__(self, site_id: str = "default",
-                 device_types: tuple[str, ...] = DEVICE_TYPES):
+    def __init__(self, site_id: str = "default", device_types: tuple[str, ...] = DEVICE_TYPES):
         self.site_id = site_id
         self.device_types = device_types
 

@@ -7,9 +7,17 @@ from ssdf_health.gauge import Gauge
 
 def _config(**over):
     base = dict(
-        ch_host="h", ch_port=8443, ch_user="ssdf_health", ch_password="p",
-        ch_database="ssdf", tenant_id="t_main", enabled_collectors=("proxmox",),
-        junos_devices=[], panos_device="panosvm", unifi_macs=[], unifi_site_id="default",
+        ch_host="h",
+        ch_port=8443,
+        ch_user="ssdf_health",
+        ch_password="p",
+        ch_database="ssdf",
+        tenant_id="t_main",
+        enabled_collectors=("proxmox",),
+        junos_devices=[],
+        panos_device="panosvm",
+        unifi_macs=[],
+        unifi_site_id="default",
     )
     base.update(over)
     return Config(**base)
@@ -28,8 +36,17 @@ def test_client_kwargs_plain_when_not_secure():
 
 def test_health_rows_maps_gauge_fields_in_column_order():
     now = datetime(2026, 6, 20, tzinfo=timezone.utc)
-    gauge = Gauge("juniper", "vSRX-test10", "device", "cpu", "",
-                  "cpu_util_pct", 5.0, "percent", "Idle 95 percent")
+    gauge = Gauge(
+        "juniper",
+        "vSRX-test10",
+        "device",
+        "cpu",
+        "",
+        "cpu_util_pct",
+        5.0,
+        "percent",
+        "Idle 95 percent",
+    )
     rows = health_rows([gauge], now, "t_main")
     assert len(rows) == 1
     row = dict(zip(HEALTH_COLUMNS, rows[0]))

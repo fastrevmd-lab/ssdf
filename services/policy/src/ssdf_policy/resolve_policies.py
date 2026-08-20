@@ -7,7 +7,12 @@ config pull wins under ReplacingMergeTree(last_seen); no rule-version history â€
 from __future__ import annotations
 
 from .models import (
-    FIREWALL, POLICY, GOVERNED_BY, CONFIGURED, entity_id, edge_id,
+    FIREWALL,
+    POLICY,
+    GOVERNED_BY,
+    CONFIGURED,
+    entity_id,
+    edge_id,
 )
 
 
@@ -25,11 +30,17 @@ def resolve_policies(rules: list[dict], tenant: str) -> tuple[list[dict], list[d
         fw = entities.get(eid)
         if fw is None:
             fw = {
-                "entity_id": eid, "tenant_id": tenant, "kind": FIREWALL,
-                "name": device, "identifiers": {"device_name": device},
-                "source": CONFIGURED, "identity_basis": "device_name", "confidence": 1.0,
+                "entity_id": eid,
+                "tenant_id": tenant,
+                "kind": FIREWALL,
+                "name": device,
+                "identifiers": {"device_name": device},
+                "source": CONFIGURED,
+                "identity_basis": "device_name",
+                "confidence": 1.0,
                 "attrs": {"provider": provider, "rule_count": "0"},
-                "first_seen": seen, "last_seen": seen,
+                "first_seen": seen,
+                "last_seen": seen,
             }
             entities[eid] = fw
         fw["attrs"]["rule_count"] = str(int(fw["attrs"]["rule_count"]) + 1)
@@ -44,28 +55,46 @@ def resolve_policies(rules: list[dict], tenant: str) -> tuple[list[dict], list[d
 
         pol_eid = entity_id(tenant, POLICY, f"{provider}:{device}:{name}")
         attrs = {
-            "provider": provider, "device_name": device, "action": rule["action"],
-            "from_zone": _join(rule["from_zone"]), "to_zone": _join(rule["to_zone"]),
+            "provider": provider,
+            "device_name": device,
+            "action": rule["action"],
+            "from_zone": _join(rule["from_zone"]),
+            "to_zone": _join(rule["to_zone"]),
             "source_addresses": _join(rule["source_addresses"]),
             "dest_addresses": _join(rule["dest_addresses"]),
-            "application": _join(rule["application"]), "service": _join(rule["service"]),
-            "position": str(rule["position"]), "enabled": "true" if rule["enabled"] else "false",
+            "application": _join(rule["application"]),
+            "service": _join(rule["service"]),
+            "position": str(rule["position"]),
+            "enabled": "true" if rule["enabled"] else "false",
         }
         attrs.update(rule.get("vendor_extras") or {})
         policy = {
-            "entity_id": pol_eid, "tenant_id": tenant, "kind": POLICY, "name": name,
+            "entity_id": pol_eid,
+            "tenant_id": tenant,
+            "kind": POLICY,
+            "name": name,
             "identifiers": {"rule": name, "provider": provider, "device_name": device},
-            "source": CONFIGURED, "identity_basis": "", "confidence": 1.0,
-            "attrs": attrs, "first_seen": seen, "last_seen": seen,
+            "source": CONFIGURED,
+            "identity_basis": "",
+            "confidence": 1.0,
+            "attrs": attrs,
+            "first_seen": seen,
+            "last_seen": seen,
         }
         entities[pol_eid] = policy
 
         gov_eid = edge_id(tenant, fw["entity_id"], pol_eid, GOVERNED_BY, CONFIGURED)
         edges[gov_eid] = {
-            "edge_id": gov_eid, "tenant_id": tenant, "src_id": fw["entity_id"],
-            "dst_id": pol_eid, "edge_type": GOVERNED_BY, "source": CONFIGURED,
-            "confidence": 1.0, "attrs": {"rule": name, "provider": provider},
-            "first_seen": seen, "last_seen": seen,
+            "edge_id": gov_eid,
+            "tenant_id": tenant,
+            "src_id": fw["entity_id"],
+            "dst_id": pol_eid,
+            "edge_type": GOVERNED_BY,
+            "source": CONFIGURED,
+            "confidence": 1.0,
+            "attrs": {"rule": name, "provider": provider},
+            "first_seen": seen,
+            "last_seen": seen,
         }
 
     return list(entities.values()), list(edges.values())

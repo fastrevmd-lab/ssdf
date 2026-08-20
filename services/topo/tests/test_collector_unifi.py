@@ -38,7 +38,6 @@ def test_parse_devices_emits_inventory():
         assert ob.attrs["role"] == "switch"
 
 
-
 def test_collect_supplies_the_required_site_and_type_arguments():
     """unifi-mcp requires site_id (and device_type); the collector passed {}.
 
@@ -72,9 +71,19 @@ def test_collect_survives_one_failing_device_type():
     """A type that errors must not discard the other types' inventory."""
     from ssdf_topo.collectors.unifi import UnifiCollector
 
-    gateway = json.dumps({"result": [
-        {"mac": "02:00:01:27:fb:2b", "name": "Gateway Max", "type": "uxg",
-         "model": "UXGB", "ip": "198.51.100.1"}]})
+    gateway = json.dumps(
+        {
+            "result": [
+                {
+                    "mac": "02:00:01:27:fb:2b",
+                    "name": "Gateway Max",
+                    "type": "uxg",
+                    "model": "UXGB",
+                    "ip": "198.51.100.1",
+                }
+            ]
+        }
+    )
 
     class _FlakyClient:
         def call_tool(self, name, args=None):
@@ -97,9 +106,17 @@ def test_uxg_gateway_resolves_to_a_gateway_role():
     the generic `device` role and could never be picked out of the graph."""
     from ssdf_topo.collectors.unifi import parse_devices
 
-    payload = json.dumps([
-        {"mac": "02:00:01:27:fb:2b", "name": "Gateway Max", "type": "uxg",
-         "model": "UXGB", "ip": "198.51.100.1"}])
+    payload = json.dumps(
+        [
+            {
+                "mac": "02:00:01:27:fb:2b",
+                "name": "Gateway Max",
+                "type": "uxg",
+                "model": "UXGB",
+                "ip": "198.51.100.1",
+            }
+        ]
+    )
 
     obs = parse_devices(payload, SOURCE, NOW)
     assert len(obs) == 1
