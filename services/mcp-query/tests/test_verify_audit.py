@@ -83,3 +83,76 @@ def test_detects_unreachable_orphan():
     rows.append(orphan)
     issues = verify_tier(rows)
     assert any(i["type"] in ("unreachable", "missing_predecessor") for i in issues)
+
+
+def _evidence_chain(n, server_id, first_prev=""):
+    """Build n correctly-chained evidence rows for one writer."""
+    rows = []
+    prev = first_prev
+    for i in range(n):
+        row = dict(
+            ts=dt.datetime(2026, 8, 20, 12, 0, i, 0, tzinfo=dt.timezone.utc),
+            principal="agent:mecmcp",
+            tier="evidence",
+            tool="evidence:proposal",
+            args=('{"server_id":"' + server_id + '","run_id":"run-1","segment_seq":0}'),
+            data_classes=["device:vsrx-ci"],
+            decision="",
+            row_count=1,
+            error="",
+        )
+        row["prev_hash"] = prev
+        row["row_hash"] = compute_row_hash(prev, row)
+        prev = row["row_hash"]
+        rows.append(row)
+    return rows
+
+
+def test_two_writers_are_verified_as_separate_chains():
+    """The evidence tier has many writers; one chain per tier cannot work.
+
+    Fifteen MCP servers write ``tier='evidence'``. Chaining per tier would need
+    every writer to serialise against a shared head — there is no such lock, so
+    each seeds ``prev_hash=""`` and the tier acquires one accepted root per
+    server. Grouping by writer gives each exactly one root, which is what makes
+    a deleted run detectable (ssdf#47).
+    """
+    from ssdf_mcp_query.verify_audit import group_key
+
+    rows = _evidence_chain(3, "mecmcp-950") + _evidence_chain(3, "mecmcp-960")
+
+    keys = {group_key(r) for r in rows}
+    assert keys == {
+        ("evidence", "mecmcp-950"),
+        ("evidence", "mecmcp-960"),
+    }, "each writer must be its own chain"
+
+    for key in keys:
+        subset = [r for r in rows if group_key(r) == key]
+        assert verify_tier(subset) == [], f"{key} must verify clean on its own"
+
+
+def test_a_deleted_run_leaves_a_missing_predecessor():
+    """The failure this whole mechanism exists to catch.
+
+    A run that continues its writer's chain (``resume_from``) means deleting
+    that run outright breaks the link its successor names — rather than removing
+    an entire independent root, which leaves nothing to notice.
+    """
+    first_run = _evidence_chain(2, "mecmcp-950")
+    second_run = _evidence_chain(2, "mecmcp-950", first_prev=first_run[-1]["row_hash"])
+
+    surviving = second_run  # the first run is deleted wholesale
+
+    issues = verify_tier(surviving)
+    assert any(i["type"] == "missing_predecessor" for i in issues), (
+        "deleting a whole run must be visible; it is only visible because the "
+        "later run chained onto the earlier one"
+    )
+
+
+def test_rows_without_a_server_id_group_by_tier_alone():
+    """Sovereign rows carry no server_id and must keep verifying as they did."""
+    from ssdf_mcp_query.verify_audit import group_key
+
+    assert group_key(_chain(1)[0]) == ("sovereign", "")

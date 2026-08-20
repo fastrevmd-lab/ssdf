@@ -31,6 +31,32 @@ Evidence records use the existing `ssdf.audit` schema with the following `tool` 
 
 All evidence records share `tier = "evidence"` to enable chain verification independent of the MCP tool audit trail.
 
+### The chain is per writer, not per tier
+
+**Revised 2026-08-20 (ssdf#47).** A chain is `(tier, server_id)`, and each
+writer has exactly **one** root.
+
+Chaining the whole tier would require every writer to serialise against a shared
+head, and fifteen MCP servers write `tier = "evidence"` with no such lock. Each
+would seed `prev_hash = ""`, the tier would acquire one accepted root per
+server, and the verifier — which traverses every root — would report clean.
+Worse, with many roots, deleting an **entire run** removes a whole independent
+root and leaves nothing unreachable: the one failure this mechanism exists to
+catch would be invisible.
+
+Grouped by writer, each server has one root, and a run that continues its
+predecessor's head makes a wholesale deletion show up as `missing_predecessor`.
+
+Consequences for a writer:
+
+- Seed a new run from the writer's **current head**, not from `""`. Only a
+  genuinely empty `(tier, server_id)` starts at `""`.
+- Never run two recorders for one `server_id` concurrently. They would fork the
+  chain, and a fork verifies as two valid chains rather than as an error.
+
+Rows carrying no `server_id` — every `sovereign` row — group by tier alone and
+verify exactly as before.
+
 ## Scope: this contract covers the change lifecycle only
 
 **Decided 2026-08-20 (ssdf#47, mecmcp#292).** The four record types above are
