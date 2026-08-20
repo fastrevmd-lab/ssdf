@@ -120,9 +120,29 @@ boundary stays where `007` put it.
   as two valid chains, which is the failure mode this whole document exists to
   prevent. Give each container its own `server_id`.
 - **A duplicate is a lost ack, not a divergent row.** The retry carries the
-  identical serialised record and the identical `row_hash`, so the failure this
-  protects against is re-appending a row already present, which the high-water
-  mark catches.
+  identical serialised record and the identical `row_hash`, so the failure being
+  protected against is re-appending a row already present, never a conflicting
+  one.
+
+### Why this is not sufficient on its own
+
+The three points above cover a **replay** — an insert known to have failed,
+sent again. They do not cover an insert whose outcome is **unknown**.
+
+A read-then-insert is not atomic against a request already in flight. If an
+INSERT times out while ClickHouse is still committing it, the high-water read
+before the retry can answer "nothing landed" and the original can commit
+afterwards, alongside the retry. Two identical rows, which the hash chain
+cannot see: same content, same `row_hash`, so linkage and reachability both
+pass.
+
+That gap is closed in the database, not here — `non_replicated_deduplication_window`
+plus an `insert_deduplication_token` per segment, see
+[audit-evidence-contract-v1.md](audit-evidence-contract-v1.md) and migration
+`016_audit_insert_dedup.sql`. **Until that migration is applied the window is
+open**, and the mitigation is detection: `verify_audit.py` reports
+`duplicate_row`. A sink implemented from the high-water protocol alone is not
+finished, and a test suite that only replays known failures will not show it.
 
 ### What it does not do
 

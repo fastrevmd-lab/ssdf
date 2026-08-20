@@ -265,7 +265,7 @@ new root:
 
 ```sql
 -- as ssdf_audit_verify
-SELECT row_hash
+SELECT DISTINCT row_hash
 FROM ssdf.audit
 WHERE tier = 'evidence'
   AND JSONExtractString(args, 'server_id') = {server_id:String}
@@ -287,10 +287,16 @@ an interior hash forks its own chain, and a fork verifies as two valid chains.
 
 An empty result means a genuinely new writer, which starts a root.
 
-**More than one row is itself the answer to a different question.** A healthy
-chain has exactly one unreferenced tail; two mean it has already forked, and a
-writer that resumes from either one deepens the fork. Treat that as a fault to
-investigate, not as a tie to break. This is separate from the run-scoped high-water mark in
+Note the `DISTINCT`. Two *rows* can share one unreferenced `row_hash` — that is
+exactly what an ambiguous-timeout duplicate of the current tail looks like, and
+it is one chain head, not two. Comparing row counts would call it a fork and
+stall ingestion over a condition that is merely a duplicate, which
+`verify_audit.py` already reports as `duplicate_row`.
+
+**More than one _distinct_ hash is the answer to a different question.** A
+healthy chain has exactly one unreferenced tail; two distinct ones mean it has
+already forked, and a writer that resumes from either deepens the fork. Treat
+that as a fault to investigate, not as a tie to break. This is separate from the run-scoped high-water mark in
 [audit-evidence-ingestion.md](audit-evidence-ingestion.md), which answers a
 different question — what to skip on replay, not where to attach.
 
