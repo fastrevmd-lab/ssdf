@@ -184,8 +184,16 @@ ALTER TABLE ssdf.audit MODIFY SETTING non_replicated_deduplication_window = 1000
 and writers send a token identifying the segment:
 
 ```
-insert_deduplication_token=<server_id>:<run_id>:<segment_seq>
+insert_deduplication_token=<len(server_id)>:<server_id>:<len(run_id)>:<run_id>:<segment_seq>
 ```
+
+for example `9:junos-950:5:run-7:42`. The **byte length of each identifier
+precedes it**, and that is not decoration: identifiers are free-form, so
+joining on a separator alone is not one-to-one — `("a:b", "c", 1)` and
+`("a", "b:c", 1)` both give `a:b:c:1`. Two segments sharing a token is the
+worst outcome available here, because ClickHouse acknowledges the insert and
+drops the block: a real segment disappears while the writer is told it
+succeeded. Lengths make the field boundaries unambiguous.
 
 A retried block carrying a token ClickHouse has already seen is dropped, so the
 duplicate never lands. `ssdf.audit` is a plain (non-replicated) `MergeTree` —

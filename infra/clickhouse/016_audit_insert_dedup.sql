@@ -11,8 +11,10 @@
 -- This is the cheap half of the fix. `ssdf.audit` is a plain (non-replicated)
 -- MergeTree, verified live, and since 22.2 those support insert deduplication
 -- via a window of recently-seen block tokens. Writers then send
--- `insert_deduplication_token=<server_id>:<run_id>:<segment_seq>` and a retried
--- block is dropped server-side.
+-- `insert_deduplication_token` -- byte-length-prefixed as
+-- `<len(server_id)>:<server_id>:<len(run_id)>:<run_id>:<segment_seq>`, e.g.
+-- `9:junos-950:5:run-7:42`, so a separator inside an identifier cannot make two
+-- segments collide -- and a retried block is dropped server-side.
 --
 -- Deliberately NOT ReplacingMergeTree, which was the first proposal on #49: it
 -- would rewrite a live table and push `FINAL`/`argMax` semantics onto every

@@ -202,9 +202,11 @@ This query runs as `ssdf_ro` (sovereign MCP tools) or `ssdf_audit_verify` (hash-
 - [ ] Tail read for chain seeding, ordered **after** replay resolves unknown
       outcomes (see "Startup order" above) — reading it at boot forks the chain
       after a timeout
-- [ ] `insert_deduplication_token=<server_id>:<run_id>:<segment_seq>` on every
-      insert, injectively encoded (a separator inside an identifier must not
-      let two segments collide)
+- [ ] `insert_deduplication_token` on every insert, byte-length-prefixed as
+      `<len(server_id)>:<server_id>:<len(run_id)>:<run_id>:<segment_seq>`
+      (e.g. `9:junos-950:5:run-7:42`) — joining on the separator alone is not
+      injective, and two segments sharing a token means one is dropped with
+      success reported
 - [ ] Migration `016_audit_insert_dedup.sql` applied — without it the setting
       is absent and the token is ignored, so the in-flight window stays open
 - [ ] Test: retry after an **unknown** outcome, not only after a known failure

@@ -249,15 +249,37 @@ def main():
     # run before the original lands, meaning the read cannot save it. Only the
     # database can, by recognising the token. Insert deliberately WITHOUT
     # consulting the mark, exactly as that sink would.
-    print("\n[4/5] Replaying with the same dedup token, ignoring the mark...")
+    #
+    # The block's bytes are altered on purpose. With migration 016 applied,
+    # ClickHouse deduplicates an *identical* block from its data hash alone,
+    # token or no token -- so replaying the same rows would pass whether or not
+    # the token was honoured, and would prove nothing about it. Changing a
+    # non-key column forces a different block hash, leaving the token as the
+    # only thing that can suppress it.
+    #
+    # That makes this step deliberately artificial: a real retry resends
+    # identical bytes and would be caught either way. The artificial version is
+    # what isolates the mechanism the contract now depends on.
+    # `error` by name, not by position: it is not in ORDER BY and not part of
+    # the chain or the token, so altering it changes the block and nothing that
+    # matters. Looking it up by name keeps that true if `columns` is reordered,
+    # where an index would quietly start rewriting some other field.
+    probe_field = columns.index("error")
+    probe_row = list(insert_data[0])
+    probe_row[probe_field] = "token-probe"
+    if probe_row[probe_field] == insert_data[0][probe_field]:
+        print("✗ The probe did not alter the block; step 4 would prove nothing", file=sys.stderr)
+        sys.exit(1)
+    probe_data = [tuple(probe_row)]
+    print("\n[4/5] Re-inserting a differing block under the same dedup token...")
     try:
         client.insert(
             "ssdf.audit",
-            insert_data,
+            probe_data,
             column_names=columns,
             settings={"insert_deduplication_token": dedup_token(test_server_id, test_run_id, 0)},
         )
-        print("✓ Insert accepted (the database must now drop it as a seen block)")
+        print("✓ Insert accepted (only the token can now stop it landing)")
     except Exception as e:
         print(f"✗ Tokened insert failed: {e}", file=sys.stderr)
         sys.exit(1)
@@ -281,11 +303,15 @@ def main():
         print(f"✗ Expected exactly 1 row for segment 0, found {rows}", file=sys.stderr)
         if rows > 1:
             print(
-                "  If step 4 is what duplicated it, migration 016 is not applied:",
+                "  A second row means step 4's probe landed, so the token was not",
                 file=sys.stderr,
             )
             print(
-                "  non_replicated_deduplication_window must be set or the token is ignored.",
+                "  honoured: migration 016 sets non_replicated_deduplication_window,",
+                file=sys.stderr,
+            )
+            print(
+                "  and without it insert_deduplication_token is ignored entirely.",
                 file=sys.stderr,
             )
         sys.exit(1)
