@@ -164,6 +164,26 @@ An earlier version of this note recommended `ReplacingMergeTree` or
 table, where it is refused with `Code: 497 ... Not enough privileges`. Every
 guarded insert would have been rejected.
 
+### What the high-water mark does not cover
+
+A read-then-insert is not atomic against an insert that is **already in
+flight**. If an HTTP INSERT times out while ClickHouse is still committing it,
+the sink cannot tell whether the row landed; the high-water read before its
+retry can answer "nothing", and the original can then commit alongside the
+retry. Two identical rows, in a plain `MergeTree` that will not reject them.
+
+This is a genuine residual risk, not a theoretical one, and it is *not* closed
+by anything in this document. What exists today is detection rather than
+prevention: `verify_audit.py` counts occurrences of each `row_hash` and reports
+`duplicate_row`, because the pair is invisible to every other check — identical
+content means an identical hash, so hash-keyed linkage and reachability both
+pass.
+
+Closing it needs the database: a `ReplacingMergeTree` keyed
+`(server_id, run_id, segment_seq)`, or a deduplicating insert path. That is a
+migration against a live audit table and a schema decision for SSDF to make
+deliberately — tracked separately rather than settled here.
+
 ## Query Contract
 
 The evidence chain for a given `run_id` is queried as:
@@ -231,12 +251,28 @@ SELECT row_hash
 FROM ssdf.audit
 WHERE tier = 'evidence'
   AND JSONExtractString(args, 'server_id') = {server_id:String}
-ORDER BY ts DESC, JSONExtractUInt(args, 'segment_seq') DESC
-LIMIT 1
+  AND row_hash NOT IN (
+      SELECT prev_hash
+      FROM ssdf.audit
+      WHERE tier = 'evidence'
+        AND JSONExtractString(args, 'server_id') = {server_id:String}
+        AND prev_hash != ''
+  )
 ```
 
-An empty result means a genuinely new writer, which starts a root. Anything
-else is a resume. This is separate from the run-scoped high-water mark in
+The tail is the row **nothing else points at** — it is found by following the
+links, not by sorting. Ordering by `ts` and `segment_seq` looks equivalent and
+is not: `segment_seq` restarts at 0 for each run, so an older run's segment 40
+outranks the real tail's segment 0, and two records sharing a millisecond or a
+clock that stepped backwards break the tiebreak as well. A writer seeded from
+an interior hash forks its own chain, and a fork verifies as two valid chains.
+
+An empty result means a genuinely new writer, which starts a root.
+
+**More than one row is itself the answer to a different question.** A healthy
+chain has exactly one unreferenced tail; two mean it has already forked, and a
+writer that resumes from either one deepens the fork. Treat that as a fault to
+investigate, not as a tie to break. This is separate from the run-scoped high-water mark in
 [audit-evidence-ingestion.md](audit-evidence-ingestion.md), which answers a
 different question — what to skip on replay, not where to attach.
 

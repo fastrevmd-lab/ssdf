@@ -106,6 +106,20 @@ def verify_tier(rows: list[dict]) -> list[dict]:
     issues: list[dict] = []
     by_hash = {r["row_hash"]: r for r in rows}
 
+    # 0. Duplicates. A retry after an ambiguous INSERT timeout can land the same
+    #    row twice: the sink cannot tell whether the timed-out request committed,
+    #    its high-water read can answer "nothing landed", and the original then
+    #    commits alongside the retry. The pair is invisible to every check below
+    #    -- identical content means an identical row_hash, so `by_hash` collapses
+    #    them into one entry and linkage and reachability both pass. Counting is
+    #    the only thing that sees it.
+    seen: dict[str, int] = defaultdict(int)
+    for r in rows:
+        seen[r["row_hash"]] += 1
+    for row_hash, count in seen.items():
+        if count > 1:
+            issues.append({"type": "duplicate_row", "row_hash": row_hash})
+
     # 1. Content integrity: each stored row_hash must equal H(prev_hash, fields).
     for r in rows:
         if compute_row_hash(r["prev_hash"], r) != r["row_hash"]:

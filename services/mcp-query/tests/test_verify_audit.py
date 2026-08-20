@@ -187,3 +187,31 @@ def test_a_sovereign_row_without_a_writer_is_not_a_violation():
     from ssdf_mcp_query.verify_audit import writer_issue
 
     assert not writer_issue({"tier": "sovereign", "args": "", "row_hash": "sha256:f"})
+
+
+def test_detects_a_replayed_duplicate_row():
+    """A retry after an ambiguous timeout lands the same row twice.
+
+    An HTTP INSERT that times out while ClickHouse is still committing leaves
+    the sink unable to tell whether the row landed. Its pre-retry high-water
+    read can say "nothing", the retry inserts, and the original commits too --
+    two identical rows in a plain MergeTree.
+
+    The chain checks alone cannot see this: the duplicate carries the *same*
+    row_hash, so hash-keyed lookups collapse the pair into one entry and every
+    linkage and reachability check passes. Counting occurrences is what makes
+    it visible.
+    """
+    rows = _chain(4)
+    rows.append(dict(rows[2]))  # the replayed row, byte-for-byte
+
+    issues = verify_tier(rows)
+
+    duplicates = [i for i in issues if i["type"] == "duplicate_row"]
+    assert len(duplicates) == 1, issues
+    assert duplicates[0]["row_hash"] == rows[2]["row_hash"]
+
+
+def test_a_clean_chain_reports_no_duplicates():
+    """Guards the counting against firing on ordinary chains."""
+    assert not [i for i in verify_tier(_chain(6)) if i["type"] == "duplicate_row"]
