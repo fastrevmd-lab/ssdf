@@ -9,7 +9,9 @@ import clickhouse_connect
 from ssdf_common.clickhouse import client_kwargs as _client_kwargs
 from .config import Config
 from .measures import (
-    build_aggregate_sql, build_entity_bucket_sql, build_deny_counts_sql,
+    build_aggregate_sql,
+    build_entity_bucket_sql,
+    build_deny_counts_sql,
     build_alert_count_sql,
 )
 

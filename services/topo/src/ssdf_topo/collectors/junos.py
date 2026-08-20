@@ -33,19 +33,21 @@ def parse_arp(text: str, source_device: str, now: str) -> list[Observation]:
         mac = tokens[0].lower()
         ip = tokens[1]
         iface = tokens[2]
-        observations.append(Observation(
-            observed_at=now,
-            collector="junos",
-            source_device=source_device,
-            layer="l3",
-            observation_type="arp_entry",
-            subj_kind="host",
-            subj_id=f"ip:{ip}",
-            obj_kind="host",
-            obj_id=f"mac:{mac}",
-            attrs={"interface": iface},
-            raw=line,
-        ))
+        observations.append(
+            Observation(
+                observed_at=now,
+                collector="junos",
+                source_device=source_device,
+                layer="l3",
+                observation_type="arp_entry",
+                subj_kind="host",
+                subj_id=f"ip:{ip}",
+                obj_kind="host",
+                obj_id=f"mac:{mac}",
+                attrs={"interface": iface},
+                raw=line,
+            )
+        )
     return observations
 
 
@@ -74,24 +76,26 @@ def parse_lldp_neighbors(text: str, source_device: str, now: str) -> list[Observ
         remaining = tokens[3:]
         remote_system = remaining[-1]
         remote_port = " ".join(remaining[:-1]) if len(remaining) > 1 else ""
-        observations.append(Observation(
-            observed_at=now,
-            collector="junos",
-            source_device=source_device,
-            layer="l2",
-            observation_type="lldp_neighbor",
-            subj_kind="interface",
-            subj_id=f"if:{source_device}:{local}",
-            obj_kind="interface",
-            obj_id=f"if:{remote_system}:{remote_port or 'unknown'}",
-            attrs={
-                "local_port": local,
-                "remote_port": remote_port,
-                "remote_system": remote_system,
-                "remote_chassis": chassis,
-            },
-            raw=line,
-        ))
+        observations.append(
+            Observation(
+                observed_at=now,
+                collector="junos",
+                source_device=source_device,
+                layer="l2",
+                observation_type="lldp_neighbor",
+                subj_kind="interface",
+                subj_id=f"if:{source_device}:{local}",
+                obj_kind="interface",
+                obj_id=f"if:{remote_system}:{remote_port or 'unknown'}",
+                attrs={
+                    "local_port": local,
+                    "remote_port": remote_port,
+                    "remote_system": remote_system,
+                    "remote_chassis": chassis,
+                },
+                raw=line,
+            )
+        )
     return observations
 
 
@@ -114,19 +118,21 @@ def parse_mac_table(text: str, source_device: str, now: str) -> list[Observation
         vlan = tokens[0]
         mac = tokens[1].lower()
         port = tokens[4]
-        observations.append(Observation(
-            observed_at=now,
-            collector="junos",
-            source_device=source_device,
-            layer="l2",
-            observation_type="mac_entry",
-            subj_kind="host",
-            subj_id=f"mac:{mac}",
-            obj_kind="device",
-            obj_id=f"device:{source_device}",
-            attrs={"vlan": vlan, "port": port},
-            raw=line,
-        ))
+        observations.append(
+            Observation(
+                observed_at=now,
+                collector="junos",
+                source_device=source_device,
+                layer="l2",
+                observation_type="mac_entry",
+                subj_kind="host",
+                subj_id=f"mac:{mac}",
+                obj_kind="device",
+                obj_id=f"device:{source_device}",
+                attrs={"vlan": vlan, "port": port},
+                raw=line,
+            )
+        )
     return observations
 
 

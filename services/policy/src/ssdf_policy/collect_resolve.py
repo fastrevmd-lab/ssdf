@@ -30,8 +30,9 @@ def _build_collector(name: str):
     return cls()
 
 
-def run_once(enabled, collector_factory, client_factory, writer, tenant: str,
-             now: str) -> tuple[int, int]:
+def run_once(
+    enabled, collector_factory, client_factory, writer, tenant: str, now: str
+) -> tuple[int, int]:
     """Collect rules from each enabled firewall (skipping failures), resolve, write."""
     all_rules: list[dict] = []
     for name in enabled:

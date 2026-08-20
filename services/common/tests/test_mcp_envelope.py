@@ -9,8 +9,9 @@ XML = "<response status='success'><result><entry><ip>10.64.0.1</ip></entry></res
 
 def test_unwraps_nested_output_content():
     """Current rust-panosmcp shape: {"output": {"content": "<xml>"}}."""
-    payload = json.dumps({"device": "panosvm", "status": "success",
-                          "output": {"content": XML, "truncated": False}})
+    payload = json.dumps(
+        {"device": "panosvm", "status": "success", "output": {"content": XML, "truncated": False}}
+    )
     assert unwrap_mcp_text(payload) == XML
 
 

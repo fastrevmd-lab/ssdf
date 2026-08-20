@@ -13,7 +13,8 @@ MAX_NODES = 5000
 
 def _since(hours: int) -> str:
     return (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=hours)).isoformat(
-        timespec="milliseconds")
+        timespec="milliseconds"
+    )
 
 
 class TopoTools:
@@ -53,8 +54,14 @@ class TopoTools:
             return {"error": "not_found", "detail": f"no entity matches '{identifier}'"}
         graph, _, _ = self._build(self._window)
         nid = node["node_id"]
-        result = {"entity": nid, "name": node.get("name", ""), "attached_to": None,
-                  "port": None, "vlan": None, "via": None}
+        result = {
+            "entity": nid,
+            "name": node.get("name", ""),
+            "attached_to": None,
+            "port": None,
+            "vlan": None,
+            "via": None,
+        }
         if nid in graph:
             for _, dst, data in graph.out_edges(nid, data=True):
                 if data.get("edge_type") == "attaches_to":
@@ -65,8 +72,13 @@ class TopoTools:
                     break
         return result
 
-    def neighbors(self, identifier: str, layer: str | None = None, depth: int = 1,
-                  since_hours: int | None = None) -> dict:
+    def neighbors(
+        self,
+        identifier: str,
+        layer: str | None = None,
+        depth: int = 1,
+        since_hours: int | None = None,
+    ) -> dict:
         node = self._store.find_node(identifier)
         if not node:
             return {"error": "not_found", "detail": f"no entity matches '{identifier}'"}
@@ -92,8 +104,11 @@ class TopoTools:
         if not src_node or not dst_node:
             return {"found": False, "error": "not_found"}
         graph, _, _ = self._build(self._window)
-        layer_sets = {"physical": {"l1", "l2"}, "flow": {"flow", "l3"},
-                      "any": {"l1", "l2", "l3", "virt", "flow"}}
+        layer_sets = {
+            "physical": {"l1", "l2"},
+            "flow": {"flow", "l3"},
+            "any": {"l1", "l2", "l3", "virt", "flow"},
+        }
         ug = self._undirected_layer(graph, layer_sets.get(layer, layer_sets["any"]))
         s, d = src_node["node_id"], dst_node["node_id"]
         if s not in ug or d not in ug or not nx.has_path(ug, s, d):
@@ -126,29 +141,43 @@ class TopoTools:
                 node = node_by_id.get(n_id, {})
                 if node.get("kind") == "device" and node.get("attrs", {}).get("role") == "firewall":
                     firewalls.add(node.get("name") or n_id)
-        return {"src": s, "dst": d, "firewalls": sorted(f for f in firewalls if f),
-                "rules": sorted(r for r in rules if r),
-                "zones": sorted(z for z in zones if z)}
+        return {
+            "src": s,
+            "dst": d,
+            "firewalls": sorted(f for f in firewalls if f),
+            "rules": sorted(r for r in rules if r),
+            "zones": sorted(z for z in zones if z),
+        }
 
-    def topology_snapshot(self, layer: str | None = None,
-                          since_hours: int | None = None,
-                          role: str | None = None,
-                          kind: str | None = None) -> dict:
+    def topology_snapshot(
+        self,
+        layer: str | None = None,
+        since_hours: int | None = None,
+        role: str | None = None,
+        kind: str | None = None,
+    ) -> dict:
         if role is not None or kind is not None:
             # Inventory query: select nodes directly from graph_nodes by attr,
             # NOT from the edge-derived subgraph — firewall device nodes are
             # isolated (no edges) and would otherwise be invisible. Edges are
             # then restricted to those among the selected nodes (within window).
             nodes = self._store.nodes_by_attr(role=role, kind=kind, limit=MAX_NODES)
-            _, edges = self._store.load_subgraph(_since(since_hours or self._window),
-                                                 limit=MAX_NODES)
+            _, edges = self._store.load_subgraph(
+                _since(since_hours or self._window), limit=MAX_NODES
+            )
             keep = {n["node_id"] for n in nodes}
             edges = [e for e in edges if e["src_id"] in keep and e["dst_id"] in keep]
         else:
-            nodes, edges = self._store.load_subgraph(_since(since_hours or self._window),
-                                                     limit=MAX_NODES)
+            nodes, edges = self._store.load_subgraph(
+                _since(since_hours or self._window), limit=MAX_NODES
+            )
         if layer:
             edges = [e for e in edges if e.get("layer") == layer]
         truncated = len(nodes) >= MAX_NODES
-        return {"nodes": nodes, "edges": edges, "node_count": len(nodes),
-                "edge_count": len(edges), "truncated": truncated}
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+            "truncated": truncated,
+        }

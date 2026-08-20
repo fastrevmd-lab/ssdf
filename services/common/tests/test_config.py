@@ -35,6 +35,7 @@ def test_env_bool_truthiness():
     # (though env_bool doesn't accept env yet — this is a limitation).
     # Since env_bool uses os.environ, we'll test via the real environment.
     import os
+
     old = os.environ.get("TEST_ENV_BOOL")
     try:
         os.environ["TEST_ENV_BOOL"] = "1"

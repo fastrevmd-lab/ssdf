@@ -4,20 +4,31 @@ from ssdf_policy.models import entity_id, ASSET, POLICY, FIREWALL
 
 def _rule(device, name, provider="paloalto", action="allow"):
     return {
-        "provider": provider, "device_name": device, "rule_name": name, "action": action,
-        "from_zone": ["trust"], "to_zone": ["untrust"], "source_addresses": ["any"],
-        "dest_addresses": ["10.64.0.0/24"], "application": ["web-browsing"], "service": ["http"],
-        "position": 0, "enabled": True, "vendor_extras": {"panw.panos.uuid": "u-1"},
+        "provider": provider,
+        "device_name": device,
+        "rule_name": name,
+        "action": action,
+        "from_zone": ["trust"],
+        "to_zone": ["untrust"],
+        "source_addresses": ["any"],
+        "dest_addresses": ["10.64.0.0/24"],
+        "application": ["web-browsing"],
+        "service": ["http"],
+        "position": 0,
+        "enabled": True,
+        "vendor_extras": {"panw.panos.uuid": "u-1"},
         "collected_at": "2026-06-08T00:00:00",
     }
 
 
 def test_same_rule_name_on_two_firewalls_does_not_collapse():
-    rules = [_rule("fwA", "ALLOW-WEB", provider="juniper"),
-             _rule("fwB", "ALLOW-WEB", provider="juniper")]
+    rules = [
+        _rule("fwA", "ALLOW-WEB", provider="juniper"),
+        _rule("fwB", "ALLOW-WEB", provider="juniper"),
+    ]
     entities, _ = resolve_policies(rules, "t_main")
     policies = [e for e in entities if e["kind"] == POLICY]
-    assert len({p["entity_id"] for p in policies}) == 2   # the M6a collapse is fixed
+    assert len({p["entity_id"] for p in policies}) == 2  # the M6a collapse is fixed
 
 
 def test_emits_firewall_entity_and_governed_by_edge():

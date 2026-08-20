@@ -28,7 +28,7 @@ app + known-pattern gate, so non-security daemon noise is dropped at ingest.
 
 ## 2. Restart + verify on the wire
 On pve3:  systemctl restart rsyslog
-On ct102: tcpdump -n -A -i any udp port 517 -c 20
+On guest 700 (was ct102): tcpdump -n -A -i any udp port 517 -c 20
 Trip an event (e.g. from another host: `ssh baduser@pve3` with a wrong password) and
 confirm the line arrives.
 
@@ -42,7 +42,7 @@ Two live-found realities the VRL handles:
 
 ## 3. Deployment-specific values (used by the nft allow-list + ext.proxmox.node)
   - PVE3_LAN_IP    = **198.51.100.201**  (src from `ip -4 route get 198.51.100.150` on pve3;
-                     nft allow-list source on ct102; see infra/firewall/ct102-ingest.nft)
+                     nft allow-list source on guest 700 (was ct102); see infra/firewall/ct102-ingest.nft)
   - NODE_HOSTNAME  = pve3   (rides ext.proxmox.node)
 
 ## 4. Captured samples (real lines from live-proof 2026-06-14 — the VRL test fixtures)

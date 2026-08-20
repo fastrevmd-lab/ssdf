@@ -19,6 +19,6 @@ def test_resolver_writes_entities_against_live_ch(writer):
     n_entities, n_edges = run_resolver(writer, tenant="t_main", window_hours=720)
     assert n_entities >= 0  # may be 0 if no flows in window; assert the call path works
     rows = writer.query(
-        "SELECT count() AS c FROM ssdf.entities FINAL WHERE tenant_id = {t:String}",
-        {"t": "t_main"})
+        "SELECT count() AS c FROM ssdf.entities FINAL WHERE tenant_id = {t:String}", {"t": "t_main"}
+    )
     assert rows[0]["c"] >= n_entities

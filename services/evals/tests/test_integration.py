@@ -15,8 +15,7 @@ import pytest
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif("CH_HOST" not in os.environ,
-                       reason="needs live ClickHouse (CH_HOST)"),
+    pytest.mark.skipif("CH_HOST" not in os.environ, reason="needs live ClickHouse (CH_HOST)"),
 ]
 
 GOLDEN = Path(__file__).resolve().parents[1] / "golden" / "core.yaml"
@@ -25,6 +24,7 @@ GOLDEN = Path(__file__).resolve().parents[1] / "golden" / "core.yaml"
 @pytest.fixture(scope="module")
 def config():
     from ssdf_evals.config import load_config
+
     return load_config()
 
 
@@ -32,6 +32,7 @@ def config():
 def query_client(config):
     import clickhouse_connect
     from ssdf_evals.config import client_kwargs
+
     return clickhouse_connect.get_client(**client_kwargs(config))
 
 
@@ -39,9 +40,10 @@ def query_client(config):
 def audit_client(config):
     import clickhouse_connect
     from ssdf_evals.config import client_kwargs
-    return clickhouse_connect.get_client(**client_kwargs(
-        config, username="ssdf_audit_verify",
-        password=config.audit_verify_password))
+
+    return clickhouse_connect.get_client(
+        **client_kwargs(config, username="ssdf_audit_verify", password=config.audit_verify_password)
+    )
 
 
 def test_every_reference_sql_executes(query_client):
@@ -50,6 +52,7 @@ def test_every_reference_sql_executes(query_client):
     Empty results are allowed (windows move); errors are corpus bugs.
     """
     from ssdf_evals.corpus import load_corpus
+
     failures = []
     checked = 0
     for question in load_corpus(GOLDEN):
@@ -70,27 +73,41 @@ def test_audit_verify_can_read_audit(audit_client):
     assert rows[0][0] >= 0
 
 
-@pytest.mark.skipif("CH_AUDIT_PASSWORD" not in os.environ,
-                    reason="needs ssdf_audit writer (CH_AUDIT_PASSWORD)")
+@pytest.mark.skipif(
+    "CH_AUDIT_PASSWORD" not in os.environ, reason="needs ssdf_audit writer (CH_AUDIT_PASSWORD)"
+)
 def test_audit_join_roundtrip(config, audit_client):
     """Insert a synthetic audit row as ssdf_audit; fetch_tools must see it."""
     import clickhouse_connect
     from ssdf_evals.auditcheck import fetch_tools
     from ssdf_evals.config import client_kwargs
 
-    writer = clickhouse_connect.get_client(**client_kwargs(
-        config, username="ssdf_audit",
-        password=os.environ["CH_AUDIT_PASSWORD"]))
+    writer = clickhouse_connect.get_client(
+        **client_kwargs(config, username="ssdf_audit", password=os.environ["CH_AUDIT_PASSWORD"])
+    )
     now = datetime.now(timezone.utc)
     principal = f"eval-inttest-{now.strftime('%H%M%S')}"
     writer.insert(
         "ssdf.audit",
-        [[now, principal, "eval-test", "locate", "{}", ["topology"],
-          "allow", 1, ""]],
-        column_names=["ts", "principal", "tier", "tool", "args",
-                      "data_classes", "decision", "row_count", "error"])
+        [[now, principal, "eval-test", "locate", "{}", ["topology"], "allow", 1, ""]],
+        column_names=[
+            "ts",
+            "principal",
+            "tier",
+            "tool",
+            "args",
+            "data_classes",
+            "decision",
+            "row_count",
+            "error",
+        ],
+    )
 
-    tools = fetch_tools(audit_client, principal,
-                        now - timedelta(seconds=2), now + timedelta(seconds=2),
-                        slop_secs=config.audit_slop_secs)
+    tools = fetch_tools(
+        audit_client,
+        principal,
+        now - timedelta(seconds=2),
+        now + timedelta(seconds=2),
+        slop_secs=config.audit_slop_secs,
+    )
     assert tools == ["locate"]

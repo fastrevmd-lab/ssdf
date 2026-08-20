@@ -28,14 +28,27 @@ def test_missing_audit_verify_password_raises(monkeypatch):
 
 def test_defaults(monkeypatch):
     _set_required(monkeypatch)
-    for key in ("CH_HOST", "CH_PORT", "CH_USER", "CH_DATABASE", "CH_SECURE",
-                "CH_CA_FILE", "EVAL_AUDIT_SLOP_SECS"):
+    for key in (
+        "CH_HOST",
+        "CH_PORT",
+        "CH_USER",
+        "CH_DATABASE",
+        "CH_SECURE",
+        "CH_CA_FILE",
+        "EVAL_AUDIT_SLOP_SECS",
+    ):
         monkeypatch.delenv(key, raising=False)
     config = load_config()
     assert config == Config(
-        ch_host="127.0.0.1", ch_port=8123, ch_user="ssdf_ro",
-        ch_password="ro-pw", ch_database="ssdf", ch_secure=False,
-        ch_ca_file="", audit_verify_password="av-pw", audit_slop_secs=5,
+        ch_host="127.0.0.1",
+        ch_port=8123,
+        ch_user="ssdf_ro",
+        ch_password="ro-pw",
+        ch_database="ssdf",
+        ch_secure=False,
+        ch_ca_file="",
+        audit_verify_password="av-pw",
+        audit_slop_secs=5,
     )
 
 
@@ -65,7 +78,6 @@ def test_client_kwargs_tls_shape(monkeypatch):
 
 def test_client_kwargs_identity_override(monkeypatch):
     _set_required(monkeypatch)
-    kwargs = client_kwargs(load_config(), username="ssdf_audit_verify",
-                           password="av-pw2")
+    kwargs = client_kwargs(load_config(), username="ssdf_audit_verify", password="av-pw2")
     assert kwargs["username"] == "ssdf_audit_verify"
     assert kwargs["password"] == "av-pw2"

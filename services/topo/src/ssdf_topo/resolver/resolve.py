@@ -7,9 +7,16 @@ import re
 from collections import defaultdict
 
 from ..models import (
-    Observation, node_id, edge_id,
-    DEVICE, HOST, INTERFACE,
-    PHYSICAL_LINK, ATTACHES_TO, HAS_ADDRESS, HOSTS,
+    Observation,
+    node_id,
+    edge_id,
+    DEVICE,
+    HOST,
+    INTERFACE,
+    PHYSICAL_LINK,
+    ATTACHES_TO,
+    HAS_ADDRESS,
+    HOSTS,
 )
 from .unionfind import UnionFind
 
@@ -73,8 +80,7 @@ def _merge_devices(nodes: dict, edges: dict, edge_evidence: dict, tenant: str) -
         edge["dst_id"] = canonical.get(edge["dst_id"], edge["dst_id"])
         if edge["src_id"] == edge["dst_id"]:
             continue  # drop self-loops created by the merge
-        new_eid = edge_id(tenant, edge["src_id"], edge["dst_id"],
-                          edge["edge_type"], edge["layer"])
+        new_eid = edge_id(tenant, edge["src_id"], edge["dst_id"], edge["edge_type"], edge["layer"])
         edge["edge_id"] = new_eid
         existing = new_edges.get(new_eid)
         if existing is None:
@@ -90,8 +96,9 @@ def _merge_devices(nodes: dict, edges: dict, edge_evidence: dict, tenant: str) -
     edge_evidence.update(new_evidence)
 
 
-def resolve_graph(observations: list[Observation], flow_edges: list[dict],
-                  tenant: str) -> tuple[list[dict], list[dict]]:
+def resolve_graph(
+    observations: list[Observation], flow_edges: list[dict], tenant: str
+) -> tuple[list[dict], list[dict]]:
     nodes: dict[str, dict] = {}
     edges: dict[str, dict] = {}
     edge_evidence: dict[str, set[str]] = defaultdict(set)
@@ -99,9 +106,16 @@ def resolve_graph(observations: list[Observation], flow_edges: list[dict],
     def touch_node(nid: str, kind: str, name: str, observed_at: str) -> dict:
         n = nodes.get(nid)
         if n is None:
-            n = {"node_id": nid, "tenant_id": tenant, "kind": kind, "name": name,
-                 "identifiers": {}, "first_seen": observed_at, "last_seen": observed_at,
-                 "attrs": {}}
+            n = {
+                "node_id": nid,
+                "tenant_id": tenant,
+                "kind": kind,
+                "name": name,
+                "identifiers": {},
+                "first_seen": observed_at,
+                "last_seen": observed_at,
+                "attrs": {},
+            }
             nodes[nid] = n
         else:
             n["first_seen"] = min(n["first_seen"], observed_at)
@@ -122,14 +136,24 @@ def resolve_graph(observations: list[Observation], flow_edges: list[dict],
         n["identifiers"]["name"] = name
         return n
 
-    def add_edge(src: str, dst: str, etype: str, layer: str, observed_at: str,
-                 attrs: dict, evidence: str) -> None:
+    def add_edge(
+        src: str, dst: str, etype: str, layer: str, observed_at: str, attrs: dict, evidence: str
+    ) -> None:
         eid = edge_id(tenant, src, dst, etype, layer)
         e = edges.get(eid)
         if e is None:
-            e = {"edge_id": eid, "tenant_id": tenant, "src_id": src, "dst_id": dst,
-                 "edge_type": etype, "layer": layer, "first_seen": observed_at,
-                 "last_seen": observed_at, "confidence": 0.7, "attrs": dict(attrs)}
+            e = {
+                "edge_id": eid,
+                "tenant_id": tenant,
+                "src_id": src,
+                "dst_id": dst,
+                "edge_type": etype,
+                "layer": layer,
+                "first_seen": observed_at,
+                "last_seen": observed_at,
+                "confidence": 0.7,
+                "attrs": dict(attrs),
+            }
             edges[eid] = e
         else:
             e["first_seen"] = min(e["first_seen"], observed_at)
@@ -144,55 +168,102 @@ def resolve_graph(observations: list[Observation], flow_edges: list[dict],
             mac = o.obj_id.split("mac:", 1)[-1]
             host = host_node(mac, at)
             host["identifiers"]["ip"] = ip
-            add_edge(host["node_id"], node_id(tenant, HOST, f"ip:{ip}"),
-                     HAS_ADDRESS, "l3", at,
-                     {"ip": ip, "evidence": o.collector}, evidence=o.collector)
+            add_edge(
+                host["node_id"],
+                node_id(tenant, HOST, f"ip:{ip}"),
+                HAS_ADDRESS,
+                "l3",
+                at,
+                {"ip": ip, "evidence": o.collector},
+                evidence=o.collector,
+            )
         elif ot in ("mac_entry", "wlan_assoc"):
             mac = o.subj_id.split("mac:", 1)[-1]
             host = host_node(mac, at)
             dev_name = o.obj_id.split(":", 1)[-1] if o.obj_id else o.source_device
             dev = device_node(dev_name, at)
-            add_edge(host["node_id"], dev["node_id"], ATTACHES_TO, "l2", at,
-                     {"port": o.attrs.get("port", ""), "vlan": o.attrs.get("vlan", ""),
-                      "evidence": o.collector}, evidence=o.collector)
+            add_edge(
+                host["node_id"],
+                dev["node_id"],
+                ATTACHES_TO,
+                "l2",
+                at,
+                {
+                    "port": o.attrs.get("port", ""),
+                    "vlan": o.attrs.get("vlan", ""),
+                    "evidence": o.collector,
+                },
+                evidence=o.collector,
+            )
         elif ot == "vm_nic":
             mac = o.subj_id.split("mac:", 1)[-1]
             host = host_node(mac, at)
             host["attrs"]["virtual"] = "true"
             dev = device_node(o.source_device, at)
-            add_edge(host["node_id"], dev["node_id"], ATTACHES_TO, "l2", at,
-                     {"bridge": o.attrs.get("bridge", ""), "vlan": o.attrs.get("vlan", ""),
-                      "evidence": "proxmox"}, evidence="proxmox")
+            add_edge(
+                host["node_id"],
+                dev["node_id"],
+                ATTACHES_TO,
+                "l2",
+                at,
+                {
+                    "bridge": o.attrs.get("bridge", ""),
+                    "vlan": o.attrs.get("vlan", ""),
+                    "evidence": "proxmox",
+                },
+                evidence="proxmox",
+            )
         elif ot == "vm_host":
             dev = device_node(o.source_device, at)
             dev["attrs"]["role"] = "hypervisor"
             vm_key = o.obj_id
-            vm_node = touch_node(node_id(tenant, HOST, vm_key), HOST,
-                                 o.attrs.get("name", vm_key), at)
+            vm_node = touch_node(
+                node_id(tenant, HOST, vm_key), HOST, o.attrs.get("name", vm_key), at
+            )
             vm_node["identifiers"]["vmid"] = o.attrs.get("vmid", "")
             vm_node["attrs"]["virtual"] = "true"
-            add_edge(dev["node_id"], vm_node["node_id"], HOSTS, "virt", at,
-                     {"vmid": o.attrs.get("vmid", ""), "evidence": "proxmox"},
-                     evidence="proxmox")
+            add_edge(
+                dev["node_id"],
+                vm_node["node_id"],
+                HOSTS,
+                "virt",
+                at,
+                {"vmid": o.attrs.get("vmid", ""), "evidence": "proxmox"},
+                evidence="proxmox",
+            )
         elif ot == "lldp_neighbor":
             local_sys = o.source_device
-            remote_sys = o.attrs.get("remote_system", "") or o.obj_id.split("if:", 1)[-1].split(":", 1)[0]
+            remote_sys = (
+                o.attrs.get("remote_system", "") or o.obj_id.split("if:", 1)[-1].split(":", 1)[0]
+            )
             dev_a = device_node(local_sys, at)
             dev_b = device_node(remote_sys, at)
             remote_chassis = o.attrs.get("remote_chassis", "")
             if _MAC_RE.match(remote_chassis):
                 dev_b["identifiers"]["mac"] = remote_chassis.lower()
-            if_a = touch_node(node_id(tenant, INTERFACE, o.subj_id), INTERFACE,
-                              o.attrs.get("local_port", ""), at)
-            if_b = touch_node(node_id(tenant, INTERFACE, o.obj_id), INTERFACE,
-                              o.attrs.get("remote_port", ""), at)
+            if_a = touch_node(
+                node_id(tenant, INTERFACE, o.subj_id), INTERFACE, o.attrs.get("local_port", ""), at
+            )
+            if_b = touch_node(
+                node_id(tenant, INTERFACE, o.obj_id), INTERFACE, o.attrs.get("remote_port", ""), at
+            )
             if_a["attrs"]["device"] = local_sys
             if_b["attrs"]["device"] = remote_sys
-            add_edge(if_a["node_id"], if_b["node_id"], PHYSICAL_LINK, "l2", at,
-                     {"local_port": o.attrs.get("local_port", ""),
-                      "remote_port": o.attrs.get("remote_port", ""),
-                      "device_a": local_sys, "device_b": remote_sys,
-                      "evidence": o.collector}, evidence=f"{o.collector}:{local_sys}")
+            add_edge(
+                if_a["node_id"],
+                if_b["node_id"],
+                PHYSICAL_LINK,
+                "l2",
+                at,
+                {
+                    "local_port": o.attrs.get("local_port", ""),
+                    "remote_port": o.attrs.get("remote_port", ""),
+                    "device_a": local_sys,
+                    "device_b": remote_sys,
+                    "evidence": o.collector,
+                },
+                evidence=f"{o.collector}:{local_sys}",
+            )
         elif ot == "device_inventory":
             mac = o.attrs.get("mac", "").lower()
             dev = device_node(o.attrs.get("name", "") or f"dev:{mac}", at)
@@ -209,8 +280,11 @@ def resolve_graph(observations: list[Observation], flow_edges: list[dict],
             e["confidence"] = 1.0
         e["attrs"]["evidence"] = ",".join(sorted(edge_evidence[eid]))
 
-    known_ip_aliases = {n["identifiers"].get("ip") for n in nodes.values()
-                        if n["kind"] == HOST and n["identifiers"].get("ip")}
+    known_ip_aliases = {
+        n["identifiers"].get("ip")
+        for n in nodes.values()
+        if n["kind"] == HOST and n["identifiers"].get("ip")
+    }
     for fe in flow_edges:
         for endpoint in (fe["src_id"], fe["dst_id"]):
             if endpoint in nodes:

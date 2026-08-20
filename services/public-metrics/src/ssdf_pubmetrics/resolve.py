@@ -32,8 +32,9 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def plan_writes(reader, pmap, key, since_iso, baseline_since_iso, bucket_secs,
-                top_n, key_version, tenant_id) -> WritePlan:
+def plan_writes(
+    reader, pmap, key, since_iso, baseline_since_iso, bucket_secs, top_n, key_version, tenant_id
+) -> WritePlan:
     plan = WritePlan()
     now_iso = _now_iso()
     for measure in enabled_measures():
@@ -47,10 +48,15 @@ def plan_writes(reader, pmap, key, since_iso, baseline_since_iso, bucket_secs,
                 cur_ratio = reader.alert_count(since_iso)
                 base_ratio = reader.alert_count(baseline_since_iso)
             value = ratio_to_baseline(cur_ratio, base_ratio)
-            plan.metric_rows.append({
-                "bucket_start": since_iso, "metric": measure.metric,
-                "dim": "", "value": value, "tenant_id": tenant_id,
-            })
+            plan.metric_rows.append(
+                {
+                    "bucket_start": since_iso,
+                    "metric": measure.metric,
+                    "dim": "",
+                    "value": value,
+                    "tenant_id": tenant_id,
+                }
+            )
             continue
 
         # per_entity measures ALSO emit a top-N entity_series breakdown (in
@@ -60,8 +66,9 @@ def plan_writes(reader, pmap, key, since_iso, baseline_since_iso, bucket_secs,
             totals: dict[str, float] = {}
             for row in rows:
                 totals[row["ip"]] = totals.get(row["ip"], 0.0) + float(row["value"])
-            top_ips = [ip for ip, _ in sorted(
-                totals.items(), key=lambda kv: kv[1], reverse=True)[:top_n]]
+            top_ips = [
+                ip for ip, _ in sorted(totals.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+            ]
             top = set(top_ips)
             for row in rows:
                 ip = row["ip"]
@@ -69,24 +76,39 @@ def plan_writes(reader, pmap, key, since_iso, baseline_since_iso, bucket_secs,
                     continue
                 surrogate = mint_surrogate(pmap, key, _PSEUDONYM_KIND, ip)
                 if (_PSEUDONYM_KIND, ip) not in {
-                        (m["kind"], m["real_value"]) for m in plan.map_rows}:
-                    plan.map_rows.append({
-                        "kind": _PSEUDONYM_KIND, "real_value": ip,
-                        "surrogate": surrogate, "key_version": key_version,
-                        "first_seen": now_iso, "last_seen": now_iso,
-                    })
-                plan.entity_rows.append({
-                    "bucket_start": row["bucket_start"], "surrogate": surrogate,
-                    "metric": measure.metric, "value": float(row["value"]),
-                    "tenant_id": tenant_id,
-                })
+                    (m["kind"], m["real_value"]) for m in plan.map_rows
+                }:
+                    plan.map_rows.append(
+                        {
+                            "kind": _PSEUDONYM_KIND,
+                            "real_value": ip,
+                            "surrogate": surrogate,
+                            "key_version": key_version,
+                            "first_seen": now_iso,
+                            "last_seen": now_iso,
+                        }
+                    )
+                plan.entity_rows.append(
+                    {
+                        "bucket_start": row["bucket_start"],
+                        "surrogate": surrogate,
+                        "metric": measure.metric,
+                        "value": float(row["value"]),
+                        "tenant_id": tenant_id,
+                    }
+                )
 
         # every non-index measure (per_entity or not) emits its aggregate series
         for row in reader.aggregate_series(measure.metric, since_iso, bucket_secs):
-            plan.metric_rows.append({
-                "bucket_start": row["bucket_start"], "metric": measure.metric,
-                "dim": "", "value": float(row["value"]), "tenant_id": tenant_id,
-            })
+            plan.metric_rows.append(
+                {
+                    "bucket_start": row["bucket_start"],
+                    "metric": measure.metric,
+                    "dim": "",
+                    "value": float(row["value"]),
+                    "tenant_id": tenant_id,
+                }
+            )
     return plan
 
 
@@ -101,9 +123,14 @@ def run() -> int:
     pmap = reader.load_pseudonym_map(["host"])
 
     plan = plan_writes(
-        reader, pmap, key=config.pseudonym_key, since_iso=since_iso,
-        baseline_since_iso=baseline_since_iso, bucket_secs=config.bucket_secs,
-        top_n=config.top_n, key_version=config.key_version,
+        reader,
+        pmap,
+        key=config.pseudonym_key,
+        since_iso=since_iso,
+        baseline_since_iso=baseline_since_iso,
+        bucket_secs=config.bucket_secs,
+        top_n=config.top_n,
+        key_version=config.key_version,
         tenant_id=config.tenant_id,
     )
     m = writer.write_metric_timeseries(plan.metric_rows)

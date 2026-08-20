@@ -26,12 +26,18 @@ OBS_SQL = (
 
 def _row_to_obs(row: dict) -> Observation:
     return Observation(
-        observed_at=row["observed_at"], collector=row["collector"],
-        source_device=row["source_device"], layer=row["layer"],
-        observation_type=row["observation_type"], subj_kind=row["subj_kind"],
-        subj_id=row["subj_id"], obj_kind=row.get("obj_kind", ""),
-        obj_id=row.get("obj_id", ""), attrs=dict(row.get("attrs") or {}),
-        raw=row.get("raw", ""), tenant_id=row.get("tenant_id", "t_main"),
+        observed_at=row["observed_at"],
+        collector=row["collector"],
+        source_device=row["source_device"],
+        layer=row["layer"],
+        observation_type=row["observation_type"],
+        subj_kind=row["subj_kind"],
+        subj_id=row["subj_id"],
+        obj_kind=row.get("obj_kind", ""),
+        obj_id=row.get("obj_id", ""),
+        attrs=dict(row.get("attrs") or {}),
+        raw=row.get("raw", ""),
+        tenant_id=row.get("tenant_id", "t_main"),
     )
 
 

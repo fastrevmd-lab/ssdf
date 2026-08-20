@@ -20,9 +20,11 @@ _TLS_KWARGS = (
 
 def _audit_client():
     return clickhouse_connect.get_client(
-        host=CH_HOST, port=int(os.environ.get("CH_PORT", "8123")),
+        host=CH_HOST,
+        port=int(os.environ.get("CH_PORT", "8123")),
         username=os.environ.get("CH_AUDIT_USER", "ssdf_audit"),
-        password=AUDIT_PW, database="ssdf",
+        password=AUDIT_PW,
+        database="ssdf",
         **_TLS_KWARGS,
     )
 
@@ -35,9 +37,14 @@ def test_audit_row_inserts_and_round_trips():
     principal = f"itest-{uuid.uuid4().hex[:8]}"
     auditor = make_ch_auditor(load_config())
     auditor.record(
-        principal=principal, tier="sovereign", tool="query_flows",
-        args={"dst_port": 443}, data_classes=["security_log"],
-        decision="allow", row_count=3, error="",
+        principal=principal,
+        tier="sovereign",
+        tool="query_flows",
+        args={"dst_port": 443},
+        data_classes=["security_log"],
+        decision="allow",
+        row_count=3,
+        error="",
     )
     time.sleep(0.5)
     # Read back as an admin/ro path that CAN select (ssdf_ro has no audit grant,
@@ -46,9 +53,11 @@ def test_audit_row_inserts_and_round_trips():
     if not admin_pw:
         pytest.skip("set CH_ADMIN_PASSWORD to verify read-back")
     admin = clickhouse_connect.get_client(
-        host=CH_HOST, port=int(os.environ.get("CH_PORT", "8123")),
+        host=CH_HOST,
+        port=int(os.environ.get("CH_PORT", "8123")),
         username=os.environ.get("CH_ADMIN_USER", "default"),
-        password=admin_pw, database="ssdf",
+        password=admin_pw,
+        database="ssdf",
         **_TLS_KWARGS,
     )
     rows = admin.query(

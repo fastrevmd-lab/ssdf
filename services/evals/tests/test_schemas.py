@@ -15,11 +15,13 @@ def make_manifest(**overrides):
         "principal": "eval-test",
         "corpus_version": "deadbeef",
         "questions": [
-            {"id": "flows-top-talkers-24h",
-             "started": "2026-06-12T18:00:01Z",
-             "finished": "2026-06-12T18:00:14Z",
-             "answer": {"talkers": [{"ip": "10.74.11.20", "bytes": 1}]},
-             "error": None},
+            {
+                "id": "flows-top-talkers-24h",
+                "started": "2026-06-12T18:00:01Z",
+                "finished": "2026-06-12T18:00:14Z",
+                "answer": {"talkers": [{"ip": "10.74.11.20", "bytes": 1}]},
+                "error": None,
+            },
         ],
     }
     manifest.update(overrides)
@@ -60,17 +62,34 @@ def test_extra_top_level_key_rejected():
 
 
 def test_valid_scorecard_passes():
-    validate_scorecard({
-        "schema_version": 1, "run_id": "r", "model": "m", "runner": "x",
-        "tier": "sovereign", "principal": "eval-test", "corpus_version": "v",
-        "scored_at": "2026-06-12T19:00:00Z",
-        "questions": [{"id": "q1", "pass": True, "reasons": [],
-                       "predicate_detail": {}, "tools_observed": ["top_talkers"]}],
-        "rollups": {"total": 1, "passed": 1,
-                    "by_category": {"flows": {"total": 1, "passed": 1}},
-                    "by_difficulty": {"medium": {"total": 1, "passed": 1}},
-                    "by_tier": {"sovereign": {"total": 1, "passed": 1}}},
-    })  # must not raise
+    validate_scorecard(
+        {
+            "schema_version": 1,
+            "run_id": "r",
+            "model": "m",
+            "runner": "x",
+            "tier": "sovereign",
+            "principal": "eval-test",
+            "corpus_version": "v",
+            "scored_at": "2026-06-12T19:00:00Z",
+            "questions": [
+                {
+                    "id": "q1",
+                    "pass": True,
+                    "reasons": [],
+                    "predicate_detail": {},
+                    "tools_observed": ["top_talkers"],
+                }
+            ],
+            "rollups": {
+                "total": 1,
+                "passed": 1,
+                "by_category": {"flows": {"total": 1, "passed": 1}},
+                "by_difficulty": {"medium": {"total": 1, "passed": 1}},
+                "by_tier": {"sovereign": {"total": 1, "passed": 1}},
+            },
+        }
+    )  # must not raise
 
 
 def test_scorecard_missing_rollups_rejected():

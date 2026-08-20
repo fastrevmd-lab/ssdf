@@ -41,6 +41,4 @@ def canonical(row: dict) -> str:
 
 def compute_row_hash(prev_hash: str, row: dict) -> str:
     """row_hash = SHA-256( prev_hash + '\\n' + canonical(row) ), hex digest."""
-    return hashlib.sha256(
-        (prev_hash + "\n" + canonical(row)).encode("utf-8")
-    ).hexdigest()
+    return hashlib.sha256((prev_hash + "\n" + canonical(row)).encode("utf-8")).hexdigest()

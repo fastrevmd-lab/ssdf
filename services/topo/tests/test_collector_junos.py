@@ -75,6 +75,7 @@ def test_collect_skips_unreachable_device_without_aborting():
 
     class _OneBadClient:
         """Reachable for every device except 'vSRX-bad', which raises (unreachable)."""
+
         def call_tool(self, name, args=None):
             if (args or {}).get("router_name") == "vSRX-bad":
                 raise RuntimeError("connect failed: netconf transport error: No route to host")
@@ -91,6 +92,7 @@ def test_collect_emits_inventory_when_secondary_command_fails():
 
     class _LldpOnlyClient:
         """Device is reachable (lldp ok) but rejects the other commands."""
+
         def call_tool(self, name, args=None):
             if (args or {}).get("command") == "show lldp neighbors":
                 return ""

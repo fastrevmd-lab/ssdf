@@ -40,9 +40,9 @@ def _sanitize(value: str) -> str:
 def _connect(config: Config):
     """(query client as ssdf_ro-style user, audit client as ssdf_audit_verify)."""
     query_client = clickhouse_connect.get_client(**client_kwargs(config))
-    audit_client = clickhouse_connect.get_client(**client_kwargs(
-        config, username="ssdf_audit_verify",
-        password=config.audit_verify_password))
+    audit_client = clickhouse_connect.get_client(
+        **client_kwargs(config, username="ssdf_audit_verify", password=config.audit_verify_password)
+    )
     return query_client, audit_client
 
 
@@ -59,16 +59,19 @@ def _rollup(results: list[tuple[Question, bool]], key_fn) -> dict:
     return buckets
 
 
-def score_run(manifest: dict, questions: list[Question], query_client,
-              audit_client, slop_secs: int) -> dict:
+def score_run(
+    manifest: dict, questions: list[Question], query_client, audit_client, slop_secs: int
+) -> dict:
     """Pure scoring core: corpus tier-subset vs manifest, fail-closed."""
     tier = manifest["tier"]
     subset = questions_for_tier(questions, tier)
     by_id = {entry["id"]: entry for entry in manifest["questions"]}
     unknown = set(by_id) - {q.id for q in subset}
     if unknown:
-        print(f"warning: manifest ids not in corpus tier subset, ignored: "
-              f"{sorted(unknown)}", file=sys.stderr)
+        print(
+            f"warning: manifest ids not in corpus tier subset, ignored: {sorted(unknown)}",
+            file=sys.stderr,
+        )
 
     scored: list[dict] = []
     outcomes: list[tuple[Question, bool]] = []
@@ -85,9 +88,12 @@ def score_run(manifest: dict, questions: list[Question], query_client,
             reasons.append(f"runner error: {entry['error']}")
         else:
             tools_observed = fetch_tools(
-                audit_client, manifest["principal"],
-                _parse_ts(entry["started"]), _parse_ts(entry["finished"]),
-                slop_secs)
+                audit_client,
+                manifest["principal"],
+                _parse_ts(entry["started"]),
+                _parse_ts(entry["finished"]),
+                slop_secs,
+            )
             tool_result = check_tools(question, tools_observed, tier)
             predicate_result = evaluate(question, entry["answer"], query_client)
             predicate_detail = predicate_result.detail
@@ -96,15 +102,23 @@ def score_run(manifest: dict, questions: list[Question], query_client,
                 reasons.append(f"predicate: {predicate_result.reason}")
             if not tool_result.passed:
                 reasons.append(f"tools: {tool_result.reason}")
-        scored.append({"id": question.id, "pass": passed, "reasons": reasons,
-                       "predicate_detail": predicate_detail,
-                       "tools_observed": tools_observed})
+        scored.append(
+            {
+                "id": question.id,
+                "pass": passed,
+                "reasons": reasons,
+                "predicate_detail": predicate_detail,
+                "tools_observed": tools_observed,
+            }
+        )
         outcomes.append((question, passed))
 
     scorecard = {
         "schema_version": 1,
-        "run_id": manifest["run_id"], "model": manifest["model"],
-        "runner": manifest["runner"], "tier": tier,
+        "run_id": manifest["run_id"],
+        "model": manifest["model"],
+        "runner": manifest["runner"],
+        "tier": tier,
         "principal": manifest["principal"],
         "corpus_version": manifest["corpus_version"],
         "scored_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -143,12 +157,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        scorecard = score_run(manifest, questions, query_client, audit_client,
-                              config.audit_slop_secs)
+        scorecard = score_run(
+            manifest, questions, query_client, audit_client, config.audit_slop_secs
+        )
         date = scorecard["scored_at"][:10]
-        out_path = (args.results_dir /
-                    f"{date}-{_sanitize(manifest['model'])}-"
-                    f"{_sanitize(manifest['run_id'])}.json")
+        out_path = (
+            args.results_dir / f"{date}-{_sanitize(manifest['model'])}-"
+            f"{_sanitize(manifest['run_id'])}.json"
+        )
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(scorecard, indent=2) + "\n")
         rollups = scorecard["rollups"]

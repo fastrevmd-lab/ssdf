@@ -9,8 +9,14 @@ from ssdf_mcp_query.verify_audit import _fetch_rows
 
 def _config(**over):
     base = dict(
-        ch_host="h", ch_port=8443, ch_user="u", ch_password="p", ch_database="ssdf",
-        mcp_bind="0.0.0.0", mcp_port=30032, tokens={},
+        ch_host="h",
+        ch_port=8443,
+        ch_user="u",
+        ch_password="p",
+        ch_database="ssdf",
+        mcp_bind="0.0.0.0",
+        mcp_port=30032,
+        tokens={},
     )
     base.update(over)
     return Config(**base)
@@ -66,8 +72,12 @@ def test_clickhouse_client_insecure_default(monkeypatch):
 def test_make_ch_auditor_secure(monkeypatch):
     captured = _capture_get_client(monkeypatch)
     make_ch_auditor(
-        _config(ch_secure=True, ch_ca_file="/ca.crt",
-                ch_audit_password="apw", ch_audit_verify_password="vpw"),
+        _config(
+            ch_secure=True,
+            ch_ca_file="/ca.crt",
+            ch_audit_password="apw",
+            ch_audit_verify_password="vpw",
+        ),
         tier="sovereign",
     )
     # both the insert connection and the chain-seed connection are secure
@@ -87,8 +97,7 @@ def test_make_ch_auditor_insecure(monkeypatch):
 
 def test_verify_audit_fetch_rows_secure(monkeypatch):
     captured = _capture_get_client(monkeypatch)
-    _fetch_rows(_config(ch_secure=True, ch_ca_file="/ca.crt",
-                        ch_audit_verify_password="vpw"))
+    _fetch_rows(_config(ch_secure=True, ch_ca_file="/ca.crt", ch_audit_verify_password="vpw"))
     assert captured[0]["interface"] == "https"
     assert captured[0]["ca_cert"] == "/ca.crt"
 

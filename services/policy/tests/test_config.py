@@ -13,7 +13,7 @@ def test_load_config_defaults_and_devices(monkeypatch):
     monkeypatch.setenv("POLICY_COLLECTORS", "panos,junos")
     monkeypatch.setenv("JUNOS_DEVICES", "vSRX-test10, vSRX-test11")
     cfg = load_config()
-    assert cfg.ch_user == "ssdf_entity"          # reuses the M6a writer user
+    assert cfg.ch_user == "ssdf_entity"  # reuses the M6a writer user
     assert cfg.enabled_collectors == ("panos", "junos")
     assert cfg.junos_devices == ("vSRX-test10", "vSRX-test11")
     assert cfg.panos_device == "panosvm"

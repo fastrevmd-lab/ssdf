@@ -42,11 +42,17 @@ def test_missing_token_raises(monkeypatch):
 
 def test_token_map_multi_principal(monkeypatch, tmp_path):
     f = tmp_path / "tokens.json"
-    f.write_text(json.dumps({
-        "tok-triage": {"principal": "triage-agent",
-                       "allowed_tools": ["query_flows", "top_talkers"]},
-        "tok-admin": {"principal": "admin-agent"},
-    }))
+    f.write_text(
+        json.dumps(
+            {
+                "tok-triage": {
+                    "principal": "triage-agent",
+                    "allowed_tools": ["query_flows", "top_talkers"],
+                },
+                "tok-admin": {"principal": "admin-agent"},
+            }
+        )
+    )
     monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
     tokens = load_token_map()
     assert tokens["tok-triage"].principal == "triage-agent"
@@ -83,6 +89,7 @@ def test_audit_conn_fields(monkeypatch):
 
 def test_load_config_reads_query_limit_envs(monkeypatch):
     from ssdf_mcp_query.config import load_config
+
     monkeypatch.setenv("CH_PASSWORD", "x")
     monkeypatch.setenv("MCP_AUTH_TOKEN", "t")
     monkeypatch.setenv("MCP_MAX_RESULT_ROWS", "5")
@@ -94,12 +101,17 @@ def test_load_config_reads_query_limit_envs(monkeypatch):
 
 def test_token_map_not_after_parsed_utc(monkeypatch, tmp_path):
     import datetime as dt
+
     f = tmp_path / "tokens.json"
-    f.write_text(json.dumps({
-        "tok-exp": {"principal": "p", "not_after": "2026-09-09T12:00:00+00:00"},
-        "tok-naive": {"principal": "q", "not_after": "2026-09-09T12:00:00"},
-        "tok-forever": {"principal": "r"},
-    }))
+    f.write_text(
+        json.dumps(
+            {
+                "tok-exp": {"principal": "p", "not_after": "2026-09-09T12:00:00+00:00"},
+                "tok-naive": {"principal": "q", "not_after": "2026-09-09T12:00:00"},
+                "tok-forever": {"principal": "r"},
+            }
+        )
+    )
     monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
     tokens = load_token_map()
     expected = dt.datetime(2026, 9, 9, 12, 0, 0, tzinfo=dt.timezone.utc)
@@ -146,6 +158,7 @@ def test_ch_secure_env_parsing(monkeypatch):
 
 def test_load_config_query_limit_defaults(monkeypatch):
     from ssdf_mcp_query.config import load_config
+
     monkeypatch.setenv("CH_PASSWORD", "x")
     monkeypatch.setenv("MCP_AUTH_TOKEN", "t")
     monkeypatch.delenv("MCP_MAX_RESULT_ROWS", raising=False)

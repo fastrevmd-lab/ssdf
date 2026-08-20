@@ -52,7 +52,10 @@ def build_nodes_by_id_sql(
 
 
 def build_nodes_by_attr_sql(
-    role: str | None, kind: str | None, tenant: str, limit: int = 5000,
+    role: str | None,
+    kind: str | None,
+    tenant: str,
+    limit: int = 5000,
     schema: str = "ssdf",
 ) -> tuple[str, dict]:
     # Inventory selection by current node state (FINAL = latest version per
@@ -71,8 +74,7 @@ def build_nodes_by_attr_sql(
     sql = (
         "SELECT node_id, kind, name, identifiers, toString(first_seen) AS first_seen, "
         f"toString(last_seen) AS last_seen, attrs FROM {schema}.graph_nodes FINAL "
-        "WHERE " + " AND ".join(clauses) +
-        f" ORDER BY last_seen DESC LIMIT {int(limit)}"
+        "WHERE " + " AND ".join(clauses) + f" ORDER BY last_seen DESC LIMIT {int(limit)}"
     )
     return sql, params
 
@@ -80,8 +82,9 @@ def build_nodes_by_attr_sql(
 class GraphStore(Protocol):
     def find_node(self, identifier: str) -> dict | None: ...
     def load_subgraph(self, since_iso: str, limit: int = 5000) -> tuple[list[dict], list[dict]]: ...
-    def nodes_by_attr(self, role: str | None = None, kind: str | None = None,
-                      limit: int = 5000) -> list[dict]: ...
+    def nodes_by_attr(
+        self, role: str | None = None, kind: str | None = None, limit: int = 5000
+    ) -> list[dict]: ...
 
 
 class ClickHouseGraphStore:
@@ -111,9 +114,8 @@ class ClickHouseGraphStore:
             nodes = self._ch.run(node_sql, node_params)["rows"]
         return nodes, edges
 
-    def nodes_by_attr(self, role: str | None = None, kind: str | None = None,
-                      limit: int = 5000) -> list[dict]:
-        sql, params = build_nodes_by_attr_sql(
-            role, kind, self._tenant, limit, schema=self._schema
-        )
+    def nodes_by_attr(
+        self, role: str | None = None, kind: str | None = None, limit: int = 5000
+    ) -> list[dict]:
+        sql, params = build_nodes_by_attr_sql(role, kind, self._tenant, limit, schema=self._schema)
         return self._ch.run(sql, params)["rows"]

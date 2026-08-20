@@ -21,9 +21,11 @@ _TLS_KWARGS = (
 
 def _public_client():
     return clickhouse_connect.get_client(
-        host=CH_HOST, port=CH_PORT,
+        host=CH_HOST,
+        port=CH_PORT,
         username=os.environ.get("CH_PUBLIC_USER", "ssdf_public"),
-        password=PUBLIC_PW, database="ssdf_public",
+        password=PUBLIC_PW,
+        database="ssdf_public",
         **_TLS_KWARGS,
     )
 
@@ -56,24 +58,31 @@ def test_public_tier_audit_row_round_trips():
     principal = f"pub-itest-{uuid.uuid4().hex[:8]}"
     auditor = make_ch_auditor(load_config())
     auditor.record(
-        principal=principal, tier="public", tool="topology_snapshot",
-        args={"layer": "l2"}, data_classes=["topology"],
-        decision="allow", row_count=0, error="",
+        principal=principal,
+        tier="public",
+        tool="topology_snapshot",
+        args={"layer": "l2"},
+        data_classes=["topology"],
+        decision="allow",
+        row_count=0,
+        error="",
     )
     admin_pw = os.environ.get("CH_ADMIN_PASSWORD")
     if not admin_pw:
         pytest.skip("set CH_ADMIN_PASSWORD to verify read-back")
     import time
+
     time.sleep(0.5)
     admin = clickhouse_connect.get_client(
-        host=CH_HOST, port=CH_PORT,
+        host=CH_HOST,
+        port=CH_PORT,
         username=os.environ.get("CH_ADMIN_USER", "default"),
-        password=admin_pw, database="ssdf",
+        password=admin_pw,
+        database="ssdf",
         **_TLS_KWARGS,
     )
     rows = admin.query(
-        "SELECT tier, tool FROM ssdf.audit WHERE principal = {p:String} "
-        "ORDER BY ts DESC LIMIT 1",
+        "SELECT tier, tool FROM ssdf.audit WHERE principal = {p:String} ORDER BY ts DESC LIMIT 1",
         parameters={"p": principal},
     ).result_rows
     assert rows, "public audit row not found"

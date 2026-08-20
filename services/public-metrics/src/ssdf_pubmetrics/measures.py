@@ -23,8 +23,9 @@ AGG_VALUE_EXPR: dict[str, str] = {
     # would otherwise surface as a None value the resolver can't float().
     "bytes": "sum(ifNull(network_bytes, 0))",
     "flows": "count()",
-    "connections": ("uniqExact((source_ip, source_port, destination_ip, "
-                    "destination_port, network_transport))"),
+    "connections": (
+        "uniqExact((source_ip, source_port, destination_ip, destination_port, network_transport))"
+    ),
 }
 
 
@@ -33,7 +34,7 @@ class Measure:
     metric: str
     enabled: bool
     per_entity: bool  # also emit top-N entity_series rows
-    kind: str         # 'aggregate' | 'index'
+    kind: str  # 'aggregate' | 'index'
 
 
 CATALOG: list[Measure] = [
@@ -70,8 +71,9 @@ def ratio_to_baseline(current_rate: float, baseline_rate: float) -> float:
     return current_rate / baseline_rate
 
 
-def build_aggregate_sql(metric: str, since_iso: str, bucket_secs: int,
-                        tenant: str) -> tuple[str, dict]:
+def build_aggregate_sql(
+    metric: str, since_iso: str, bucket_secs: int, tenant: str
+) -> tuple[str, dict]:
     """Build aggregate time-series SQL for a metric.
 
     Volume metrics (bytes/flows/connections) are scoped to flow events only via
@@ -91,8 +93,9 @@ def build_aggregate_sql(metric: str, since_iso: str, bucket_secs: int,
     return sql, {"tenant": tenant, "since": since_iso}
 
 
-def build_entity_bucket_sql(metric: str, since_iso: str, bucket_secs: int,
-                            tenant: str) -> tuple[str, dict]:
+def build_entity_bucket_sql(
+    metric: str, since_iso: str, bucket_secs: int, tenant: str
+) -> tuple[str, dict]:
     """Build per-entity bucket SQL for a metric.
 
     Volume metrics (bytes/flows/connections) are scoped to flow events only via

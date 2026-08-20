@@ -12,16 +12,40 @@ from .config import Config
 from .models import Observation
 
 OBS_COLUMNS = [
-    "observed_at", "collector", "source_device", "tenant_id", "layer",
-    "observation_type", "subj_kind", "subj_id", "obj_kind", "obj_id", "attrs", "raw",
+    "observed_at",
+    "collector",
+    "source_device",
+    "tenant_id",
+    "layer",
+    "observation_type",
+    "subj_kind",
+    "subj_id",
+    "obj_kind",
+    "obj_id",
+    "attrs",
+    "raw",
 ]
 NODE_COLUMNS = [
-    "node_id", "tenant_id", "kind", "name", "identifiers",
-    "first_seen", "last_seen", "attrs",
+    "node_id",
+    "tenant_id",
+    "kind",
+    "name",
+    "identifiers",
+    "first_seen",
+    "last_seen",
+    "attrs",
 ]
 EDGE_COLUMNS = [
-    "edge_id", "tenant_id", "src_id", "dst_id", "edge_type", "layer",
-    "first_seen", "last_seen", "confidence", "attrs",
+    "edge_id",
+    "tenant_id",
+    "src_id",
+    "dst_id",
+    "edge_type",
+    "layer",
+    "first_seen",
+    "last_seen",
+    "confidence",
+    "attrs",
 ]
 
 
@@ -41,9 +65,18 @@ def client_kwargs(config: Config) -> dict[str, Any]:
 def obs_rows(observations: Iterable[Observation]) -> list[list[Any]]:
     return [
         [
-            o.observed_at, o.collector, o.source_device, o.tenant_id, o.layer,
-            o.observation_type, o.subj_kind, o.subj_id, o.obj_kind, o.obj_id,
-            o.attrs, o.raw,
+            o.observed_at,
+            o.collector,
+            o.source_device,
+            o.tenant_id,
+            o.layer,
+            o.observation_type,
+            o.subj_kind,
+            o.subj_id,
+            o.obj_kind,
+            o.obj_id,
+            o.attrs,
+            o.raw,
         ]
         for o in observations
     ]

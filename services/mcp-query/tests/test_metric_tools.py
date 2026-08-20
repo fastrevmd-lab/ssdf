@@ -30,5 +30,8 @@ def test_metric_tools_delegate_to_store():
     assert tools.entity_metric_timeseries("h_a", "bytes")["rows"] == []
     assert tools.reidentify("h_a")["entity"]["real_value"] == "x"
     assert [c[0] for c in store.calls] == [
-        "metric_timeseries", "top_series", "entity_metric_timeseries", "reidentify",
+        "metric_timeseries",
+        "top_series",
+        "entity_metric_timeseries",
+        "reidentify",
     ]

@@ -39,14 +39,31 @@ class Tools:
         result["_elapsed_ms"] = int((time.monotonic() - start) * 1000)
         return _ok(result, requested_limit)
 
-    def query_flows(self, src_ip=None, dst_ip=None, dst_port=None, action=None,
-                    outcome=None, provider=None, zone=None, since=None,
-                    until=None, limit=100) -> dict:
+    def query_flows(
+        self,
+        src_ip=None,
+        dst_ip=None,
+        dst_port=None,
+        action=None,
+        outcome=None,
+        provider=None,
+        zone=None,
+        since=None,
+        until=None,
+        limit=100,
+    ) -> dict:
         try:
             sql, params = build_query_flows(
-                src_ip=src_ip, dst_ip=dst_ip, dst_port=dst_port, action=action,
-                outcome=outcome, provider=provider, zone=zone, since=since,
-                until=until, limit=limit,
+                src_ip=src_ip,
+                dst_ip=dst_ip,
+                dst_port=dst_port,
+                action=action,
+                outcome=outcome,
+                provider=provider,
+                zone=zone,
+                since=since,
+                until=until,
+                limit=limit,
             )
         except (BuilderError, TimeParseError, ValueError) as exc:
             return {"error": "validation", "detail": str(exc)}
@@ -54,8 +71,7 @@ class Tools:
 
     def top_talkers(self, by="bytes", side="src", since=None, until=None, limit=10) -> dict:
         try:
-            sql, params = build_top_talkers(by=by, side=side, since=since,
-                                            until=until, limit=limit)
+            sql, params = build_top_talkers(by=by, side=side, since=since, until=until, limit=limit)
         except (BuilderError, TimeParseError, ValueError) as exc:
             return {"error": "validation", "detail": str(exc)}
         return self._safe_execute(sql, params, int(limit))
@@ -65,20 +81,19 @@ class Tools:
             cols = self._client.run("DESCRIBE ssdf.events")
             columns = [{"name": r["name"], "type": r["type"]} for r in cols["rows"]]
             enums: dict[str, Any] = {}
-            for key, col in (("event_actions", "event_action"),
-                             ("event_outcomes", "event_outcome"),
-                             ("event_providers", "event_provider")):
-                res = self._client.run(
-                    f"SELECT DISTINCT {col} AS v FROM ssdf.events LIMIT 100"
-                )
+            for key, col in (
+                ("event_actions", "event_action"),
+                ("event_outcomes", "event_outcome"),
+                ("event_providers", "event_provider"),
+            ):
+                res = self._client.run(f"SELECT DISTINCT {col} AS v FROM ssdf.events LIMIT 100")
                 enums[key] = [r["v"] for r in res["rows"]]
             zones = self._client.run(
                 "SELECT DISTINCT observer_ingress_zone AS v FROM ssdf.events "
                 "WHERE v != '' LIMIT 100"
             )
             stats = self._client.run(
-                "SELECT count() AS c, min(timestamp) AS mn, max(timestamp) AS mx "
-                "FROM ssdf.events"
+                "SELECT count() AS c, min(timestamp) AS mn, max(timestamp) AS mx FROM ssdf.events"
             )
             stat_row = stats["rows"][0] if stats["rows"] else {"c": 0, "mn": None, "mx": None}
             return {

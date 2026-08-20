@@ -7,9 +7,14 @@ from ssdf_mcp_query.audit_chain import compute_row_hash
 
 def test_build_audit_row_shapes_all_columns():
     row = build_audit_row(
-        principal="triage-agent", tier="sovereign", tool="query_flows",
-        args={"dst_port": 443}, data_classes=["security_log"],
-        decision="allow", row_count=7, error="",
+        principal="triage-agent",
+        tier="sovereign",
+        tool="query_flows",
+        args={"dst_port": 443},
+        data_classes=["security_log"],
+        decision="allow",
+        row_count=7,
+        error="",
     )
     assert set(row) == set(AUDIT_BASE_COLUMNS)
     assert row["principal"] == "triage-agent"
@@ -25,9 +30,14 @@ def test_build_audit_row_shapes_all_columns():
 
 def test_build_audit_row_serializes_non_json_args():
     row = build_audit_row(
-        principal="p", tier="sovereign", tool="run_sql",
-        args={"since": dt.datetime(2026, 6, 9)}, data_classes=["security_log"],
-        decision="allow", row_count=0, error=None,
+        principal="p",
+        tier="sovereign",
+        tool="run_sql",
+        args={"since": dt.datetime(2026, 6, 9)},
+        data_classes=["security_log"],
+        decision="allow",
+        row_count=0,
+        error=None,
     )
     assert "2026-06-09" in row["args"]
     assert row["error"] == ""
@@ -36,8 +46,14 @@ def test_build_audit_row_serializes_non_json_args():
 def test_auditor_record_calls_insert():
     captured = []
     Auditor(captured.append).record(
-        principal="p", tier="sovereign", tool="locate", args={"identifier": "x"},
-        data_classes=["topology"], decision="allow", row_count=1, error="",
+        principal="p",
+        tier="sovereign",
+        tool="locate",
+        args={"identifier": "x"},
+        data_classes=["topology"],
+        decision="allow",
+        row_count=1,
+        error="",
     )
     assert len(captured) == 1
     assert captured[0]["tool"] == "locate"
@@ -48,8 +64,14 @@ def test_auditor_swallows_insert_failure(capsys):
         raise RuntimeError("ch down")
 
     Auditor(boom).record(
-        principal="p", tier="sovereign", tool="locate", args={},
-        data_classes=["topology"], decision="allow", row_count=0, error="",
+        principal="p",
+        tier="sovereign",
+        tool="locate",
+        args={},
+        data_classes=["topology"],
+        decision="allow",
+        row_count=0,
+        error="",
     )  # must NOT raise
     assert "audit" in capsys.readouterr().err.lower()
 
@@ -60,8 +82,14 @@ def test_audit_columns_extend_base_with_hash_cols():
 
 def test_build_audit_row_shapes_base_columns():
     row = build_audit_row(
-        principal="p", tier="sovereign", tool="locate", args={},
-        data_classes=["topology"], decision="allow", row_count=0, error="",
+        principal="p",
+        tier="sovereign",
+        tool="locate",
+        args={},
+        data_classes=["topology"],
+        decision="allow",
+        row_count=0,
+        error="",
     )
     assert set(row) == set(AUDIT_BASE_COLUMNS)
 
@@ -69,8 +97,14 @@ def test_build_audit_row_shapes_base_columns():
 def test_record_chains_hashes_across_calls():
     captured = []
     aud = Auditor(captured.append, last_hash="")
-    common = dict(principal="p", tier="sovereign", data_classes=["topology"],
-                  decision="allow", row_count=0, error="")
+    common = dict(
+        principal="p",
+        tier="sovereign",
+        data_classes=["topology"],
+        decision="allow",
+        row_count=0,
+        error="",
+    )
     aud.record(tool="a", args={}, **common)
     aud.record(tool="b", args={}, **common)
     assert captured[0]["prev_hash"] == ""
@@ -88,8 +122,14 @@ def test_record_does_not_advance_chain_on_insert_failure():
         captured.append(row)
 
     aud = Auditor(insert, last_hash="")
-    common = dict(principal="p", tier="sovereign", data_classes=["topology"],
-                  decision="allow", row_count=0, error="")
+    common = dict(
+        principal="p",
+        tier="sovereign",
+        data_classes=["topology"],
+        decision="allow",
+        row_count=0,
+        error="",
+    )
     aud.record(tool="a", args={}, **common)
     first_hash = captured[0]["row_hash"]
     state["fail_next"] = True
@@ -108,8 +148,14 @@ def test_record_concurrent_calls_form_valid_chain():
             captured.append(row)
 
     aud = Auditor(insert, last_hash="")
-    common = dict(principal="p", tier="sovereign", data_classes=["topology"],
-                  decision="allow", row_count=0, error="")
+    common = dict(
+        principal="p",
+        tier="sovereign",
+        data_classes=["topology"],
+        decision="allow",
+        row_count=0,
+        error="",
+    )
 
     def worker(n):
         aud.record(tool=f"t{n}", args={}, **common)

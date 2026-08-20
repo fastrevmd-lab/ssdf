@@ -22,8 +22,7 @@ def _normalize(value: Any) -> Any:
     if isinstance(value, list):
         normalized = [_normalize(item) for item in value]
         # only sort if every element is a scalar (sortable, not dict/list)
-        if all(isinstance(item, (str, int, float, bool, type(None)))
-               for item in normalized):
+        if all(isinstance(item, (str, int, float, bool, type(None))) for item in normalized):
             return sorted(normalized, key=lambda x: (x is None, str(x)))
         return normalized
     return value
@@ -57,8 +56,10 @@ def _eval_reference_sql(question: Question, answer: dict, ch_client) -> Predicat
             allowed = abs(ref) * float(params["tolerance_pct"]) / 100.0
         passed = abs(agent - ref) <= allowed
         return PredicateResult(
-            passed, "" if passed else f"|{agent}-{ref}| > {allowed}",
-            {"agent": agent, "reference": ref, "allowed": allowed})
+            passed,
+            "" if passed else f"|{agent}-{ref}| > {allowed}",
+            {"agent": agent, "reference": ref, "allowed": allowed},
+        )
 
     agent_set = {str(v) for v in _agent_values(answer, predicate)}
     reference_set = set(reference)
@@ -71,8 +72,10 @@ def _eval_reference_sql(question: Question, answer: dict, ch_client) -> Predicat
     needed = int(params["min_overlap"])
     passed = overlap >= needed
     return PredicateResult(
-        passed, "" if passed else f"overlap {overlap} < required {needed}",
-        {**detail, "overlap": overlap})
+        passed,
+        "" if passed else f"overlap {overlap} < required {needed}",
+        {**detail, "overlap": overlap},
+    )
 
 
 def evaluate(question: Question, answer: dict | None, ch_client) -> PredicateResult:
@@ -88,8 +91,10 @@ def evaluate(question: Question, answer: dict | None, ch_client) -> PredicateRes
         if ptype == "expected_json":
             passed = _normalize(answer) == _normalize(predicate["expected"])
             return PredicateResult(
-                passed, "" if passed else "answer != expected",
-                {"expected": predicate["expected"], "agent": answer})
+                passed,
+                "" if passed else "answer != expected",
+                {"expected": predicate["expected"], "agent": answer},
+            )
         return _eval_reference_sql(question, answer, ch_client)
     except Exception as exc:  # fail-closed: any predicate error = question fails
         return PredicateResult(False, f"predicate error: {exc}")

@@ -46,8 +46,7 @@ def test_disallowed_tool_denied_and_not_invoked():
         invoked["hit"] = True
         return {"rows": []}
 
-    wrapped = audited_tool(
-        "run_sql", fn, rec, caller=lambda: ("p", frozenset({"query_flows"})))
+    wrapped = audited_tool("run_sql", fn, rec, caller=lambda: ("p", frozenset({"query_flows"})))
     result = wrapped(query="SELECT 1")
     assert result["error"] == "forbidden"
     assert invoked["hit"] is False
@@ -71,13 +70,13 @@ def test_audit_write_failure_does_not_break_tool():
         raise RuntimeError("ch down")
 
     fn = lambda: {"rows": [1]}
-    wrapped = audited_tool("describe_schema", fn, Auditor(boom),
-                           caller=lambda: ("p", None))
+    wrapped = audited_tool("describe_schema", fn, Auditor(boom), caller=lambda: ("p", None))
     assert wrapped() == {"rows": [1]}  # tool result still returned
 
 
 def test_unexpired_token_runs(monkeypatch):
     import datetime as dt
+
     rec = _Recorder()
     future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
     fn = lambda: {"rows": [1]}
@@ -96,6 +95,7 @@ def test_no_expiry_token_runs(monkeypatch):
 
 def test_expired_token_denied_and_not_invoked():
     import datetime as dt
+
     rec = _Recorder()
     invoked = {"hit": False}
 
@@ -130,7 +130,6 @@ def test_wrapped_preserves_signature_and_doc():
         """Real docstring."""
         return {"rows": []}
 
-    wrapped = audited_tool("query_flows", query_flows, _Recorder(),
-                           caller=lambda: ("p", None))
+    wrapped = audited_tool("query_flows", query_flows, _Recorder(), caller=lambda: ("p", None))
     assert wrapped.__doc__ == "Real docstring."
     assert list(inspect.signature(wrapped).parameters) == ["dst_port"]

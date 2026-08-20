@@ -3,19 +3,19 @@
 `PUBLIC_PSEUDONYM_KEY` is the HMAC-SHA256 key that turns real identifiers (host IPs)
 into the opaque surrogates published on the public tier. It is the ONLY secret whose
 disclosure would let a public-tier reader correlate surrogates back to a guessed IP
-(by re-deriving the HMAC). It lives ONLY on ct109 (the public-metrics resolver host).
+(by re-deriving the HMAC). It lives ONLY on guest 704 (was ct109) (the public-metrics resolver host).
 
 ## Generate (one-time)
 
     openssl rand -hex 16          # 128-bit key, 32 hex chars
 
-Write it to ct109 at `/etc/ssdf-public-metrics/pseudonym.key` (mode 600, root). The
+Write it to guest 704 (was ct109) at `/etc/ssdf-public-metrics/pseudonym.key` (mode 600, root). The
 systemd unit passes it to the resolver via `LoadCredential` — it is never an env
 value in the unit. For a manual run, export `PUBLIC_PSEUDONYM_KEY=<hex>` instead.
 
 ## Where it must NEVER go
 
-- Not on ct113 (public MCP) — the public process only reads `ssdf_public.*`.
+- Not on guest 703 (was ct113) (public MCP) — the public process only reads `ssdf_public.*`.
 - Not in ClickHouse — `ssdf.pseudonym_map` stores the real<->surrogate mapping, but
   that table is granted to `ssdf_ro` (sovereign reidentify) only, never `ssdf_public`.
 - Not in git, not in the env example committed to the repo.

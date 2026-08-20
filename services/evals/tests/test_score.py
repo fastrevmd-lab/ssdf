@@ -25,31 +25,57 @@ class FakeCH:
 
 
 CORPUS = [
-    Question("q-sql", "?", "sovereign", "flows", "easy", "f", ("top_talkers",),
-             {"type": "reference_sql", "sql": "SELECT MARKER_TALKERS",
-              "match": "exact", "answer_key": "talkers"}),
-    Question("q-refuse", "?", "both", "honesty", "easy", "f", (),
-             {"type": "refusal"}),
-    Question("q-missing", "?", "sovereign", "change", "medium", "f", (),
-             {"type": "refusal"}),
+    Question(
+        "q-sql",
+        "?",
+        "sovereign",
+        "flows",
+        "easy",
+        "f",
+        ("top_talkers",),
+        {
+            "type": "reference_sql",
+            "sql": "SELECT MARKER_TALKERS",
+            "match": "exact",
+            "answer_key": "talkers",
+        },
+    ),
+    Question("q-refuse", "?", "both", "honesty", "easy", "f", (), {"type": "refusal"}),
+    Question("q-missing", "?", "sovereign", "change", "medium", "f", (), {"type": "refusal"}),
 ]
 
 
 def make_manifest():
     return {
-        "schema_version": 1, "run_id": "r1", "model": "test-model",
-        "runner": "t@1", "tier": "sovereign", "principal": "eval-test",
+        "schema_version": 1,
+        "run_id": "r1",
+        "model": "test-model",
+        "runner": "t@1",
+        "tier": "sovereign",
+        "principal": "eval-test",
         "corpus_version": "v1",
         "questions": [
-            {"id": "q-sql", "started": "2026-06-12T18:00:01Z",
-             "finished": "2026-06-12T18:00:05Z",
-             "answer": {"talkers": ["10.64.0.1"]}, "error": None},
-            {"id": "q-refuse", "started": "2026-06-12T18:00:06Z",
-             "finished": "2026-06-12T18:00:08Z",
-             "answer": {"refusal": True}, "error": None},
-            {"id": "q-unknown", "started": "2026-06-12T18:00:09Z",
-             "finished": "2026-06-12T18:00:10Z", "answer": None,
-             "error": None},
+            {
+                "id": "q-sql",
+                "started": "2026-06-12T18:00:01Z",
+                "finished": "2026-06-12T18:00:05Z",
+                "answer": {"talkers": ["10.64.0.1"]},
+                "error": None,
+            },
+            {
+                "id": "q-refuse",
+                "started": "2026-06-12T18:00:06Z",
+                "finished": "2026-06-12T18:00:08Z",
+                "answer": {"refusal": True},
+                "error": None,
+            },
+            {
+                "id": "q-unknown",
+                "started": "2026-06-12T18:00:09Z",
+                "finished": "2026-06-12T18:00:10Z",
+                "answer": None,
+                "error": None,
+            },
         ],
     }
 
@@ -68,7 +94,7 @@ def test_score_run_passes_and_fails_correctly():
     assert by_id["q-sql"]["pass"] is True
     assert by_id["q-sql"]["tools_observed"] == ["top_talkers"]
     assert by_id["q-refuse"]["pass"] is True
-    assert by_id["q-missing"]["pass"] is False           # fail-closed
+    assert by_id["q-missing"]["pass"] is False  # fail-closed
     assert "not in manifest" in by_id["q-missing"]["reasons"][0]
     assert scorecard["rollups"]["total"] == 3
     assert scorecard["rollups"]["passed"] == 2
@@ -87,8 +113,7 @@ def test_score_run_fails_question_with_runner_error():
 def test_score_run_requires_both_predicate_and_tools():
     query_client = FakeCH({"MARKER_TALKERS": [("10.64.0.1",)]})
     audit_client = FakeCH({"ssdf.audit": []})  # no tools observed
-    scorecard = score_run(make_manifest(), CORPUS, query_client, audit_client,
-                          slop_secs=5)
+    scorecard = score_run(make_manifest(), CORPUS, query_client, audit_client, slop_secs=5)
     by_id = {q["id"]: q for q in scorecard["questions"]}
     assert by_id["q-sql"]["pass"] is False  # predicate ok, tool check failed
 
@@ -145,6 +170,7 @@ def test_main_writes_scorecard(tmp_path, monkeypatch):
     manifest_path.write_text(json.dumps(make_manifest()))
 
     import ssdf_evals.score as score_mod
+
     monkeypatch.setattr(score_mod, "_connect", lambda config: clients())
     monkeypatch.setattr(score_mod, "_load_questions", lambda path: CORPUS)
     monkeypatch.setenv("CH_PASSWORD", "x")

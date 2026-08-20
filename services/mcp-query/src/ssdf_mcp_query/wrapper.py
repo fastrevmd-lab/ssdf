@@ -47,8 +47,13 @@ def audited_tool(
 
     def _deny(principal: str, kwargs: dict, detail: str) -> dict:
         auditor.record(
-            principal=principal, tier=tier, tool=tool_name, args=kwargs,
-            data_classes=data_classes, decision="deny", row_count=0,
+            principal=principal,
+            tier=tier,
+            tool=tool_name,
+            args=kwargs,
+            data_classes=data_classes,
+            decision="deny",
+            row_count=0,
             error="forbidden",
         )
         return {"error": "forbidden", "detail": detail}
@@ -61,17 +66,22 @@ def audited_tool(
         principal, allowed = info[0], info[1]
         not_after = info[2] if len(info) > 2 else None
         if not_after is not None and _dt.datetime.now(_dt.timezone.utc) >= not_after:
-            return _deny(principal, kwargs,
-                         f"token for principal '{principal}' has expired")
+            return _deny(principal, kwargs, f"token for principal '{principal}' has expired")
         if allowed is not None and tool_name not in allowed:
-            return _deny(principal, kwargs,
-                         f"tool '{tool_name}' not permitted for principal '{principal}'")
+            return _deny(
+                principal, kwargs, f"tool '{tool_name}' not permitted for principal '{principal}'"
+            )
         result = fn(*args, **kwargs)
         error = result.get("error", "") if isinstance(result, dict) else ""
         auditor.record(
-            principal=principal, tier=tier, tool=tool_name, args=kwargs,
-            data_classes=data_classes, decision="allow",
-            row_count=row_count_of(result), error=error,
+            principal=principal,
+            tier=tier,
+            tool=tool_name,
+            args=kwargs,
+            data_classes=data_classes,
+            decision="allow",
+            row_count=row_count_of(result),
+            error=error,
         )
         return result
 

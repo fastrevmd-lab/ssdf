@@ -1,14 +1,19 @@
 from ssdf_mcp_query.entitystore import (
-    build_entity_match_sql, build_comm_edges_sql, build_governed_by_sql,
-    build_entities_by_id_sql, ClickHouseEntityStore,
-    build_entities_match_sql, build_comm_edges_multi_sql,
+    build_entity_match_sql,
+    build_comm_edges_sql,
+    build_governed_by_sql,
+    build_entities_by_id_sql,
+    ClickHouseEntityStore,
+    build_entities_match_sql,
+    build_comm_edges_multi_sql,
 )
 from ssdf_mcp_query.entitystore import build_alerts_for_pair_sql
 
 
 def test_build_alerts_for_pair_sql_filters_provider_kind_ips_and_window():
     sql, params = build_alerts_for_pair_sql(
-        ["198.51.100.50", "198.51.100.20"], "2026-06-13T00:00:00.000", "t_main")
+        ["198.51.100.50", "198.51.100.20"], "2026-06-13T00:00:00.000", "t_main"
+    )
     assert "event_provider = 'unifi'" in sql
     assert "event_kind = 'alert'" in sql
     assert "timestamp >= {since:String}" in sql
@@ -84,7 +89,8 @@ def test_store_find_entity_returns_first_row_or_none():
 
 
 from ssdf_mcp_query.entitystore import (
-    build_firewall_match_sql, build_configured_governed_sql,
+    build_firewall_match_sql,
+    build_configured_governed_sql,
 )
 
 
@@ -107,16 +113,21 @@ def test_configured_governed_sql_filters_source_and_src_ids():
 
 def test_configured_policies_for_firewalls_joins_fw_edge_policy():
     # rows popped in call order: firewalls, governed edges, policies
-    ch = _FakeCH([
-        [{"entity_id": "fwid", "identifiers": {"device_name": "panosvm"}, "name": "panosvm"}],
-        [{"edge_id": "g1", "src_id": "fwid", "dst_id": "polid", "attrs": {}}],
-        [{"entity_id": "polid", "name": "allow-web", "attrs": {"action": "allow"}}],
-    ])
+    ch = _FakeCH(
+        [
+            [{"entity_id": "fwid", "identifiers": {"device_name": "panosvm"}, "name": "panosvm"}],
+            [{"edge_id": "g1", "src_id": "fwid", "dst_id": "polid", "attrs": {}}],
+            [{"entity_id": "polid", "name": "allow-web", "attrs": {"action": "allow"}}],
+        ]
+    )
     store = ClickHouseEntityStore(ch, tenant="t_main")
     result = store.configured_policies_for_firewalls(["panosvm"])
-    assert result == [{"firewall": "panosvm",
-                       "policy": {"entity_id": "polid", "name": "allow-web",
-                                  "attrs": {"action": "allow"}}}]
+    assert result == [
+        {
+            "firewall": "panosvm",
+            "policy": {"entity_id": "polid", "name": "allow-web", "attrs": {"action": "allow"}},
+        }
+    ]
 
 
 def test_configured_policies_for_firewalls_empty_input():
@@ -143,7 +154,8 @@ def test_build_entities_match_sql_lowercases_mac():
 
 def test_build_comm_edges_multi_sql_in_lists_both_directions():
     sql, params = build_comm_edges_multi_sql(
-        ["A1", "A2"], ["B1"], "2026-06-15T00:00:00.000", tenant="t_main")
+        ["A1", "A2"], ["B1"], "2026-06-15T00:00:00.000", tenant="t_main"
+    )
     assert "edge_type = 'communicated_with'" in sql
     # qualified column so the toString(last_seen) alias doesn't lexically drop rows
     assert "entity_edges.last_seen >= {since:String}" in sql
@@ -178,7 +190,8 @@ def test_store_communicated_edges_multi_runs_query():
     ch = _FakeCH([[{"edge_id": "E1"}]])
     store = ClickHouseEntityStore(ch, tenant="t_main")
     assert store.communicated_edges_multi(["A"], ["B"], "2026-06-15T00:00:00.000") == [
-        {"edge_id": "E1"}]
+        {"edge_id": "E1"}
+    ]
     assert len(ch.calls) == 1
 
 
@@ -186,7 +199,8 @@ def test_build_observers_for_ips_sql():
     from ssdf_mcp_query.entitystore import build_observers_for_ips_sql
 
     sql, params = build_observers_for_ips_sql(
-        ["10.74.11.20", "198.51.100.1"], "2026-06-18T00:00:00.000+00:00", "t_main")
+        ["10.74.11.20", "198.51.100.1"], "2026-06-18T00:00:00.000+00:00", "t_main"
+    )
     assert "observer_hostname" in sql
     assert "ssdf.events" in sql
     assert "observer_hostname != ''" in sql
@@ -195,8 +209,11 @@ def test_build_observers_for_ips_sql():
     # events.timestamp is DateTime64(3,'UTC') and rejects a raw ISO +00:00 String
     # cast, so the window bound must be parsed explicitly (live-found 2026-06-19).
     assert "timestamp >= parseDateTimeBestEffort({since:String})" in sql
-    assert params == {"tenant": "t_main", "ips": ["10.74.11.20", "198.51.100.1"],
-                      "since": "2026-06-18T00:00:00.000+00:00"}
+    assert params == {
+        "tenant": "t_main",
+        "ips": ["10.74.11.20", "198.51.100.1"],
+        "since": "2026-06-18T00:00:00.000+00:00",
+    }
 
 
 def test_observers_for_ips_method_runs_builder_and_returns_rows():

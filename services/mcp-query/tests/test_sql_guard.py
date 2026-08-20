@@ -24,39 +24,59 @@ DENIED = [
     "WITH x AS (SELECT * FROM system.tables) SELECT * FROM x",
 ]
 
+
 @pytest.mark.parametrize("query", ALLOWED)
 def test_allowed_queries_pass(query):
     out = guard_sql(query, max_limit=1000)
     assert "ssdf" in out.lower()
     assert "limit" in out.lower()
 
+
 @pytest.mark.parametrize("query", DENIED)
 def test_denied_queries_rejected(query):
     with pytest.raises(GuardError):
         guard_sql(query, max_limit=1000)
 
+
 # L2: the structural check (FROM target must be a plain ssdf identifier) is the
 # boundary — these MUST be rejected even when absent from the internal denylist
 # (gcs, azureBlobStorage, iceberg, deltaLake, mongodb, redis, sqlite, executable).
 TABLE_FUNCTIONS = [
-    "s3", "url", "file", "remote", "remoteSecure", "gcs", "azureBlobStorage",
-    "iceberg", "deltaLake", "mongodb", "redis", "sqlite", "executable",
-    "cluster", "jdbc", "odbc",
+    "s3",
+    "url",
+    "file",
+    "remote",
+    "remoteSecure",
+    "gcs",
+    "azureBlobStorage",
+    "iceberg",
+    "deltaLake",
+    "mongodb",
+    "redis",
+    "sqlite",
+    "executable",
+    "cluster",
+    "jdbc",
+    "odbc",
 ]
+
 
 @pytest.mark.parametrize("fn", TABLE_FUNCTIONS)
 def test_table_functions_rejected_structurally(fn):
     with pytest.raises(GuardError):
         guard_sql(f"SELECT * FROM {fn}('arg1', 'arg2')", max_limit=1000)
 
+
 def test_missing_limit_is_injected():
     out = guard_sql("SELECT * FROM ssdf.events", max_limit=500)
     assert out.lower().rstrip().endswith("limit 500")
+
 
 def test_oversized_limit_is_clamped():
     out = guard_sql("SELECT * FROM ssdf.events LIMIT 999999", max_limit=1000)
     assert "1000" in out
     assert "999999" not in out
+
 
 def test_lowercase_ssdf_table_is_allowed():
     out = guard_sql("SELECT * FROM ssdf.events", max_limit=1000)

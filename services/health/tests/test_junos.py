@@ -34,8 +34,10 @@ def test_parse_environment_multi_sensor_temps():
     assert set(temps) == {"Routing Engine", "CPU"}  # Fans line ignored
     assert temps["Routing Engine"].value == 39.0
     assert temps["CPU"].value == 42.0
-    assert all(g.metric_class == "temperature" and g.metric_name == "temp_celsius"
-               and g.unit == "celsius" for g in gauges)
+    assert all(
+        g.metric_class == "temperature" and g.metric_name == "temp_celsius" and g.unit == "celsius"
+        for g in gauges
+    )
 
 
 def test_parse_routing_engine_garbage_returns_empty():
@@ -89,9 +91,7 @@ def test_collect_still_probes_environment_when_routing_engine_fails():
                 raise RuntimeError("unsupported command on this platform")
             return _ENV_TEXT
 
-    gauges = JunosCollector(["vsrx-up"]).collect(
-        _NoRoutingEngineClient(), "2026-08-19T00:00:00Z"
-    )
+    gauges = JunosCollector(["vsrx-up"]).collect(_NoRoutingEngineClient(), "2026-08-19T00:00:00Z")
 
     assert {g.metric_class for g in gauges} == {"temperature"}
     assert {g.device for g in gauges} == {"vsrx-up"}
@@ -112,9 +112,7 @@ def test_collect_stops_probing_a_device_that_is_unreachable():
             calls.append((args or {}).get("command", ""))
             raise RuntimeError("netconf error: transport error: connection failed")
 
-    gauges = JunosCollector(["vsrx-down"]).collect(
-        _UnreachableClient(), "2026-08-19T00:00:00Z"
-    )
+    gauges = JunosCollector(["vsrx-down"]).collect(_UnreachableClient(), "2026-08-19T00:00:00Z")
 
     assert gauges == []
     assert len(calls) == 1, "unreachable device should not be probed twice"

@@ -6,6 +6,7 @@ def test_register_adds_to_registry():
     @register("dummy_reg")
     class _Dummy:
         name = "dummy_reg"
+
     assert REGISTRY["dummy_reg"] is _Dummy
     assert get_collector("dummy_reg") is _Dummy
 
@@ -25,11 +26,13 @@ def _gauge(metric_name):
 def test_run_collectors_skips_failing_collector(caplog):
     class _Good:
         name = "good"
+
         def collect(self, client, now):
             return [_gauge("cpu_util_pct")]
 
     class _Bad:
         name = "bad"
+
         def collect(self, client, now):
             raise RuntimeError("boom")
 

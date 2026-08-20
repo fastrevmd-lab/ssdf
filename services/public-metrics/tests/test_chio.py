@@ -1,6 +1,9 @@
 from ssdf_pubmetrics.chreader import EventsReader
 from ssdf_pubmetrics.chwriter import (
-    MetricsWriter, METRIC_COLUMNS, ENTITY_COLUMNS, MAP_COLUMNS,
+    MetricsWriter,
+    METRIC_COLUMNS,
+    ENTITY_COLUMNS,
+    MAP_COLUMNS,
 )
 
 
@@ -26,8 +29,9 @@ class _FakeClient:
 
 
 def test_reader_aggregate_series_returns_rows():
-    fake = _FakeClient({"cols": ["bucket_start", "value"],
-                        "rows": [["2026-06-19 00:00:00", 1234.0]]})
+    fake = _FakeClient(
+        {"cols": ["bucket_start", "value"], "rows": [["2026-06-19 00:00:00", 1234.0]]}
+    )
     reader = EventsReader.__new__(EventsReader)
     reader._client = fake
     reader._tenant = "t_main"
@@ -36,8 +40,9 @@ def test_reader_aggregate_series_returns_rows():
 
 
 def test_reader_load_pseudonym_map_keys_by_kind_value():
-    fake = _FakeClient({"cols": ["kind", "real_value", "surrogate"],
-                        "rows": [["host", "10.74.11.20", "h_abc"]]})
+    fake = _FakeClient(
+        {"cols": ["kind", "real_value", "surrogate"], "rows": [["host", "10.74.11.20", "h_abc"]]}
+    )
     reader = EventsReader.__new__(EventsReader)
     reader._client = fake
     reader._tenant = "t_main"
@@ -50,7 +55,13 @@ def test_writer_insert_metric_rows_uses_columns():
     writer = MetricsWriter.__new__(MetricsWriter)
     writer._client = fake
     n = writer.write_metric_timeseries(
-        [{c: v for c, v in zip(METRIC_COLUMNS, ["2026-06-19 00:00:00", "bytes", "", 1.0, "t_main"])}])
+        [
+            {
+                c: v
+                for c, v in zip(METRIC_COLUMNS, ["2026-06-19 00:00:00", "bytes", "", 1.0, "t_main"])
+            }
+        ]
+    )
     assert n == 1
     table, rows, cols = fake.inserts[0]
     assert table == "ssdf_public.metric_timeseries"

@@ -131,7 +131,7 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 - Run Vector unit tests (on ct102 where Vector is installed, not dev host): `ssh root@pve2.example.com "pct exec 700 -- bash -c 'cd /etc/vector && vector test vector.toml'"` or push the toml and run `vector test infra/vector/vector.toml` remotely.
 - Validate config locally (syntax only, no live sinks): `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`
 - PAN-OS source: Vector ct102 listens UDP **port 515** (SRX uses 514; PAN-OS is separate source to avoid collision).
-- Onboarding artifact: `onboarding/panos/log-forwarding.set` — apply to host `panosvm` (VMID 900) via panos-mcp. Preview first with `pan_config_diff`, then commit with `load_and_commit_pan_config`. SSDF never applies device config in its own data path.
+- Onboarding artifact: `onboarding/panos/log-forwarding.set` — apply to host `panosvm` (Proxmox guest 908 `3rdparty-fw`) via panos-mcp. Apply through the server's approved change-set lifecycle — `get_candidate_fingerprint` → `create_panos_change_set` → `approve_panos_change_set` → `apply_panos_change_set` → `diff_panos_candidate` → `validate_panos_candidate` → `commit_panos_candidate`. Do NOT reach for `stage_panos_config`: it is the legacy direct-write path and bypasses independent approval. The old `pan_config_diff` / `load_and_commit_pan_config` names were retired in the 2026-08-15 prod rename. SSDF never applies device config in its own data path.
 - Sample query: `clickhouse-client --host <ch-host> --query "SELECT event_action, count() FROM ssdf.events WHERE event_provider='paloalto' GROUP BY event_action"`
 - PAN-OS version pinned: **12.1.5**. Field positions in the `panos_ecs` VRL transform are tied to the PAN-OS 12.1 default CSV syslog format — re-validate the transform on any major PAN-OS upgrade before relying on parsed fields.
 
@@ -241,14 +241,14 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 - **Lab transit traffic (Phase 2, 2026-06-15):** TWO Alpine endpoints run the shared
   `scripts/labgen_endpoint.sh` daemon (OpenRC service `labgen`, not cron — it self-loops
   ~30s jittered) so BOTH firewalls stay continuously live-proven as SSDF transit sources:
-  ct198 `ssdf-ep-srx` (10.74.12.20/24, gw 10.74.12.1) behind vsrx-prod (now vsrx-prod) trust VLAN 198,
-  and ct199 `ssdf-ep-panos` (10.74.11.20/24, gw 10.74.11.1) behind panosvm trust VLAN 199.
+  guest 710 `ssdf-traffic-gen-srx` (was ct198 `ssdf-ep-srx`; 10.74.12.20/24, gw 10.74.12.1) behind vsrx-prod (now vsrx-prod) trust VLAN 198,
+  and guest 711 `ssdf-traffic-gen-panos` (was ct199 `ssdf-ep-panos`; 10.74.11.20/24, gw 10.74.11.1) behind panosvm trust VLAN 199.
   Trust VLANs are Proxmox-only bridge tags on vmbr1 (VLAN id = endpoint CTID, no UniFi net
   object). The generator produces permitted internet egress PLUS a deliberate denied DNS
   attempt (firewalls allow DNS only to approved resolvers 198.51.100.1/1.1.1.2/1.0.0.2;
   endpoints query 8.8.8.8 → deny event on both vendors). Runbooks:
   `onboarding/srx/transit-endpoint.md`, `onboarding/panos/transit-traffic.md`. Do not destroy
-  ct198/ct199 without replacing the source; neither is in the weekly backup job (reproducible
+  710/711 without replacing the source; neither is in the weekly backup job (reproducible
   from the runbooks). The old single-vendor ct115 (`labgen_transit.sh`, cron) was retired.
 - **H2 device gate broadened (Phase 2):** the `infra/vector/vector.toml` observer_hostname
   gate now accepts `^vsrx-(test\d|production)` (was test-fleet-only), so vsrx-prod's (now vsrx-prod)
@@ -292,7 +292,7 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 - **Two new sovereign tools** (both classed NON-shareable in `classification.py` ⇒ never registered on the public tier): `configured_policies(firewall)` returns the deduped configured-rule count (`count(DISTINCT entity_id)` over `ssdf.entities` ReplacingMergeTree, `kind='policy' AND source='configured'` filtered by `identifiers['provider']`/`['device_name']`) — `firewall_config` class; `observed_by(identifier[, since_hours])` returns which firewall(s) *logged* a given endpoint's flows (L3 provenance via `observer_hostname`→`access_tools._short_host`) — `security_log` class.
 - **`topology_snapshot(role=…, kind=…)` filter** (additive): when role/kind set, selects nodes **directly** from `{schema}.graph_nodes FINAL` via `build_nodes_by_attr_sql`/`nodes_by_attr` (current-state inventory, NO time window), then restricts edges to surviving nodes. MUST bypass `load_subgraph` — it derives nodes FROM edges, so isolated firewall `device_inventory` nodes (0 edges) are invisible to it (live-found, masked by unit stubs).
 - **Live-found deploy fixes (caught only post-deploy):** (1) `observed_by` `TYPE_MISMATCH` — `ssdf.events.timestamp` is `DateTime64(3,'UTC')` and rejects a raw ISO `+00:00` String cast ⇒ the window bound is wrapped `parseDateTimeBestEffort({since:String})` in `build_observers_for_ips_sql`. (NB: `alerts_for_pair`'s raw `{since:String}` is the same latent pattern — not yet tripped because its callers pass a compatible form.) (2) the `topology_snapshot` isolated-node bug above.
-- **Live dependency — panosvm VMID 900:** paloalto ingest (and therefore `observed_by` for panosvm-side IPs + any panos-based eval question) goes stale whenever the panosvm VM is **stopped**. It was found stopped mid-eval; operator restart resumed ingest within ~minutes. VMID 900 is on the `~/.claude/CLAUDE.md` NEVER-TOUCH list — flag to the operator rather than starting/stopping it.
+- **Live dependency — panosvm (Proxmox guest 908 `3rdparty-fw`, renumbered from 900 on 2026-08-12):** paloalto ingest (and therefore `observed_by` for panosvm-side IPs + any panos-based eval question) goes stale whenever the panosvm VM is **stopped**. It was found stopped mid-eval; operator restart resumed ingest within ~minutes. guest 908 is on the `~/.claude/CLAUDE.md` NEVER-TOUCH list — flag to the operator rather than starting/stopping it.
 - **Corpus follow-through (`services/evals`):** `configured_policies`+`observed_by` added to `corpus.py` `SOVEREIGN_TOOLS`; `golden/core.yaml` re-points `topo-locate-labgen` to `observed_by` (short-label reference SQL) and `reach-configured-policy-count-panosvm` `required_tools` to `[configured_policies]` (its predicate already matched; only the tool-check needed updating once the model correctly routed to the new tool). `topo-firewall-inventory` expectation was `[panosvm, vSRX-test10]` at M12 (only those two were then onboarded); **superseded by M14** — the full fleet is now onboarded and the corpus expectation is the whole role-named fleet (`panosvm` + `vsrx-br01..br12`, `vsrx-campus-a/b`, `vsrx-ci`, `vsrx-core-a/b`, `vsrx-dc`, `vsrx-dmz`, `vsrx-isp-a/b`, `vsrx-prod`, `vsrx-wan-edge`). See `docs/naming-standard.md`.
 - Deploy = sync `services/mcp-query/src` to ct106 `/opt/src/mcp-query/src` + `systemctl restart ssdf-mcp-query.service` (editable install). Backup before: ct106 `/root/m12-backup-*`.
 
@@ -359,8 +359,8 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 - **Sovereign-only:** queryable immediately via the generic `run_sql`/`describe_schema`
   tools (M11 precedent — no new MCP tool). Public de-id exposure + flipping the M7c
   `mem_util_pct`/`cpu_util_pct` placeholders + the `honesty-device-metrics` eval update are
-  deliberate follow-ons (NOT M13a). **Live dependency:** panosvm VMID 900 stopped ⇒ panos
-  health rows go stale (flag the operator; do not start/stop VMID 900).
+  deliberate follow-ons (NOT M13a). **Live dependency:** panosvm (guest 908) stopped ⇒ panos
+  health rows go stale (flag the operator; do not start/stop it).
 - Deploy: rsync `services/health` to ct109 venv `/opt/ssdf-health`, env
   `/etc/ssdf-health/ENV.local` (mode 600), install `ssdf-health.{service,timer}`, enable timer.
 

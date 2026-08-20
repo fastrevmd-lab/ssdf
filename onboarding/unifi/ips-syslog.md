@@ -37,7 +37,7 @@ Captured live 2026-06-14 by tripping a behavioral ET SCAN rule (an outbound port
 sweep) — payload-based test signatures (EICAR/testmyids/GPL SIDs) do NOT fire on
 this box: the ruleset is ET-only and hardware flow-offload bypasses DPI for
 established flows, so use a behavioral SCAN rule to generate a detection. Capture
-on ct102 with:
+on guest 700 (was ct102) with:
   tcpdump -n -A -i any udp port 516 -c 20
 Recorded values:
   - SENDER_HOSTNAME = UCK-G2-Plus-HarmanHoldfast  (the Cloud Key controller —

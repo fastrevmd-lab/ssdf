@@ -29,8 +29,17 @@ GOVERNED_BY = "governed_by"
 IN_ZONE = "in_zone"
 AUTHENTICATED_AS = "authenticated_as"
 EDGE_TYPES = {
-    PHYSICAL_LINK, ATTACHES_TO, HAS_ADDRESS, MEMBER_OF, ROUTES_TO, TUNNEL,
-    HOSTS, TALKED_TO, GOVERNED_BY, IN_ZONE, AUTHENTICATED_AS,
+    PHYSICAL_LINK,
+    ATTACHES_TO,
+    HAS_ADDRESS,
+    MEMBER_OF,
+    ROUTES_TO,
+    TUNNEL,
+    HOSTS,
+    TALKED_TO,
+    GOVERNED_BY,
+    IN_ZONE,
+    AUTHENTICATED_AS,
 }
 
 LAYERS = {"l1", "l2", "l3", "virt", "flow"}
@@ -40,7 +49,7 @@ LAYERS = {"l1", "l2", "l3", "virt", "flow"}
 class Observation:
     """One normalized fact a collector observed about the topology."""
 
-    observed_at: str            # ISO-8601 UTC, e.g. "2026-06-07T12:00:00+00:00"
+    observed_at: str  # ISO-8601 UTC, e.g. "2026-06-07T12:00:00+00:00"
     collector: str
     source_device: str
     layer: str

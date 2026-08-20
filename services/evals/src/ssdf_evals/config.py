@@ -48,8 +48,9 @@ def load_config() -> Config:
     )
 
 
-def client_kwargs(config: Config, *, username: str | None = None,
-                  password: str | None = None) -> dict[str, Any]:
+def client_kwargs(
+    config: Config, *, username: str | None = None, password: str | None = None
+) -> dict[str, Any]:
     """clickhouse_connect.get_client kwargs; adds TLS when ch_secure.
 
     Pass username/password to connect as a different identity

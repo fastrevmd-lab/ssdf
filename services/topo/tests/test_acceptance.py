@@ -4,6 +4,7 @@
 Run: cd services/topo && SSDF_MCP_URL=http://<ct106>:30032/mcp \
      SSDF_MCP_TOKEN=<bearer> uv run pytest -m integration tests/test_acceptance.py -v
 """
+
 import json
 import os
 import pytest
@@ -13,9 +14,7 @@ from ssdf_topo.config import McpEndpoint
 
 pytestmark = pytest.mark.integration
 
-requires_mcp = pytest.mark.skipif(
-    not os.environ.get("SSDF_MCP_URL"), reason="SSDF_MCP_URL not set"
-)
+requires_mcp = pytest.mark.skipif(not os.environ.get("SSDF_MCP_URL"), reason="SSDF_MCP_URL not set")
 
 
 def _client() -> McpToolClient:
@@ -65,8 +64,7 @@ def test_fused_chain_host_to_switchport_to_firewall_rule():
                 break
 
     assert host_node is not None, (
-        "no host node with mac/ip identifiers found in snapshot; "
-        "check collector output"
+        "no host node with mac/ip identifiers found in snapshot; check collector output"
     )
 
     host_id = host_node["node_id"]
@@ -145,6 +143,7 @@ def test_fused_chain_host_to_switchport_to_firewall_rule():
         # Soft assertion: log rather than hard-fail if no policy data yet
         if not has_policy:
             import warnings
+
             warnings.warn(
                 "enforcement_points returned empty firewalls/rules/zones — "
                 "firewall policy may not be loaded yet"

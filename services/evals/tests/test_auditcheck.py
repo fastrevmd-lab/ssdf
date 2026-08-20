@@ -16,14 +16,21 @@ class FakeCH:
 
         class R:
             result_rows = self._rows
+
         return R()
 
 
 def make_question(required_tools=()) -> Question:
-    return Question(id="q", question="?", tier="sovereign", category="flows",
-                    difficulty="easy", answer_format="f",
-                    required_tools=tuple(required_tools),
-                    predicate={"type": "refusal"})
+    return Question(
+        id="q",
+        question="?",
+        tier="sovereign",
+        category="flows",
+        difficulty="easy",
+        answer_format="f",
+        required_tools=tuple(required_tools),
+        predicate={"type": "refusal"},
+    )
 
 
 def test_fetch_tools_windows_by_principal_and_slop():
@@ -35,8 +42,8 @@ def test_fetch_tools_windows_by_principal_and_slop():
     sql, parameters = ch.last
     assert "principal" in sql and "ts" in sql
     assert parameters["principal"] == "eval-claude"
-    assert parameters["start"] == "2026-06-12 17:59:56.000"   # started - 5s, ms precision
-    assert parameters["end"] == "2026-06-12 18:00:19.000"     # finished + 5s, ms precision
+    assert parameters["start"] == "2026-06-12 17:59:56.000"  # started - 5s, ms precision
+    assert parameters["end"] == "2026-06-12 18:00:19.000"  # finished + 5s, ms precision
 
 
 def test_fetch_tools_aware_non_utc_normalized():
@@ -65,28 +72,32 @@ def test_audit_sql_filters_allow_decisions():
 
 
 def test_required_subset_passes():
-    result = check_tools(make_question(["top_talkers"]),
-                         ["top_talkers", "run_sql"], tier="sovereign")
+    result = check_tools(
+        make_question(["top_talkers"]), ["top_talkers", "run_sql"], tier="sovereign"
+    )
     assert result == ToolCheckResult(True, ["top_talkers", "run_sql"], "")
 
 
 def test_missing_required_tool_fails():
-    result = check_tools(make_question(["explain_access"]), ["run_sql"],
-                         tier="sovereign")
+    result = check_tools(make_question(["explain_access"]), ["run_sql"], tier="sovereign")
     assert not result.passed
     assert "explain_access" in result.reason
 
 
 def test_any_of_required_tools_passes_with_one():
     """Listing multiple required tools means any one is a valid route (any-of)."""
-    result = check_tools(make_question(["explain_access", "observed_by"]),
-                         ["observed_by", "run_sql"], tier="sovereign")
+    result = check_tools(
+        make_question(["explain_access", "observed_by"]),
+        ["observed_by", "run_sql"],
+        tier="sovereign",
+    )
     assert result.passed
 
 
 def test_any_of_required_tools_fails_when_none_present():
-    result = check_tools(make_question(["explain_access", "observed_by"]),
-                         ["run_sql"], tier="sovereign")
+    result = check_tools(
+        make_question(["explain_access", "observed_by"]), ["run_sql"], tier="sovereign"
+    )
     assert not result.passed
     assert "explain_access" in result.reason and "observed_by" in result.reason
 
@@ -102,5 +113,4 @@ def test_public_tier_rejects_sovereign_tool_observed():
 
 
 def test_public_tier_with_public_tools_passes():
-    assert check_tools(
-        make_question(["top_series"]), ["top_series"], tier="public").passed
+    assert check_tools(make_question(["top_series"]), ["top_series"], tier="public").passed

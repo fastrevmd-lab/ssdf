@@ -47,19 +47,21 @@ def parse_vms(vms: list[dict], now: str) -> list[Observation]:
         name = str(vm.get("name") or "")
         host_id = f"vm:{node}/{vmid}"
 
-        observations.append(Observation(
-            observed_at=now,
-            collector="proxmox",
-            source_device=node,
-            layer="virt",
-            observation_type="vm_host",
-            subj_kind="device",
-            subj_id=f"device:{node}",
-            obj_kind="host",
-            obj_id=host_id,
-            attrs={"vmid": vmid, "name": name},
-            raw=json.dumps(vm, default=str),
-        ))
+        observations.append(
+            Observation(
+                observed_at=now,
+                collector="proxmox",
+                source_device=node,
+                layer="virt",
+                observation_type="vm_host",
+                subj_kind="device",
+                subj_id=f"device:{node}",
+                obj_kind="host",
+                obj_id=host_id,
+                attrs={"vmid": vmid, "name": name},
+                raw=json.dumps(vm, default=str),
+            )
+        )
 
         config = vm.get("config") or {}
         for key, val in config.items():
@@ -68,25 +70,27 @@ def parse_vms(vms: list[dict], now: str) -> list[Observation]:
             nic = parse_vm_nic(str(val))
             if not nic["mac"]:
                 continue
-            observations.append(Observation(
-                observed_at=now,
-                collector="proxmox",
-                source_device=node,
-                layer="l2",
-                observation_type="vm_nic",
-                subj_kind="host",
-                subj_id=f"mac:{nic['mac']}",
-                obj_kind="device",
-                obj_id=f"device:{node}:{nic['bridge']}",
-                attrs={
-                    "bridge": nic["bridge"],
-                    "vlan": nic["vlan"],
-                    "vmid": vmid,
-                    "vm": host_id,
-                    "name": name,
-                },
-                raw=str(val),
-            ))
+            observations.append(
+                Observation(
+                    observed_at=now,
+                    collector="proxmox",
+                    source_device=node,
+                    layer="l2",
+                    observation_type="vm_nic",
+                    subj_kind="host",
+                    subj_id=f"mac:{nic['mac']}",
+                    obj_kind="device",
+                    obj_id=f"device:{node}:{nic['bridge']}",
+                    attrs={
+                        "bridge": nic["bridge"],
+                        "vlan": nic["vlan"],
+                        "vmid": vmid,
+                        "vm": host_id,
+                        "name": name,
+                    },
+                    raw=str(val),
+                )
+            )
     return observations
 
 

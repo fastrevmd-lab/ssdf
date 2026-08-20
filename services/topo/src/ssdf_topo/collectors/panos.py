@@ -48,19 +48,21 @@ def parse_arp_xml(text: str, source_device: str, now: str) -> list[Observation]:
             continue
         if mac in ("(incomplete)", "incomplete"):
             continue
-        observations.append(Observation(
-            observed_at=now,
-            collector="panos",
-            source_device=source_device,
-            layer="l3",
-            observation_type="arp_entry",
-            subj_kind="host",
-            subj_id=f"ip:{ip}",
-            obj_kind="host",
-            obj_id=f"mac:{mac}",
-            attrs={"interface": iface},
-            raw=ET.tostring(entry, encoding="unicode"),
-        ))
+        observations.append(
+            Observation(
+                observed_at=now,
+                collector="panos",
+                source_device=source_device,
+                layer="l3",
+                observation_type="arp_entry",
+                subj_kind="host",
+                subj_id=f"ip:{ip}",
+                obj_kind="host",
+                obj_id=f"mac:{mac}",
+                attrs={"interface": iface},
+                raw=ET.tostring(entry, encoding="unicode"),
+            )
+        )
     return observations
 
 
@@ -73,23 +75,25 @@ def parse_lldp_xml(text: str, source_device: str, now: str) -> list[Observation]
         remote_port = _f(entry, "port-id") or _f(entry, "port-description")
         if not (local and (remote_sys or remote_port)):
             continue
-        observations.append(Observation(
-            observed_at=now,
-            collector="panos",
-            source_device=source_device,
-            layer="l2",
-            observation_type="lldp_neighbor",
-            subj_kind="interface",
-            subj_id=f"if:{source_device}:{local}",
-            obj_kind="interface",
-            obj_id=f"if:{remote_sys or 'unknown'}:{remote_port}",
-            attrs={
-                "local_port": local,
-                "remote_port": remote_port,
-                "remote_system": remote_sys,
-            },
-            raw=ET.tostring(entry, encoding="unicode"),
-        ))
+        observations.append(
+            Observation(
+                observed_at=now,
+                collector="panos",
+                source_device=source_device,
+                layer="l2",
+                observation_type="lldp_neighbor",
+                subj_kind="interface",
+                subj_id=f"if:{source_device}:{local}",
+                obj_kind="interface",
+                obj_id=f"if:{remote_sys or 'unknown'}:{remote_port}",
+                attrs={
+                    "local_port": local,
+                    "remote_port": remote_port,
+                    "remote_system": remote_sys,
+                },
+                raw=ET.tostring(entry, encoding="unicode"),
+            )
+        )
     return observations
 
 
@@ -123,7 +127,9 @@ class PanosCollector:
                 logger.warning(
                     "panos %r: %r response truncated at %d bytes; dropping these "
                     "observations rather than reporting a partial table",
-                    self.device, command, MAX_OUTPUT_BYTES,
+                    self.device,
+                    command,
+                    MAX_OUTPUT_BYTES,
                 )
                 continue
             observations.extend(parser(text, self.device, now))

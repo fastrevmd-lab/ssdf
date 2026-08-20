@@ -44,8 +44,7 @@ def build_entities_match_sql(value: str, tenant: str) -> tuple[str, dict]:
     return sql, {"tenant": tenant, "val": _normalize_identifier(value)}
 
 
-def build_comm_edges_sql(a_id: str, b_id: str, since_iso: str,
-                         tenant: str) -> tuple[str, dict]:
+def build_comm_edges_sql(a_id: str, b_id: str, since_iso: str, tenant: str) -> tuple[str, dict]:
     # `entity_edges.last_seen` is qualified per the alias-shadowing note above:
     # an unqualified `last_seen` here binds to the String alias and lexically
     # drops every row (space < 'T' vs the ISO `since` value).
@@ -59,8 +58,9 @@ def build_comm_edges_sql(a_id: str, b_id: str, since_iso: str,
     return sql, {"tenant": tenant, "a": a_id, "b": b_id, "since": since_iso}
 
 
-def build_comm_edges_multi_sql(a_ids: list[str], b_ids: list[str], since_iso: str,
-                               tenant: str) -> tuple[str, dict]:
+def build_comm_edges_multi_sql(
+    a_ids: list[str], b_ids: list[str], since_iso: str, tenant: str
+) -> tuple[str, dict]:
     # Same shape as build_comm_edges_sql but with IN-lists on both directions, so
     # candidate twin sets on each side are matched in one query. `entity_edges.last_seen`
     # is qualified per the alias-shadowing note above (unqualified binds the String alias).
@@ -109,8 +109,7 @@ def build_configured_governed_sql(firewall_ids: list[str], tenant: str) -> tuple
     return sql, {"tenant": tenant, "ids": firewall_ids}
 
 
-def build_alerts_for_pair_sql(ips: list[str], since_iso: str,
-                              tenant: str) -> tuple[str, dict]:
+def build_alerts_for_pair_sql(ips: list[str], since_iso: str, tenant: str) -> tuple[str, dict]:
     # UniFi IPS alerts (M9) touching either endpoint IP in-window. source_ip/
     # destination_ip are Nullable(IPv4); compare via toString to match the
     # dotted-quad params without IPv4-cast fragility. IPv6 alerts (kept only in
@@ -134,8 +133,7 @@ def build_alerts_for_pair_sql(ips: list[str], since_iso: str,
     return sql, {"tenant": tenant, "ips": ips, "since": since_iso}
 
 
-def build_observers_for_ips_sql(ips: list[str], since_iso: str,
-                                tenant: str) -> tuple[str, dict]:
+def build_observers_for_ips_sql(ips: list[str], since_iso: str, tenant: str) -> tuple[str, dict]:
     # Distinct firewall observer_hostname values that LOGGED a flow touching any of
     # the given IPs in-window (provenance: the firewall that logged a flow is on its
     # path). source_ip/destination_ip are IPv6-typed; toString yields the dotted-quad
@@ -158,8 +156,9 @@ class EntityStore(Protocol):
     def find_entity(self, identifier: str) -> dict | None: ...
     def communicated_edges(self, a_id: str, b_id: str, since_iso: str) -> list[dict]: ...
     def find_entities(self, identifier: str) -> list[dict]: ...
-    def communicated_edges_multi(self, a_ids: list[str], b_ids: list[str],
-                                 since_iso: str) -> list[dict]: ...
+    def communicated_edges_multi(
+        self, a_ids: list[str], b_ids: list[str], since_iso: str
+    ) -> list[dict]: ...
     def governed_policies(self, comm_edge_ids: list[str]) -> list[dict]: ...
     def configured_policies_for_firewalls(self, firewall_names: list[str]) -> list[dict]: ...
     def alerts_for_pair(self, ips: list[str], since_iso: str) -> list[dict]: ...
@@ -186,8 +185,9 @@ class ClickHouseEntityStore:
         sql, params = build_entities_match_sql(identifier, self._tenant)
         return self._ch.run(sql, params)["rows"]
 
-    def communicated_edges_multi(self, a_ids: list[str], b_ids: list[str],
-                                 since_iso: str) -> list[dict]:
+    def communicated_edges_multi(
+        self, a_ids: list[str], b_ids: list[str], since_iso: str
+    ) -> list[dict]:
         if not a_ids or not b_ids:
             return []
         sql, params = build_comm_edges_multi_sql(a_ids, b_ids, since_iso, self._tenant)

@@ -10,7 +10,8 @@ DEFAULT_WINDOW_HOURS = 24
 
 def _since(hours: int) -> str:
     return (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=hours)).isoformat(
-        timespec="milliseconds")
+        timespec="milliseconds"
+    )
 
 
 def _csv_list(value: str) -> list[str]:
@@ -20,14 +21,17 @@ def _csv_list(value: str) -> list[str]:
 def _short_host(name: str) -> str:
     """First DNS label of a hostname, case preserved. A bare IP is returned unchanged."""
     try:
-        ipaddress.ip_address(name)   # IP guard: never dot-split an address
+        ipaddress.ip_address(name)  # IP guard: never dot-split an address
         return name
     except ValueError:
         return name.split(".", 1)[0]
 
 
-def _select_pair(edges: list[dict], client_ids: set[str], server_ids: set[str],
-                 ) -> tuple[str, str, list[dict]] | None:
+def _select_pair(
+    edges: list[dict],
+    client_ids: set[str],
+    server_ids: set[str],
+) -> tuple[str, str, list[dict]] | None:
     """Pick the (client_id, server_id) pair, preferring provenance-bearing edges.
 
     Groups edges onto the pair whose client end is in client_ids and server end in
@@ -53,7 +57,8 @@ def _select_pair(edges: list[dict], client_ids: set[str], server_ids: set[str],
         else:
             continue  # both ends in the same candidate set: ambiguous, skip
         bucket = pairs.setdefault(
-            key, {"edges": [], "sessions": 0, "last_seen": "", "has_prov": False})
+            key, {"edges": [], "sessions": 0, "last_seen": "", "has_prov": False}
+        )
         bucket["edges"].append(edge)
         bucket["sessions"] += int(edge.get("attrs", {}).get("sessions", "0") or 0)
         if edge.get("attrs", {}).get("observer_hosts", ""):
@@ -65,8 +70,8 @@ def _select_pair(edges: list[dict], client_ids: set[str], server_ids: set[str],
         return None
     (client_id, server_id), bucket = max(
         pairs.items(),
-        key=lambda item: (item[1]["has_prov"], item[1]["sessions"],
-                          item[1]["last_seen"], item[0]))
+        key=lambda item: (item[1]["has_prov"], item[1]["sessions"], item[1]["last_seen"], item[0]),
+    )
     return client_id, server_id, bucket["edges"]
 
 
@@ -135,16 +140,18 @@ class AccessTools:
             for item in self._store.configured_policies_for_firewalls(firewalls):
                 policy = item["policy"]
                 attrs = policy.get("attrs", {})
-                configured_controls.append({
-                    "firewall": item["firewall"],
-                    "rule": policy.get("name", ""),
-                    "action": attrs.get("action", ""),
-                    "from_zone": attrs.get("from_zone", ""),
-                    "to_zone": attrs.get("to_zone", ""),
-                    "position": attrs.get("position", ""),
-                    "enabled": attrs.get("enabled", "") == "true",
-                    "source": "configured",
-                })
+                configured_controls.append(
+                    {
+                        "firewall": item["firewall"],
+                        "rule": policy.get("name", ""),
+                        "action": attrs.get("action", ""),
+                        "from_zone": attrs.get("from_zone", ""),
+                        "to_zone": attrs.get("to_zone", ""),
+                        "position": attrs.get("position", ""),
+                        "enabled": attrs.get("enabled", "") == "true",
+                        "source": "configured",
+                    }
+                )
             if not configured_controls:
                 configured_basis = "firewall_name_unmatched"
 
@@ -152,20 +159,25 @@ class AccessTools:
         if comm_edges:
             for item in self._store.governed_policies([e["edge_id"] for e in comm_edges]):
                 policy = item["policy"]
-                controls.append({
-                    "firewall": attributed_fw,
-                    "vendor": policy["identifiers"].get("provider", ""),
-                    "rule": policy.get("name", ""),
-                    "source": policy.get("source", "observed"),
-                    "firewall_basis": firewall_basis,
-                })
+                controls.append(
+                    {
+                        "firewall": attributed_fw,
+                        "vendor": policy["identifiers"].get("provider", ""),
+                        "rule": policy.get("name", ""),
+                        "source": policy.get("source", "observed"),
+                        "firewall_basis": firewall_basis,
+                    }
+                )
 
         # M9: UniFi IPS detections touching either endpoint, same window. Candidate IPs
         # come from the lookup args + entity identifiers (IPv4 only — events are IPv4).
         alert_ips: set[str] = set()
-        for candidate in (client, server,
-                          *client_entity.get("identifiers", {}).values(),
-                          *server_entity.get("identifiers", {}).values()):
+        for candidate in (
+            client,
+            server,
+            *client_entity.get("identifiers", {}).values(),
+            *server_entity.get("identifiers", {}).values(),
+        ):
             try:
                 ipaddress.IPv4Address(candidate)
                 alert_ips.add(candidate)
@@ -173,26 +185,36 @@ class AccessTools:
                 continue
         detections = []
         for alert in self._store.alerts_for_pair(sorted(alert_ips), _since(window)):
-            detections.append({
-                "timestamp": alert.get("timestamp", ""),
-                "signature": alert.get("signature", ""),
-                "signature_id": alert.get("signature_id", ""),
-                "category": alert.get("category", ""),
-                "severity": alert.get("severity", ""),
-                "source_ip": alert.get("source_ip", ""),
-                "destination_ip": alert.get("destination_ip", ""),
-            })
+            detections.append(
+                {
+                    "timestamp": alert.get("timestamp", ""),
+                    "signature": alert.get("signature", ""),
+                    "signature_id": alert.get("signature_id", ""),
+                    "category": alert.get("category", ""),
+                    "severity": alert.get("severity", ""),
+                    "source_ip": alert.get("source_ip", ""),
+                    "destination_ip": alert.get("destination_ip", ""),
+                }
+            )
 
         return {
-            "client": {"entity_id": client_entity["entity_id"],
-                       "name": client_entity.get("name", ""),
-                       "identity_basis": client_entity.get("identity_basis", "")},
-            "server": {"entity_id": server_entity["entity_id"],
-                       "name": server_entity.get("name", ""),
-                       "identity_basis": server_entity.get("identity_basis", "")},
-            "observed_flows": {"sessions": sessions, "bytes": bytes_total,
-                               "ports": sorted(int(p) for p in ports),
-                               "providers": sorted(providers), "window_hours": window},
+            "client": {
+                "entity_id": client_entity["entity_id"],
+                "name": client_entity.get("name", ""),
+                "identity_basis": client_entity.get("identity_basis", ""),
+            },
+            "server": {
+                "entity_id": server_entity["entity_id"],
+                "name": server_entity.get("name", ""),
+                "identity_basis": server_entity.get("identity_basis", ""),
+            },
+            "observed_flows": {
+                "sessions": sessions,
+                "bytes": bytes_total,
+                "ports": sorted(int(p) for p in ports),
+                "providers": sorted(providers),
+                "window_hours": window,
+            },
             "controls": controls,
             "detections": detections,
             "configured_controls": configured_controls,
@@ -218,11 +240,13 @@ class AccessTools:
             except (ValueError, TypeError):
                 continue
         rows = self._store.observers_for_ips(sorted(candidate_ips), _since(window))
-        firewalls = sorted({_short_host(r["observer_hostname"]) for r in rows
-                            if r.get("observer_hostname")})
-        return {"entity": {"entity_id": entity["entity_id"],
-                           "name": entity.get("name", "")},
-                "firewalls": firewalls}
+        firewalls = sorted(
+            {_short_host(r["observer_hostname"]) for r in rows if r.get("observer_hostname")}
+        )
+        return {
+            "entity": {"entity_id": entity["entity_id"], "name": entity.get("name", "")},
+            "firewalls": firewalls,
+        }
 
     def configured_policies(self, firewall) -> dict:
         """Configured security rules on the named firewall(s), grouped + deduped per firewall."""
@@ -241,7 +265,8 @@ class AccessTools:
                 "enabled": attrs.get("enabled", "") == "true",
                 "source": "configured",
             }
-        firewalls = [{"firewall": name, "rules": list(rules.values()),
-                      "count": len(rules)}
-                     for name, rules in sorted(by_fw.items())]
+        firewalls = [
+            {"firewall": name, "rules": list(rules.values()), "count": len(rules)}
+            for name, rules in sorted(by_fw.items())
+        ]
         return {"firewalls": firewalls}

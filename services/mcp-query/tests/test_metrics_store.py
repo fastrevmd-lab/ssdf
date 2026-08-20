@@ -8,8 +8,12 @@ class _FakeClient:
 
     def run(self, sql, params=None):
         self.calls.append((sql, params))
-        return {"rows": self._rows, "row_count": len(self._rows),
-                "elapsed_ms": 1, "truncated": False}
+        return {
+            "rows": self._rows,
+            "row_count": len(self._rows),
+            "elapsed_ms": 1,
+            "truncated": False,
+        }
 
 
 def test_metric_timeseries_reads_aggregate_table():
@@ -56,7 +60,7 @@ def test_relative_since_resolved_to_absolute_iso():
     params = fake.calls[0][1]
     assert not params["since"].startswith("now")
     assert params["since"].startswith("20")  # ISO-8601 absolute
-    assert params["until"] == ""             # unset upper bound stays empty
+    assert params["until"] == ""  # unset upper bound stays empty
 
 
 def test_default_since_resolved_not_passed_through():

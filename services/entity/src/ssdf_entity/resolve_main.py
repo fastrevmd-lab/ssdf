@@ -11,8 +11,9 @@ from .resolve_entities import resolve_entities
 log = logging.getLogger("ssdf_entity.resolve")
 
 
-def run_resolver(writer, tenant: str, window_hours: int,
-                 binding_lookback_hours: int) -> tuple[int, int]:
+def run_resolver(
+    writer, tenant: str, window_hours: int, binding_lookback_hours: int
+) -> tuple[int, int]:
     flow_sql, flow_params = build_flow_agg_sql(window_hours, tenant)
     flow_aggregates = writer.query(flow_sql, flow_params)
     binding_sql, binding_params = build_binding_sql(binding_lookback_hours, tenant)
@@ -28,8 +29,12 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     config: Config = load_config()
     writer = ClickHouseEntityWriter(config)
-    run_resolver(writer, tenant=config.tenant_id, window_hours=config.window_hours,
-                 binding_lookback_hours=config.binding_lookback_hours)
+    run_resolver(
+        writer,
+        tenant=config.tenant_id,
+        window_hours=config.window_hours,
+        binding_lookback_hours=config.binding_lookback_hours,
+    )
 
 
 if __name__ == "__main__":

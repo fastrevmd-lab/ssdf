@@ -107,15 +107,24 @@ from ssdf_mcp_query.classification import (
 )
 
 ALL_TOOLS = [
-    "query_flows", "describe_schema", "top_talkers", "run_sql", "get_entity",
-    "locate", "neighbors", "find_path", "enforcement_points",
-    "topology_snapshot", "explain_access",
+    "query_flows",
+    "describe_schema",
+    "top_talkers",
+    "run_sql",
+    "get_entity",
+    "locate",
+    "neighbors",
+    "find_path",
+    "enforcement_points",
+    "topology_snapshot",
+    "explain_access",
 ]
 
 
 def _classification(**overrides):
     """Build a Classification with the given class->label overrides (rest sovereign)."""
     import json, tempfile, os
+
     fd, path = tempfile.mkstemp(suffix=".json")
     with os.fdopen(fd, "w") as handle:
         json.dump(overrides, handle)
@@ -137,7 +146,10 @@ def test_no_shareable_classes_yields_empty_public_set():
 def test_topology_flip_exposes_four_topology_tools():
     classification = _classification(topology="shareable")
     assert public_tool_names(classification, ALL_TOOLS) == [
-        "locate", "neighbors", "find_path", "topology_snapshot",
+        "locate",
+        "neighbors",
+        "find_path",
+        "topology_snapshot",
     ]
 
 
@@ -150,7 +162,11 @@ def test_both_flips_expose_five_tools_and_not_run_sql():
     classification = _classification(topology="shareable", identity="shareable")
     selected = public_tool_names(classification, ALL_TOOLS)
     assert selected == [
-        "get_entity", "locate", "neighbors", "find_path", "topology_snapshot",
+        "get_entity",
+        "locate",
+        "neighbors",
+        "find_path",
+        "topology_snapshot",
     ]
     assert "run_sql" not in selected
     # enforcement_points + explain_access carry locked classes -> never public
@@ -164,24 +180,32 @@ def test_is_tool_shareable_false_for_unknown_tool():
 
 
 def test_new_m12_tools_are_classified_and_never_shareable():
-    from ssdf_mcp_query.classification import (
-        classes_for_tool, is_tool_shareable, Classification)
+    from ssdf_mcp_query.classification import classes_for_tool, is_tool_shareable, Classification
 
     assert classes_for_tool("configured_policies") == frozenset({"firewall_config"})
     assert classes_for_tool("observed_by") == frozenset({"security_log"})
 
     # even with topology+identity flipped shareable (the public config), neither
     # tool is shareable: firewall_config + security_log are not configurable.
-    cls = Classification(labels={"security_log": "sovereign", "firewall_config": "sovereign",
-                                 "topology": "shareable", "identity": "shareable"})
+    cls = Classification(
+        labels={
+            "security_log": "sovereign",
+            "firewall_config": "sovereign",
+            "topology": "shareable",
+            "identity": "shareable",
+        }
+    )
     assert is_tool_shareable(cls, "configured_policies") is False
     assert is_tool_shareable(cls, "observed_by") is False
 
 
 def test_metrics_class_is_configurable_and_tools_classed():
     from ssdf_mcp_query.classification import (
-        DATA_CLASSES, CONFIGURABLE_CLASSES, classes_for_tool,
+        DATA_CLASSES,
+        CONFIGURABLE_CLASSES,
+        classes_for_tool,
     )
+
     assert "metrics" in DATA_CLASSES
     assert "metrics" in CONFIGURABLE_CLASSES
     assert classes_for_tool("metric_timeseries") == frozenset({"metrics"})
@@ -193,6 +217,7 @@ def test_metrics_class_is_configurable_and_tools_classed():
 def test_metrics_can_be_flipped_shareable(tmp_path):
     import json
     from ssdf_mcp_query.classification import load_classification, is_tool_shareable
+
     path = tmp_path / "c.json"
     path.write_text(json.dumps({"metrics": "shareable"}))
     c = load_classification(str(path))

@@ -43,6 +43,7 @@ def load_config() -> Config:
         tenant_id=os.environ.get("TOPO_TENANT", "t_main"),
         window_hours=int(os.environ.get("TOPO_WINDOW_HOURS", "24")),
         enabled_collectors=enabled,
-        ch_secure=os.environ.get("CH_SECURE", "0").strip().lower() in ("1", "true"),  # keep inline for now
+        ch_secure=os.environ.get("CH_SECURE", "0").strip().lower()
+        in ("1", "true"),  # keep inline for now
         ch_ca_file=os.environ.get("CH_CA_FILE", ""),
     )

@@ -29,5 +29,5 @@ def test_parse_device_bad_cpu_string_skipped():
     device = {"system-stats": {"cpu": "n/a", "mem": "50.0"}}
     gauges = parse_device(device, "d", "2026-06-20T00:00:00Z")
     names = {g.metric_name for g in gauges}
-    assert "cpu_util_pct" not in names   # unparseable -> skipped
+    assert "cpu_util_pct" not in names  # unparseable -> skipped
     assert "mem_util_pct" in names

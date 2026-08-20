@@ -1,5 +1,8 @@
 from ssdf_health.collectors.proxmox import (
-    parse_nodes, parse_guests, clamp_pct, _name_from_header,
+    parse_nodes,
+    parse_guests,
+    clamp_pct,
+    _name_from_header,
 )
 
 # Real proxmox-mcp text payloads (captured live on ct109, 2026-06-20).
@@ -46,7 +49,7 @@ def test_name_from_header_variants():
 def test_parse_nodes_online_only_memory():
     gauges = parse_nodes(NODES_TEXT)
     by_device = {g.device: g for g in gauges}
-    assert "pve2" not in by_device          # OFFLINE node skipped
+    assert "pve2" not in by_device  # OFFLINE node skipped
     assert "Proxmox Nodes" not in by_device  # title stanza yields nothing
     assert by_device["pve3"].metric_class == "memory"
     assert by_device["pve3"].scope == "node"
@@ -58,8 +61,8 @@ def test_parse_nodes_online_only_memory():
 def test_parse_vms_running_only_mem_no_cpu():
     gauges = parse_guests(VMS_TEXT)
     devices = {g.device for g in gauges}
-    assert "vSRX-test3" not in devices       # STOPPED skipped
-    assert "ProductionSRX" in devices        # RUNNING present
+    assert "vSRX-test3" not in devices  # STOPPED skipped
+    assert "ProductionSRX" in devices  # RUNNING present
     running = [g for g in gauges if g.device == "ProductionSRX"]
     # VMs expose no CPU% in this MCP -> memory only, clamped to 100
     assert {g.metric_name for g in running} == {"mem_util_pct"}
@@ -70,11 +73,11 @@ def test_parse_vms_running_only_mem_no_cpu():
 def test_parse_containers_running_only_cpu_and_mem():
     gauges = parse_guests(CONTAINERS_TEXT)
     devices = {g.device for g in gauges}
-    assert "wifi-ap" not in devices          # STOPPED skipped
+    assert "wifi-ap" not in devices  # STOPPED skipped
     running = [g for g in gauges if g.device == "ssdf-topo"]
     assert {g.metric_name for g in running} == {"cpu_util_pct", "mem_util_pct"}
     cpu = next(g for g in running if g.metric_name == "cpu_util_pct")
     mem = next(g for g in running if g.metric_name == "mem_util_pct")
     assert cpu.value == 7.2
     assert mem.value == 11.2
-    assert "CPU Cores" not in cpu.raw        # "CPU Cores: 1" must not match CPU%
+    assert "CPU Cores" not in cpu.raw  # "CPU Cores: 1" must not match CPU%

@@ -29,22 +29,36 @@ def parse_resources(text: str, device: str, now: str) -> list[Gauge]:
     gauges: list[Gauge] = []
     idle = _IDLE_RE.search(body)
     if idle:
-        gauges.append(Gauge(
-            provider="paloalto", device=device, scope="device", metric_class="cpu",
-            sensor="", metric_name="cpu_util_pct",
-            value=max(0.0, 100.0 - float(idle.group(1))),
-            unit="percent", raw=idle.group(0),
-        ))
+        gauges.append(
+            Gauge(
+                provider="paloalto",
+                device=device,
+                scope="device",
+                metric_class="cpu",
+                sensor="",
+                metric_name="cpu_util_pct",
+                value=max(0.0, 100.0 - float(idle.group(1))),
+                unit="percent",
+                raw=idle.group(0),
+            )
+        )
     mem = _MEM_RE.search(body)
     if mem:
         total, used = float(mem.group(1)), float(mem.group(2))
         if total:
-            gauges.append(Gauge(
-                provider="paloalto", device=device, scope="device",
-                metric_class="memory", sensor="", metric_name="mem_util_pct",
-                value=max(0.0, min(100.0, used / total * 100.0)),
-                unit="percent", raw=mem.group(0),
-            ))
+            gauges.append(
+                Gauge(
+                    provider="paloalto",
+                    device=device,
+                    scope="device",
+                    metric_class="memory",
+                    sensor="",
+                    metric_name="mem_util_pct",
+                    value=max(0.0, min(100.0, used / total * 100.0)),
+                    unit="percent",
+                    raw=mem.group(0),
+                )
+            )
     return gauges
 
 
@@ -66,11 +80,19 @@ def parse_environmentals(text: str, device: str, now: str) -> list[Gauge]:
             value = float(deg_el.text.strip())
         except ValueError:
             continue
-        gauges.append(Gauge(
-            provider="paloalto", device=device, scope="device",
-            metric_class="temperature", sensor=sensor, metric_name="temp_celsius",
-            value=value, unit="celsius", raw=deg_el.text.strip(),
-        ))
+        gauges.append(
+            Gauge(
+                provider="paloalto",
+                device=device,
+                scope="device",
+                metric_class="temperature",
+                sensor=sensor,
+                metric_name="temp_celsius",
+                value=value,
+                unit="celsius",
+                raw=deg_el.text.strip(),
+            )
+        )
     return gauges
 
 
@@ -86,13 +108,18 @@ class PanosCollector:
     def collect(self, client, now: str) -> list[Gauge]:
         resources = client.call_tool(
             "execute_panos_op",
-            {"device": self.device,
-             "command": "<show><system><resources></resources></system></show>"},
+            {
+                "device": self.device,
+                "command": "<show><system><resources></resources></system></show>",
+            },
         )
         environmentals = client.call_tool(
             "execute_panos_op",
-            {"device": self.device,
-             "command": "<show><system><environmentals></environmentals></system></show>"},
+            {
+                "device": self.device,
+                "command": "<show><system><environmentals></environmentals></system></show>",
+            },
         )
-        return (parse_resources(resources, self.device, now)
-                + parse_environmentals(environmentals, self.device, now))
+        return parse_resources(resources, self.device, now) + parse_environmentals(
+            environmentals, self.device, now
+        )

@@ -12,9 +12,24 @@ from sqlglot import exp
 ALLOWED_DB = "ssdf"
 _DIALECT = "clickhouse"
 _TABLE_FUNCTIONS = {
-    "url", "file", "remote", "remotesecure", "s3", "s3cluster", "mysql",
-    "postgresql", "jdbc", "odbc", "hdfs", "cluster", "merge", "input", "numbers",
-    "generaterandom", "view", "dictionary",
+    "url",
+    "file",
+    "remote",
+    "remotesecure",
+    "s3",
+    "s3cluster",
+    "mysql",
+    "postgresql",
+    "jdbc",
+    "odbc",
+    "hdfs",
+    "cluster",
+    "merge",
+    "input",
+    "numbers",
+    "generaterandom",
+    "view",
+    "dictionary",
 }
 
 
