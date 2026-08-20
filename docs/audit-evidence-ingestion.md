@@ -46,23 +46,72 @@ Content-Type: application/x-ndjson
 - **Arrays:** Native JSON arrays (`["item1","item2"]`)
 - **Nested JSON in args:** Double-escaped string (`"{\"key\":\"value\"}"`)
 
-## Deduplication Guard
+## Deduplication — a high-water mark, not a per-INSERT guard
 
-To enforce the `(server_id, run_id, segment_seq)` deduplication contract, mecmcp-audit MUST guard each INSERT:
+**Resolved 2026-08-20 (ssdf#47, mecmcp#292).** An earlier version of this
+document required every INSERT to be guarded:
 
 ```sql
-INSERT INTO ssdf.audit (...)
-SELECT ... FROM input('...')
-WHERE NOT EXISTS (
-  SELECT 1 FROM ssdf.audit
-  WHERE tier = 'evidence'
-    AND JSONExtractString(args, 'server_id') = <server_id>
-    AND JSONExtractString(args, 'run_id') = <run_id>
-    AND JSONExtractInt(args, 'segment_seq') = <segment_seq>
-)
+INSERT INTO ssdf.audit (...) SELECT ... WHERE NOT EXISTS (SELECT 1 FROM ssdf.audit ...)
 ```
 
-Without this guard, re-ingestion creates duplicate rows.
+That guard cannot be implemented, for a reason worth stating so it is not
+reintroduced: **a single SQL statement runs as exactly one identity**, and the
+writer `ssdf_audit` has no SELECT. That absence is deliberate, not an oversight
+— `007_audit.sql` says so at the grant:
+
+> INSERT-only writer. Deliberately no SELECT grant: the query identity
+> (`ssdf_ro`) cannot read or edit the trail, and `ssdf_audit` cannot read what
+> it wrote.
+
+It is a containment property: an attacker holding the writer credential can
+append, but cannot enumerate or exfiltrate the history. Granting SELECT to
+`ssdf_audit` to satisfy the guard would trade that away to solve a problem the
+chain already solves.
+
+### What replaces it
+
+Dedup falls out of chain-seeding, which the sink has to do anyway.
+
+`ssdf_audit_verify` exists precisely for this — `009_audit_hash_chain.sql`
+describes it as "used for **startup chain-seeding** and verify_audit". Before
+replaying anything, the sink reads its own high-water mark as that identity:
+
+```sql
+-- as ssdf_audit_verify
+SELECT max(JSONExtractInt(args, 'segment_seq')) AS high_water
+FROM ssdf.audit
+WHERE tier = 'evidence'
+  AND JSONExtractString(args, 'server_id') = {server_id:String}
+  AND JSONExtractString(args, 'run_id')    = {run_id:String}
+```
+
+then INSERTs, as `ssdf_audit`, only segments above `high_water`.
+
+Two identities, two statements, each doing only what it is granted. The security
+boundary stays where `007` put it.
+
+### Why this is sufficient
+
+- **Segments are ordered and gapless per `(server_id, run_id)`.** A
+  high-water mark is therefore a complete statement of what landed; there is no
+  case where segment 5 is present and 3 is missing, because the chain would not
+  verify.
+- **Writers are serialised per `(server_id, run_id)`.** The hash chain requires
+  it — `prev_hash` is the previous row's `row_hash`, so a second concurrent
+  writer for the same run would fork the chain regardless of dedup. So the
+  read-then-write is not racing another writer for the same key.
+- **A duplicate is a lost ack, not a divergent row.** The retry carries the
+  identical serialised record and the identical `row_hash`, so the failure this
+  protects against is re-appending a row already present, which the high-water
+  mark catches.
+
+### What it does not do
+
+It does not protect against two processes writing the same `(server_id,
+run_id)`. Nothing here does, and nothing should: that configuration forks the
+hash chain, and the verifier is what must catch it. A dedup guard that quietly
+absorbed the second writer would hide a broken chain rather than surface it.
 
 ## Query Endpoint (Task 11 Web App)
 
@@ -81,9 +130,9 @@ This query runs as `ssdf_ro` (sovereign MCP tools) or `ssdf_audit_verify` (hash-
 ## Implementation Checklist (Task 9)
 
 - [ ] mecmcp-audit HTTP client (rustsdcmcp `ssdf` crate)
-- [ ] ClickHouse auth via Basic auth (ssdf_audit user)
+- [ ] ClickHouse auth via Basic auth (`ssdf_audit` to write, `ssdf_audit_verify` to seed)
 - [ ] JSONEachRow serialization (evidence record → ndjson)
-- [ ] Deduplication guard (INSERT ... WHERE NOT EXISTS)
+- [ ] High-water-mark read as `ssdf_audit_verify` before replay (see above)
 - [ ] TLS trust anchor (ssdf CA cert in rustsdcmcp container)
 - [ ] Retry/backoff on transient failures
 - [ ] Unit test: mock ClickHouse response

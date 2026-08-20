@@ -12,7 +12,8 @@ This contract defines the ingestion schema for firewall configuration-change evi
 ## Schema Ownership
 
 - **Table:** `ssdf.audit` (existing, created by migration 007, hash-chained by 009)
-- **Write Identity:** `ssdf_audit` (INSERT-only, no SELECT)
+- **Write Identity:** `ssdf_audit` (INSERT-only, no SELECT — deliberately; see
+  [ingestion](./audit-evidence-ingestion.md) for how dedup works without it)
 - **Verify Identity:** `ssdf_audit_verify` (SELECT-only, hash-chain verification)
 - **Schema Steward:** ssdf repo (this contract document)
 - **Primary Consumer:** mecmcp-audit (rustsdcmcp audit sink, will implement in Task 7+9)
@@ -29,6 +30,38 @@ Evidence records use the existing `ssdf.audit` schema with the following `tool` 
 | `evidence:result_receipt` | Execution result returned from the device | Execution complete |
 
 All evidence records share `tier = "evidence"` to enable chain verification independent of the MCP tool audit trail.
+
+## Scope: this contract covers the change lifecycle only
+
+**Decided 2026-08-20 (ssdf#47, mecmcp#292).** The four record types above are
+the complete set. `ssdf.audit` takes **`tier = "evidence"`** from mecmcp and
+nothing else.
+
+The question was whether the MCP fleet's per-call stream — reads, denials,
+transport events — should also land here under a `tier = "mcp"`. It should not,
+for three reasons:
+
+1. **Volume swamps the signal.** One production server emits roughly 30,000
+   records in three weeks, almost all reads. Evidence records are a handful per
+   change. Mixed in the same table, the chain-verifiable rows become a rounding
+   error in something sized and tuned for telemetry.
+2. **The retention is wrong for it.** `ssdf.audit` has a 90-day TTL. That is
+   generous for telemetry and short for evidence: the record of who approved a
+   configuration change should outlive the record of who listed a device. One
+   TTL cannot serve both, and raising it to suit evidence means keeping three
+   months of reads that nobody wants.
+3. **The chain is per-tier.** Adding a high-volume tier to a table whose value
+   is a verifiable chain means the verifier walks far more rows to check far
+   fewer, and a gap in the noisy tier looks like a gap in the table.
+
+**Where per-call records go instead:** they stay where they already are —
+structured JSON in each server's journald, sealed with Forward Secure Sealing,
+with stated 90-day retention and device names pseudonymised (`hmac:…`, stable,
+so they correlate without exporting the inventory). That trail is already
+tamper-evident at rest and does not need this table to become so.
+
+If a per-call tier is ever wanted here, it should be a **separate table** with
+its own TTL and its own chain, not a tier in this one.
 
 ## Field Schema
 
