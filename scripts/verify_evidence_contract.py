@@ -67,8 +67,19 @@ def dedup_token(server_id: str, run_id: str, segment_seq: int) -> str:
     separator alone is not one-to-one when a field contains it, and two
     segments sharing a token means the database drops one while reporting
     success.
+
+    **UTF-8 byte lengths, not `len()`.** Python counts code points and Rust
+    counts bytes; they agree only for ASCII, and a token that disagrees with the
+    sink's is a token that deduplicates nothing.
+
+    Duplicated from `ssdf_mcp_query.audit_chain.dedup_token` because this script
+    is standalone and cannot import the package. The known-answer check in
+    `main` pins the two together; `test_verify_audit.py` holds the same vectors.
     """
-    return f"{len(server_id)}:{server_id}:{len(run_id)}:{run_id}:{segment_seq}"
+    return (
+        f"{len(server_id.encode('utf-8'))}:{server_id}:"
+        f"{len(run_id.encode('utf-8'))}:{run_id}:{segment_seq}"
+    )
 
 
 def high_water(verify_client, server_id: str, run_id: str) -> int | None:
@@ -108,6 +119,17 @@ def main():
         print("ERROR: CH_AUDIT_VERIFY_PASSWORD not set", file=sys.stderr)
         print("The write identity cannot SELECT; the high-water read needs", file=sys.stderr)
         print("ssdf_audit_verify. See migration 009.", file=sys.stderr)
+        sys.exit(1)
+
+    # Pin the token encoding before anything is written. A drift from the
+    # sink's spelling would not fail loudly -- it would simply stop
+    # deduplicating, and this script would report success while proving
+    # nothing.
+    if (
+        dedup_token("junos-950", "run-7", 42) != "9:junos-950:5:run-7:42"
+        or dedup_token("café", "run-7", 0) != "5:café:5:run-7:0"
+    ):
+        print("ERROR: dedup_token no longer matches the pinned encoding", file=sys.stderr)
         sys.exit(1)
 
     print(f"Connecting to ClickHouse: {ch_host}:{ch_port} (secure={ch_secure})")

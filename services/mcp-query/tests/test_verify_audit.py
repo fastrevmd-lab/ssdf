@@ -215,3 +215,25 @@ def test_detects_a_replayed_duplicate_row():
 def test_a_clean_chain_reports_no_duplicates():
     """Guards the counting against firing on ordinary chains."""
     assert not [i for i in verify_tier(_chain(6)) if i["type"] == "duplicate_row"]
+
+
+def test_dedup_token_counts_utf8_bytes_not_code_points():
+    """The token must be byte-identical to the Rust sink's, or dedup fails open.
+
+    Python's ``len()`` counts code points and Rust's ``str::len()`` counts UTF-8
+    bytes. For an ASCII identifier they agree, which is why this went unnoticed;
+    for anything else they diverge, and a retry issued by the other
+    implementation carries a different token. ClickHouse then sees a new block
+    and the duplicate lands -- the failure the token exists to prevent, arrived
+    at by disagreeing about how to spell it.
+    """
+    from ssdf_mcp_query.audit_chain import dedup_token
+
+    # Known-answer vectors, shared with the Rust `dedup_token` and with
+    # scripts/verify_evidence_contract.py. Changing either side alone breaks
+    # deduplication silently, so these are pinned rather than computed.
+    assert dedup_token("junos-950", "run-7", 42) == "9:junos-950:5:run-7:42"
+    assert dedup_token("café", "run-7", 0) == "5:café:5:run-7:0"
+
+    # The encoding is injective even when an identifier contains the separator.
+    assert dedup_token("a:b", "c", 1) != dedup_token("a", "b:c", 1)
