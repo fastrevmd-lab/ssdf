@@ -7,6 +7,12 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 DynamicUser=yes
+# Type=oneshot runs the whole collect+resolve during ACTIVATION, which
+# RuntimeMaxSec does not bound — that limit applies to a service already
+# active. TimeoutStartSec defaults to infinity for oneshot, so before this a
+# single unanswered vendor-MCP call wedged the unit indefinitely (observed:
+# 91 minutes) and the timer never re-fired, freezing the graph.
+TimeoutStartSec=600
 RuntimeMaxSec=900
 NoNewPrivileges=true
 ProtectSystem=strict

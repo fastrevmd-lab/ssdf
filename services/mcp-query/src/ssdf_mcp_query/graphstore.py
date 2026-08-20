@@ -87,6 +87,33 @@ class GraphStore(Protocol):
     ) -> list[dict]: ...
 
 
+def _collapse_superseded(rows: list[dict]) -> list[dict]:
+    """Keep one row per named device: the freshest.
+
+    graph_nodes is a ReplacingMergeTree keyed on node_id, so a device whose
+    identity changes — a MAC-named node fusing with its inventory name, a rename —
+    leaves its previous row behind until TTL expires it. Both rows carry the same
+    name, so every consumer counted the device twice; live, 23 rows described 20
+    devices.
+
+    Deduping on identity rather than age is deliberate. A staleness filter would
+    also hide a device that genuinely stopped reporting, and surfacing exactly that
+    is what ingest_status exists for. An unnamed row cannot be matched to another,
+    so it is passed through untouched rather than silently dropped.
+    """
+    freshest: dict[str, dict] = {}
+    passthrough: list[dict] = []
+    for row in rows:
+        name = row.get("name") or ""
+        if not name:
+            passthrough.append(row)
+            continue
+        current = freshest.get(name)
+        if current is None or row.get("last_seen", "") > current.get("last_seen", ""):
+            freshest[name] = row
+    return [*freshest.values(), *passthrough]
+
+
 class ClickHouseGraphStore:
     """GraphStore backed by ClickHouse (the swappable storage seam)."""
 
@@ -118,4 +145,4 @@ class ClickHouseGraphStore:
         self, role: str | None = None, kind: str | None = None, limit: int = 5000
     ) -> list[dict]:
         sql, params = build_nodes_by_attr_sql(role, kind, self._tenant, limit, schema=self._schema)
-        return self._ch.run(sql, params)["rows"]
+        return _collapse_superseded(self._ch.run(sql, params)["rows"])
