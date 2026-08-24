@@ -10,6 +10,11 @@ on:
     paths:
       - "services/mcp-query/**"
       - ".github/workflows/mcp-query-ci.yml"
+  # Manual trigger, so the suite can be run without inventing a code change.
+  # Needed at least once here: this repository was recreated to publish a
+  # scrubbed history, and a branch-creation push does not match the path
+  # filters above, so nothing would ever have run.
+  workflow_dispatch:
 
 concurrency:
   group: mcp-query-ci-${{ github.ref }}
