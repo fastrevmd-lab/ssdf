@@ -91,8 +91,15 @@ def build_recent_alerts_sql(
 
     # Alert-class gate: explicit event_kind IN (alert) OR has UniFi IPS signature
     # OR has PAN severity ext key (PAN THREAT logs keep event_kind='event')
+    # `timestamp` is QUALIFIED: the SELECT below aliases `toString(timestamp) AS
+    # timestamp`, and an unqualified reference binds to that String alias rather
+    # than the real DateTime column, making the window a lexical string compare.
+    # It happens to agree today only because the bound is a datetime rendered in
+    # the same layout toString() emits; qualifying removes the dependency on that
+    # coincidence (see build_subgraph_sql, where the layouts differed and a
+    # same-day window silently returned nothing).
     where = [
-        "timestamp >= %(since)s",
+        "events.timestamp >= %(since)s",
         "(event_kind IN %(kinds)s OR ext['unifi.ips.signature'] != '' OR ext['panw.panos.severity'] != '')",
     ]
     params["kinds"] = tuple(ALERT_KINDS)
@@ -106,7 +113,9 @@ def build_recent_alerts_sql(
         "event_kind, rule_name, source_ip, source_port, destination_ip, "
         "destination_port, observer_hostname, observer_ingress_zone, "
         "observer_egress_zone, ext "
-        "FROM ssdf.events WHERE " + " AND ".join(where) + " ORDER BY timestamp DESC LIMIT %(limit)s"
+        "FROM ssdf.events WHERE "
+        + " AND ".join(where)
+        + " ORDER BY events.timestamp DESC LIMIT %(limit)s"
     )
     return sql, params
 

@@ -240,16 +240,20 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
   `pvesh get /cluster/backup` / restore drill to a SCRATCH VMID only, never ct104 itself.
 - **Lab transit traffic (Phase 2, 2026-06-15):** TWO Alpine endpoints run the shared
   `scripts/labgen_endpoint.sh` daemon (OpenRC service `labgen`, not cron — it self-loops
-  ~30s jittered) so BOTH firewalls stay continuously live-proven as SSDF transit sources:
+  ~30s jittered) so BOTH firewalls can be live-proven as SSDF transit sources on demand:
   guest 710 `ssdf-traffic-gen-srx` (was ct198 `ssdf-ep-srx`; 10.74.12.20/24, gw 10.74.12.1) behind vsrx-prod (now vsrx-prod) trust VLAN 198,
   and guest 711 `ssdf-traffic-gen-panos` (was ct199 `ssdf-ep-panos`; 10.74.11.20/24, gw 10.74.11.1) behind panosvm trust VLAN 199.
   Trust VLANs are Proxmox-only bridge tags on vmbr1 (VLAN id = endpoint CTID, no UniFi net
   object). The generator produces permitted internet egress PLUS a deliberate denied DNS
   attempt (firewalls allow DNS only to approved resolvers 198.51.100.1/1.1.1.2/1.0.0.2;
   endpoints query 8.8.8.8 → deny event on both vendors). Runbooks:
-  `onboarding/srx/transit-endpoint.md`, `onboarding/panos/transit-traffic.md`. Do not destroy
-  710/711 without replacing the source; neither is in the weekly backup job (reproducible
-  from the runbooks). The old single-vendor ct115 (`labgen_transit.sh`, cron) was retired.
+  `onboarding/srx/transit-endpoint.md`, `onboarding/panos/transit-traffic.md`.
+  **710/711 are normally STOPPED, and that is the intended resting state** — start them only
+  when transit traffic logs are actually wanted, then stop them again. A stopped generator is
+  not an outage and needs no action; it only means no new transit flows are being produced.
+  Do not destroy them without replacing the source; neither is in the weekly backup job
+  (reproducible from the runbooks). The old single-vendor ct115 (`labgen_transit.sh`, cron)
+  was retired.
 - **H2 device gate broadened (Phase 2):** the `infra/vector/vector.toml` observer_hostname
   gate now accepts `^vsrx-(test\d|production)` (was test-fleet-only), so vsrx-prod's (now vsrx-prod)
   RT_FLOW events carry `observer_hostname=vsrx-prod` (original case preserved for the

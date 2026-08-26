@@ -16,7 +16,7 @@ def test_build_alerts_for_pair_sql_filters_provider_kind_ips_and_window():
     )
     assert "event_provider = 'unifi'" in sql
     assert "event_kind = 'alert'" in sql
-    assert "timestamp >= {since:String}" in sql
+    assert "events.timestamp >= parseDateTimeBestEffort({since:String})" in sql
     assert "toString(source_ip) IN {ips:Array(String)}" in sql
     assert "toString(destination_ip) IN {ips:Array(String)}" in sql
     assert "LIMIT 200" in sql
@@ -243,3 +243,24 @@ def test_observers_for_ips_empty_ips_short_circuits():
 
     store = ClickHouseEntityStore(_BoomCH(), tenant="t_main")
     assert store.observers_for_ips([], "2026-06-18T00:00:00.000+00:00") == []
+
+
+# --- Regression: detections dropped on a same-day window ---------------------
+#
+# `build_alerts_for_pair_sql` aliases `toString(timestamp) AS timestamp`, so an
+# unqualified `timestamp` in WHERE/ORDER BY bound to that String alias and the
+# window became a lexical compare against the caller's isoformat bound. Same
+# defect class as build_subgraph_sql (see tests/test_graphstore.py), reached
+# through explain_access's `detections` field.
+
+
+def test_alerts_for_pair_window_is_parsed_not_string_compared():
+    sql, _ = build_alerts_for_pair_sql(["198.51.100.50"], "2026-08-26T12:00:00.000+00:00", "t_main")
+    assert "events.timestamp >= parseDateTimeBestEffort({since:String})" in sql
+    # The bare form binds to the `toString(timestamp) AS timestamp` alias.
+    assert "AND timestamp >=" not in sql
+
+
+def test_alerts_for_pair_ordering_uses_the_datetime_column_not_the_alias():
+    sql, _ = build_alerts_for_pair_sql(["198.51.100.50"], "2026-08-26T12:00:00.000+00:00", "t_main")
+    assert "ORDER BY events.timestamp DESC" in sql

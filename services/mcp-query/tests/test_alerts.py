@@ -149,3 +149,24 @@ def test_recent_alerts_with_all_defaults():
     # Call with ALL DEFAULTS — since default flows through build_recent_alerts_sql/parse_time
     result = tools.recent_alerts()
     assert result["row_count"] == 0  # no rows, but no crash
+
+
+# --- Regression: recent_alerts window bound must not ride the String alias ---
+#
+# The SELECT aliases `toString(timestamp) AS timestamp`. An unqualified
+# `timestamp` in WHERE/ORDER BY binds to that alias, making the window a lexical
+# string compare. It agreed only because the bound is a datetime rendered in the
+# same layout toString() emits — a coincidence, not a guarantee. Qualifying
+# removes the dependency. Same defect class as build_subgraph_sql.
+
+
+def test_recent_alerts_window_uses_the_datetime_column_not_the_alias():
+    sql, _ = build_recent_alerts_sql(since="now-1h", min_severity="high", providers="", limit=10)
+    assert "events.timestamp >= %(since)s" in sql
+    assert "AND timestamp >=" not in sql
+    assert not sql.split("WHERE", 1)[1].startswith(" timestamp >=")
+
+
+def test_recent_alerts_ordering_uses_the_datetime_column_not_the_alias():
+    sql, _ = build_recent_alerts_sql(since="now-1h", min_severity="high", providers="", limit=10)
+    assert "ORDER BY events.timestamp DESC" in sql

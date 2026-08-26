@@ -30,12 +30,20 @@ def build_node_match_sql(value: str, tenant: str, schema: str = "ssdf") -> tuple
 def build_subgraph_sql(
     since_iso: str, tenant: str, limit: int = 5000, schema: str = "ssdf"
 ) -> tuple[str, dict]:
+    # The SELECT aliases `toString(last_seen) AS last_seen`. An UNQUALIFIED
+    # `last_seen` in WHERE/ORDER BY binds to that String alias, not the real
+    # DateTime column, turning the window filter into a lexical string compare
+    # against `since_iso` ("...T...+00:00"). Those formats differ at offset 10
+    # (' ' vs 'T'), so every row sharing a UTC date with the window start was
+    # silently dropped — a same-day window returned 0 edges instead of all of
+    # them, with no error. Qualify the column and parse the bound explicitly.
     sql = (
         "SELECT edge_id, src_id, dst_id, edge_type, layer, "
         "toString(first_seen) AS first_seen, toString(last_seen) AS last_seen, "
         f"confidence, attrs FROM {schema}.graph_edges FINAL "
-        "WHERE tenant_id = {tenant:String} AND last_seen >= {since:String} "
-        f"ORDER BY last_seen DESC LIMIT {int(limit)}"
+        "WHERE tenant_id = {tenant:String} "
+        "AND graph_edges.last_seen >= parseDateTimeBestEffort({since:String}) "
+        f"ORDER BY graph_edges.last_seen DESC LIMIT {int(limit)}"
     )
     return sql, {"tenant": tenant, "since": since_iso}
 
