@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
-# Apply the nginx MCP edge (edge-hardening M2/L1b/L3/L6) to ct106 + ct113 via pve3.
+# Apply the nginx MCP edge (edge-hardening M2/L1b/L3/L6) to the sovereign +
+# public MCP containers.
 # Per host: install nginx, push leaf cert/key + CA + site conf + shared limit
 # zones, rebind the MCP service to loopback via a systemd drop-in, restart
 # both, then smoke-test. Idempotent; safe to re-run.
 #
+# Targets track the 2026-08-12 renumber+migration (ct106/ct113 on pve3 ->
+# 702/703 on pve2), the same correction already made in
+# apply_ct102_nftables.sh. The pre-renumber defaults named guests that no
+# longer exist, so a default run could only fail.
+#
 # Prereq: ./scripts/gen_ssdf_tls.sh has populated infra/tls-local/.
 # Usage:  ./scripts/apply_mcp_edge.sh
-# Env:    PVE_HOST_SSH (default root@pve3.example.com),
-#         SSDF_QUERY_CTID (default 106), SSDF_PUBLIC_CTID (default 113)
+# Env:    PVE_HOST_SSH (default root@pve2.example.com),
+#         SSDF_QUERY_CTID (default 702), SSDF_PUBLIC_CTID (default 703)
 set -euo pipefail
 
-PVE_HOST="${PVE_HOST_SSH:-root@pve3.example.com}"
-QUERY_CTID="${SSDF_QUERY_CTID:-106}"
-PUBLIC_CTID="${SSDF_PUBLIC_CTID:-113}"
+PVE_HOST="${PVE_HOST_SSH:-root@pve2.example.com}"
+QUERY_CTID="${SSDF_QUERY_CTID:-702}"
+PUBLIC_CTID="${SSDF_PUBLIC_CTID:-703}"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TLS_DIR="$REPO_ROOT/infra/tls-local"
@@ -25,8 +31,8 @@ for f in "$TLS_DIR/ssdf-ca.crt" "$TLS_DIR/ct106.crt" "$TLS_DIR/ct106.key" \
   [ -f "$f" ] || { echo "missing $f (run scripts/gen_ssdf_tls.sh first?)" >&2; exit 1; }
 done
 
-# Push a local file into a container via a pve3 scratch copy (ct102 pattern).
-# umask 077 keeps private keys from sitting world-readable in pve3 /tmp.
+# Push a local file into a container via a scratch copy on the PVE host (ct102 pattern).
+# umask 077 keeps private keys from sitting world-readable in the host's /tmp.
 push_file() {
   local ctid="$1" src="$2" dst="$3"
   ssh "$PVE_HOST" "umask 077 && cat > /tmp/ssdf-push.tmp && pct push $ctid /tmp/ssdf-push.tmp $dst && rm -f /tmp/ssdf-push.tmp" < "$src"
@@ -35,13 +41,13 @@ push_file() {
 deploy_edge() {
   local ctid="$1" host_ip="$2" lan_port="$3" loop_port="$4" leaf="$5" unit="$6" conf="$7"
 
-  echo "=== [$unit @ ct$ctid] install nginx (if missing) ==="
+  echo "=== [$unit @ $ctid] install nginx (if missing) ==="
   ssh "$PVE_HOST" "pct exec $ctid -- sh -c '
     command -v nginx >/dev/null 2>&1 || { apt-get update -q && apt-get install -y -q nginx; }
     command -v curl  >/dev/null 2>&1 || apt-get install -y -q curl
   '"
 
-  echo "=== [$unit @ ct$ctid] push certs + nginx config ==="
+  echo "=== [$unit @ $ctid] push certs + nginx config ==="
   ssh "$PVE_HOST" "pct exec $ctid -- mkdir -p /etc/nginx/ssdf /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d"
   push_file "$ctid" "$TLS_DIR/$leaf.crt"   "/etc/nginx/ssdf/$leaf.crt"
   push_file "$ctid" "$TLS_DIR/$leaf.key"   "/etc/nginx/ssdf/$leaf.key"
@@ -56,7 +62,7 @@ deploy_edge() {
     rm -f /etc/nginx/sites-enabled/default
   '"
 
-  echo "=== [$unit @ ct$ctid] rebind MCP service to loopback (systemd drop-in) ==="
+  echo "=== [$unit @ $ctid] rebind MCP service to loopback (systemd drop-in) ==="
   # Drop-in (not unit edit): later Environment= assignments of the same var
   # override the unit's values, and the checked-in unit file stays canonical.
   ssh "$PVE_HOST" "pct exec $ctid -- sh -c '
@@ -66,10 +72,10 @@ deploy_edge() {
     systemctl restart $unit
   '"
 
-  echo "=== [$unit @ ct$ctid] nginx -t && restart ==="
+  echo "=== [$unit @ $ctid] nginx -t && restart ==="
   ssh "$PVE_HOST" "pct exec $ctid -- sh -c 'nginx -t && systemctl enable --now nginx && systemctl restart nginx'"
 
-  echo "=== [$unit @ ct$ctid] verify ==="
+  echo "=== [$unit @ $ctid] verify ==="
   # Give uvicorn a moment to come back before probing through nginx.
   local https_code http_code
   https_code="$(ssh "$PVE_HOST" "pct exec $ctid -- sh -c '
@@ -96,6 +102,11 @@ deploy_edge() {
   esac
 }
 
+# NOTE: the `leaf` column (ct106/ct113) is a CERT BASENAME in infra/tls-local/,
+# NOT a container id -- gen_ssdf_tls.sh issues ct106.{key,crt} / ct113.{key,crt}.
+# It deliberately did not follow the 2026-08-12 renumber: renaming it would
+# invalidate already-issued key material and force a re-issue plus redistribution
+# of every leaf. The container ids are the $*_CTID variables above.
 #           ctid          host_ip        lan    loop   leaf   unit                       conf
 deploy_edge "$QUERY_CTID"  198.51.100.152 30032 31032 ct106 ssdf-mcp-query.service  ssdf-mcp-query.conf
 deploy_edge "$PUBLIC_CTID" 198.51.100.154 30033 31033 ct113 ssdf-mcp-public.service ssdf-mcp-public.conf

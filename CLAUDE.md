@@ -232,12 +232,18 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
   Any NEW log source must be onboarded with a UTC device clock — naive-parse skew otherwise.
 
 ### Ops (backups + lab traffic)
-- **vzdump backups (P2, 2026-06-12):** `PVE_BACKUP_STORAGE=local ./scripts/apply_pve_backup_job.sh`
-  idempotently maintains two cluster jobs — `ssdf-ch-daily` (ct104, 03:30, keep-daily=7/weekly=4)
-  and `ssdf-all-weekly` (ct102/104/106/109/113, Sun 04:30, keep-weekly=4); snapshot mode + zstd.
-  `local` is the only backup-capable storage on pve3 (host's own disk) — covers container
-  loss/fat-fingers, NOT host-disk loss. Schedule times are pve3-host-local. Verify:
-  `pvesh get /cluster/backup` / restore drill to a SCRATCH VMID only, never ct104 itself.
+- **vzdump backups (P2, 2026-06-12; VMIDs corrected 2026-08-26):** the cluster already
+  backs up every guest via `pve2-all-daily` / `pve3-all-daily` (all guests → `nas-backup`,
+  keep-daily 14 / weekly 8 / monthly 12), verified live 2026-08-26 — **ClickHouse is
+  covered, and `scripts/apply_pve_backup_job.sh` is NOT required.** That script adds two
+  narrower, additive SSDF-only jobs on separate storage: `ssdf-ch-daily` (701, 03:30,
+  keep-daily=7/weekly=4) and `ssdf-all-weekly` (700,701,702,703,704, Sun 04:30,
+  keep-weekly=4); snapshot mode + zstd. Its VMIDs named the pre-renumber ct1xx guests
+  until 2026-08-26, so running it then would have created two jobs backing up NOTHING —
+  which reads as "backups configured" and is worse than a visible failure. `local` is a
+  dir on the host's own disk: it covers container loss/fat-fingers, NOT host-disk loss;
+  prefer NAS-backed storage. Schedule times are host-local. Verify with
+  `pvesh get /cluster/backup`; restore-drill to a SCRATCH VMID only, never 701 itself.
 - **Lab transit traffic (Phase 2, 2026-06-15):** TWO Alpine endpoints run the shared
   `scripts/labgen_endpoint.sh` daemon (OpenRC service `labgen`, not cron — it self-loops
   ~30s jittered) so BOTH firewalls can be live-proven as SSDF transit sources on demand:
