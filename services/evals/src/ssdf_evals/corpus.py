@@ -14,8 +14,18 @@ from pathlib import Path
 
 import yaml
 
-# Tool surfaces as deployed (ct106 sovereign / ct113 public). Keep in sync with
-# services/mcp-query tool registration; the corpus lint depends on these.
+# Tool surfaces as deployed (sovereign tier / public tier).
+#
+# This list MUST match `TOOL_DATA_CLASSES` in services/mcp-query, because the
+# corpus lint below rejects any question whose `required_tools` are not listed
+# here -- so a tool absent from this set cannot be given eval coverage at all,
+# even though the server serves it.
+#
+# That is not hypothetical: `ingest_status`, `fabric_status`,
+# `lab_topology_snapshot` and `recent_alerts` shipped on the sovereign tier and
+# were unreachable by the corpus until they were added here. A comment asking a
+# human to "keep in sync" is what allowed that, so the sync is now enforced by
+# test_registry_drift.py instead of by this sentence.
 PUBLIC_TOOLS = frozenset({"metric_timeseries", "top_series", "entity_metric_timeseries"})
 SOVEREIGN_TOOLS = PUBLIC_TOOLS | frozenset(
     {
@@ -33,6 +43,10 @@ SOVEREIGN_TOOLS = PUBLIC_TOOLS | frozenset(
         "configured_policies",
         "observed_by",
         "reidentify",
+        "ingest_status",
+        "fabric_status",
+        "lab_topology_snapshot",
+        "recent_alerts",
     }
 )
 

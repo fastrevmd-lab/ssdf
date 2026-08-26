@@ -65,6 +65,10 @@ gen_leaf() {
   echo "generated leaf: $crt (SAN IP:$san_ip, ${LEAF_DAYS}d)"
 }
 
+# These names are stable CERT BASENAMES, not container ids. They predate the
+# 2026-08-12 renumber and are intentionally NOT tracked to it: the files are
+# referenced by name from apply_ct104_tls.sh / apply_mcp_edge.sh and from every
+# deployed host, so renaming them means re-issuing and redistributing all leaves.
 gen_leaf ct104 198.51.100.151   # ClickHouse
 gen_leaf ct106 198.51.100.152   # sovereign MCP (ssdf-mcp-query)
 gen_leaf ct113 198.51.100.154   # public MCP (ssdf-mcp-public)

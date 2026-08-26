@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-# Apply ClickHouse TLS (edge-hardening L1a) to ct104 via pve3.
-# Pushes the ct104 leaf + CA cert, the https_port drop-in, and the nftables
-# policy that closes plaintext 8123/9000 to the LAN. Idempotent; safe to re-run.
+# Apply ClickHouse TLS (edge-hardening L1a) to the ClickHouse container.
+# Pushes the leaf + CA cert, the https_port drop-in, and the nftables policy
+# that closes plaintext 8123/9000 to the LAN. Idempotent; safe to re-run.
+#
+# Targets track the 2026-08-12 renumber+migration (ct104/pve3 -> 701/pve2), the
+# same correction already made in apply_ct102_nftables.sh. The pre-renumber
+# defaults pointed at a guest that no longer exists on a node that no longer
+# hosts the stack, so a default run could only fail.
 #
 # Prereq: ./scripts/gen_ssdf_tls.sh has populated infra/tls-local/.
 # Usage:  ./scripts/apply_ct104_tls.sh
-# Env:    PVE_HOST_SSH (default root@pve3.example.com), SSDF_CH_CTID (default 104)
+# Env:    PVE_HOST_SSH (default root@pve2.example.com), SSDF_CH_CTID (default 701)
 set -euo pipefail
 
-PVE_HOST="${PVE_HOST_SSH:-root@pve3.example.com}"
-CTID="${SSDF_CH_CTID:-104}"
+PVE_HOST="${PVE_HOST_SSH:-root@pve2.example.com}"
+CTID="${SSDF_CH_CTID:-701}"
 CH_IP="198.51.100.151"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,8 +27,8 @@ for f in "$TLS_DIR/ct104.crt" "$TLS_DIR/ct104.key" "$TLS_DIR/ssdf-ca.crt" "$XML_
   [ -f "$f" ] || { echo "missing $f (run scripts/gen_ssdf_tls.sh first?)" >&2; exit 1; }
 done
 
-# Push a local file into the container via a pve3 scratch copy (ct102 pattern).
-# umask 077 keeps private keys from sitting world-readable in pve3 /tmp.
+# Push a local file into the container via a scratch copy on the PVE host (ct102 pattern).
+# umask 077 keeps private keys from sitting world-readable in the host's /tmp.
 push_file() {
   local src="$1" dst="$2"
   ssh "$PVE_HOST" "umask 077 && cat > /tmp/ssdf-push.tmp && pct push $CTID /tmp/ssdf-push.tmp $dst && rm -f /tmp/ssdf-push.tmp" < "$src"
@@ -64,15 +69,15 @@ ssh "$PVE_HOST" "pct exec $CTID -- curl -s http://127.0.0.1:8123/ping" \
   | grep -q 'Ok' && echo 'PASS: loopback 8123 -> Ok' \
   || { echo 'FAIL: loopback 8123' >&2; exit 1; }
 
-# LAN 8123 must be DROPPED, not refused: a 3s curl from pve3 (a LAN peer of
-# the container) should time out, never return "Ok.". Drop (vs reject) means
-# curl exit 28 — we only assert it did NOT succeed.
-echo '=== verify: LAN 8123 dropped (curl from pve3 must time out) ==='
+# LAN 8123 must be DROPPED, not refused: a 3s curl from the PVE host (a LAN
+# peer of the container) should time out, never return "Ok.". Drop (vs reject)
+# means curl exit 28 — we only assert it did NOT succeed.
+echo '=== verify: LAN 8123 dropped (curl from the PVE host must time out) ==='
 if ssh "$PVE_HOST" "curl -sm 3 http://$CH_IP:8123/ping" 2>/dev/null | grep -q 'Ok'; then
-  echo "FAIL: LAN 8123 still reachable from pve3" >&2; exit 1
+  echo "FAIL: LAN 8123 still reachable from the PVE host" >&2; exit 1
 fi
 echo 'PASS: LAN 8123 unreachable'
 
-echo '=== ssdf_ch table on ct104 ==='
+echo "=== ssdf_ch table on $CTID ==="
 ssh "$PVE_HOST" "pct exec $CTID -- nft list table inet ssdf_ch"
 echo 'done.'

@@ -1,0 +1,72 @@
+name: CI
+
+# Every service, not just mcp-query. The predecessor workflow covered
+# services/mcp-query alone, so 312 of the repo's tests never ran on a push or a
+# pull request -- a change to entity, topo, policy, health, public-metrics,
+# evals or common was merged unverified by CI.
+#
+# There are deliberately no `paths:` filters. A path-filtered workflow does not
+# run on a branch-creation push, which is how the previous workflow ended up
+# never having run at all and needing a manual dispatch to prove itself. The
+# whole suite is seconds of work; running it unconditionally is cheaper than
+# reasoning about which filter matches which event.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: ruff (check + format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # Pinned to the same version .pre-commit-config.yaml uses, so CI and the
+      # local hook cannot disagree about what is formatted.
+      - name: ruff check
+        run: uvx ruff@0.12.4 check services
+      - name: ruff format --check
+        run: uvx ruff@0.12.4 format --check services
+
+  test:
+    name: pytest (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Report every failing service in one run rather than stopping at the first.
+      fail-fast: false
+      matrix:
+        service:
+          - common
+          - entity
+          - evals
+          - health
+          - mcp-query
+          - policy
+          - public-metrics
+          - topo
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync deps (incl. dev)
+        run: uv sync --extra dev
+      - name: Unit tests
+        # Integration tests (@pytest.mark.integration) need live ClickHouse, MCP
+        # endpoints or devices and are deselected here; they run against the real
+        # fabric via `just integration` with CONFIRM_LAB_INTEGRATION=yes.
+        run: uv run pytest -m "not integration" -q
