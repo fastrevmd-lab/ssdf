@@ -19,21 +19,23 @@ Two principles shape every design decision:
 
 ## Stack
 
-- **Ingest = Vector (VRL transforms)** on LXC 700 `ssdf-log-ingest` — vendor syslog normalized to ECS-ish events at ingest. Vendor log formats live ONLY in `infra/vector/vector.toml`. See [Ingest sources](#ingest-sources) for the port map.
-- **Storage = ClickHouse** on LXC ct104 — `ssdf.events` (events), `ssdf.entities`/`ssdf.entity_edges` (entity graph), topology observations, `ssdf.audit`. The swappable-backend seam is the Python store classes (graphstore/entitystore), not a Rust fabric.
-- **Services + MCP layer = Python** (`services/*`, uv + FastMCP) — resolvers (topo/entity/policy on ct109 systemd timers) and the MCP tool surface (sovereign ct106 :30032, public ct113 :30033) behind an nginx TLS edge.
+- **Ingest = Vector (VRL transforms)** — vendor syslog normalized to ECS-ish events at ingest. Vendor log formats live ONLY in `infra/vector/vector.toml`. See [Ingest sources](#ingest-sources) for the port map.
+- **Storage = ClickHouse** — `ssdf.events` (events), `ssdf.entities`/`ssdf.entity_edges` (entity graph), topology observations, `ssdf.audit`. The swappable-backend seam is the Python store classes (graphstore/entitystore), not a Rust fabric.
+- **Services + MCP layer = Python** (`services/*`, uv + FastMCP) — resolvers (topo, entity, policy, public-metrics, health) on systemd timers, and the MCP tool surface in two tiers, sovereign (`:30032`) and public (`:30033`), behind an nginx TLS edge.
 - **Rust is permitted, not doctrine** — use it where a future component is genuinely performance-critical; nothing in SSDF is Rust today. `rust-junosmcp` remains the external reference implementation, not part of this repo.
-- Everything runs on Proxmox LXCs (no Docker) on pve3.example.com.
+- **No Docker.** Each component is a plain systemd unit on its own host; the reference deployment uses one container per role. Nothing in the design depends on that particular substrate.
 
 ## Architecture
 
 Data flows one direction; LLM agents are read-only consumers via MCP:
 
 ```
-security products ──► Vector VRL (ct102) ──► ClickHouse (ct104) ──► MCP tools (ct106/ct113)
-  SRX / PAN-OS syslog    normalize at ingest     events + entity        ▲
-                                                 graph + audit          │
-                          resolvers (ct109): topo/entity/policy   LLM agents (multi-LLM)
+security products ──────► Vector VRL ──────► ClickHouse ──────► MCP tools
+  SRX / PAN-OS / UniFi     normalize at        events + entity      sovereign + public
+  Proxmox / Junos syslog   ingest              graph + audit               ▲
+                                                                           │
+                     resolvers: topo · entity · policy          LLM agents (multi-LLM)
+                                public-metrics · health
 ```
 
 ## Ingest sources
@@ -65,11 +67,6 @@ detectable. The producing side is tracked in
 `ssdf.audit` is therefore the single place to ask "who did what" — SSDF's own
 MCP servers (`tier="sovereign"`) and the `rust*mcp` family alike. `ssdf.events`
 is device telemetry only.
-
-> **Note:** container references elsewhere in this README (`ct102`, `ct104`,
-> `ct106`, `ct109`, `ct113`) predate the 2026-08-12 VMID renumber. The stack now
-> lives at 700–711. Ingest is 700 `ssdf-log-ingest`; ClickHouse is reached at
-> `198.51.100.151:8443`.
 
 ---
 
