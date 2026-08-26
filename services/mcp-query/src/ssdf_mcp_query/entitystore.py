@@ -116,6 +116,11 @@ def build_alerts_for_pair_sql(ips: list[str], since_iso: str, tenant: str) -> tu
     # ext/raw) do not match here by design (events schema is IPv4-only).
     # LIMIT 200: most-recent-200 detections; bounded to avoid result-overflow
     # throw on busy endpoints (CH client runs result_overflow_mode="throw").
+    # `timestamp` is QUALIFIED as `events.timestamp` and the bound parsed: the
+    # SELECT aliases `toString(timestamp) AS timestamp`, so an unqualified
+    # reference binds to that String alias and compares lexically against the
+    # caller's "...T...+00:00" form, silently dropping every detection sharing a
+    # UTC date with the window start (see build_subgraph_sql for the same trap).
     sql = (
         "SELECT toString(timestamp) AS timestamp, toString(source_ip) AS source_ip, "
         "toString(destination_ip) AS destination_ip, "
@@ -125,10 +130,11 @@ def build_alerts_for_pair_sql(ips: list[str], since_iso: str, tenant: str) -> tu
         "ext['unifi.ips.severity'] AS severity "
         "FROM ssdf.events "
         "WHERE tenant_id = {tenant:String} AND event_provider = 'unifi' "
-        "AND event_kind = 'alert' AND timestamp >= {since:String} AND ("
+        "AND event_kind = 'alert' "
+        "AND events.timestamp >= parseDateTimeBestEffort({since:String}) AND ("
         "toString(source_ip) IN {ips:Array(String)} OR "
         "toString(destination_ip) IN {ips:Array(String)}) "
-        "ORDER BY timestamp DESC LIMIT 200"
+        "ORDER BY events.timestamp DESC LIMIT 200"
     )
     return sql, {"tenant": tenant, "ips": ips, "since": since_iso}
 

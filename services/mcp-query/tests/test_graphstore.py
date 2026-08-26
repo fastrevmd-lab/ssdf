@@ -212,3 +212,48 @@ def test_nodes_by_attr_keeps_distinct_devices_that_share_no_name():
             return {"rows": rows}
 
     assert len(ClickHouseGraphStore(_CH()).nodes_by_attr(kind="device")) == 2
+
+
+# --- Regression: same-day time windows silently returned nothing -------------
+#
+# `build_subgraph_sql` aliases `toString(last_seen) AS last_seen`. ClickHouse
+# resolves an UNQUALIFIED `last_seen` in WHERE/ORDER BY to that String alias, so
+# the window filter became a lexical string compare instead of a datetime one.
+# Live proof on the production graph: a same-day window returned 0 edges where
+# the parsed form returned 631. It never errored, so nothing surfaced it, and
+# the default 24h window hid it because that bound lands on the PREVIOUS date,
+# where a date-prefix compare happens to agree.
+
+
+def test_toString_and_isoformat_layouts_diverge_at_the_date_boundary():
+    """Pin WHY the bound must be parsed rather than string-compared.
+
+    ClickHouse renders the column as 'YYYY-MM-DD HH:MM:SS.mmm'; callers pass
+    datetime.isoformat() -> 'YYYY-MM-DDTHH:MM:SS.mmm+00:00'. The layouts differ
+    at offset 10 (' ' 0x20 vs 'T' 0x54), so a row SIX HOURS AFTER the bound
+    sorts lexically BEFORE it and is silently dropped.
+    """
+    row_rendered_by_clickhouse = "2026-08-26 18:00:00.000"
+    bound_passed_by_caller = "2026-08-26T12:00:00.000+00:00"
+    assert row_rendered_by_clickhouse < bound_passed_by_caller
+
+
+def test_subgraph_window_is_parsed_not_string_compared():
+    sql, params = build_subgraph_sql(since_iso="2026-08-26T12:00:00.000+00:00", tenant="t_main")
+    assert "graph_edges.last_seen >= parseDateTimeBestEffort({since:String})" in sql
+    # The bare form binds to the `toString(last_seen) AS last_seen` alias.
+    assert "AND last_seen >=" not in sql
+    assert params["since"] == "2026-08-26T12:00:00.000+00:00"
+
+
+def test_subgraph_ordering_uses_the_datetime_column_not_the_alias():
+    sql, _ = build_subgraph_sql(since_iso="2026-08-26T12:00:00.000+00:00", tenant="t_main")
+    assert "ORDER BY graph_edges.last_seen DESC" in sql
+
+
+def test_subgraph_window_guard_holds_on_the_public_schema():
+    sql, _ = build_subgraph_sql(
+        since_iso="2026-08-26T12:00:00.000+00:00", tenant="t_main", schema="ssdf_public"
+    )
+    assert "graph_edges.last_seen >= parseDateTimeBestEffort({since:String})" in sql
+    assert "AND last_seen >=" not in sql
