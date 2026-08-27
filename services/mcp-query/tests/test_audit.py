@@ -1,7 +1,13 @@
 import datetime as dt
 import json
 import threading
-from ssdf_mcp_query.audit import build_audit_row, Auditor, AUDIT_COLUMNS, AUDIT_BASE_COLUMNS
+from ssdf_mcp_query.audit import (
+    build_audit_row,
+    Auditor,
+    AUDIT_COLUMNS,
+    AUDIT_BASE_COLUMNS,
+    AUDIT_ATTRIBUTION_COLUMNS,
+)
 from ssdf_mcp_query.audit_chain import compute_row_hash
 
 
@@ -16,7 +22,7 @@ def test_build_audit_row_shapes_all_columns():
         row_count=7,
         error="",
     )
-    assert set(row) == set(AUDIT_BASE_COLUMNS)
+    assert set(row) == set(AUDIT_BASE_COLUMNS) | set(AUDIT_ATTRIBUTION_COLUMNS)
     assert row["principal"] == "triage-agent"
     assert row["tier"] == "sovereign"
     assert row["tool"] == "query_flows"
@@ -77,7 +83,9 @@ def test_auditor_swallows_insert_failure(capsys):
 
 
 def test_audit_columns_extend_base_with_hash_cols():
-    assert AUDIT_COLUMNS == AUDIT_BASE_COLUMNS + ["prev_hash", "row_hash"]
+    assert AUDIT_COLUMNS == (
+        AUDIT_BASE_COLUMNS + AUDIT_ATTRIBUTION_COLUMNS + ["prev_hash", "row_hash"]
+    )
 
 
 def test_build_audit_row_shapes_base_columns():
@@ -91,7 +99,7 @@ def test_build_audit_row_shapes_base_columns():
         row_count=0,
         error="",
     )
-    assert set(row) == set(AUDIT_BASE_COLUMNS)
+    assert set(row) == set(AUDIT_BASE_COLUMNS) | set(AUDIT_ATTRIBUTION_COLUMNS)
 
 
 def test_record_chains_hashes_across_calls():

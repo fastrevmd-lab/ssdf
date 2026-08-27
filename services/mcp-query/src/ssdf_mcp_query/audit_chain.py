@@ -20,8 +20,37 @@ def ts_ms_iso(ts: _dt.datetime) -> str:
     return ts.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ts.microsecond // 1000:03d}Z"
 
 
+# Attribution fields (issue #9), appended to the canonical form ONLY when at
+# least one carries a value. That conditional is what keeps the chain
+# backward compatible:
+#
+#   - rows written before these columns existed have all three empty, serialise
+#     as the original nine-element form, and verify against their stored hash
+#   - the same is true of `tier="evidence"` rows from mecmcp-audit, which never
+#     set them -- so this change does not require a coordinated release
+#   - rows that DO carry attribution serialise as twelve elements, so the
+#     attribution is covered by the hash rather than sitting outside it
+#
+# Covering them matters: an attacker able to write to the table could otherwise
+# rewrite `model_id` to blame a different caller without breaking the chain,
+# which is precisely the tampering the chain exists to expose. Stripping the
+# fields from such a row, or adding them to one that had none, changes the
+# serialised shape and therefore the hash -- both are detected.
+_ATTRIBUTION_FIELDS = ("client_name", "model_id", "actor_type")
+
+
+def _attribution_values(row: dict) -> list[str]:
+    """The attribution triple, or [] when the row carries none."""
+    values = [str(row.get(name) or "") for name in _ATTRIBUTION_FIELDS]
+    return values if any(values) else []
+
+
 def canonical(row: dict) -> str:
-    """Deterministic serialization of a row's nine non-hash fields, in fixed order."""
+    """Deterministic serialization of a row's non-hash fields, in fixed order.
+
+    Nine fields, plus the three attribution fields when the row carries any.
+    See the note above for why that is conditional rather than always-on.
+    """
     return json.dumps(
         [
             ts_ms_iso(row["ts"]),
@@ -33,7 +62,8 @@ def canonical(row: dict) -> str:
             row["decision"],
             int(row["row_count"]),
             row["error"],
-        ],
+        ]
+        + _attribution_values(row),
         separators=(",", ":"),
         ensure_ascii=False,
     )
