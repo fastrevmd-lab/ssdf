@@ -1,13 +1,17 @@
 {
-  "REPLACE_WITH_TRIAGE_TOKEN": {
+  "sha256:9b239b071c5cd6c4574787ba44d3d927bcb1c5aa3718c47548f8f9c02556cc29": {
     "principal": "triage-agent",
-    "allowed_tools": ["query_flows", "top_talkers", "explain_access"]
+    "allowed_tools": [
+      "query_flows",
+      "top_talkers",
+      "explain_access"
+    ]
   },
-  "REPLACE_WITH_ADMIN_TOKEN": {
+  "sha256:b7a5d38fb5acc2c6bbfb52bda9c218a894521c53670e0c07a3cc4bc44fbf8006": {
     "principal": "admin-agent"
   },
-  "REPLACE_WITH_OPS_ROTATING_TOKEN": {
+  "sha256:364e16c84a57b01bad62ed00482cdcf2a087956c2f984a74a9204b629354f93e": {
     "principal": "ops-rotating",
-    "not_after": "2026-09-09T00:00:00Z"
+    "not_after": "2026-09-09T00:00:00+00:00"
   }
 }
