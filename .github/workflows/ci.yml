@@ -70,3 +70,49 @@ jobs:
         # endpoints or devices and are deselected here; they run against the real
         # fabric via `just integration` with CONFIRM_LAB_INTEGRATION=yes.
         run: uv run pytest -m "not integration" -q
+
+  sql-contract:
+    # Runs every SQL builder against a REAL ClickHouse. The unit suites stub the
+    # database with fakes that return canned rows regardless of the SQL, so they
+    # validate "the code called ClickHouse", not "the SQL is correct" -- every
+    # ClickHouse bug this project has shipped passed a green unit suite. This job
+    # is the one that can catch them, so it runs on every pull request, not only
+    # against the lab.
+    name: SQL contract (real ClickHouse)
+    runs-on: ubuntu-latest
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.8-alpine
+        ports:
+          - 8123:8123
+        env:
+          CLICKHOUSE_SKIP_USER_SETUP: 1
+    defaults:
+      run:
+        working-directory: services/mcp-query
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Wait for ClickHouse
+        run: |
+          for _ in $(seq 1 60); do
+            curl -sf "http://127.0.0.1:8123/?query=SELECT%201" >/dev/null && exit 0
+            sleep 2
+          done
+          echo "ClickHouse did not become ready" >&2
+          exit 1
+      - name: Apply schema
+        working-directory: .
+        run: python3 scripts/apply_contract_schema.py --host 127.0.0.1 --port 8123
+      - name: Sync deps (incl. dev)
+        run: uv sync --extra dev
+      - name: SQL contract tests
+        env:
+          CH_CONTRACT_HOST: 127.0.0.1
+          CH_CONTRACT_PORT: "8123"
+          CH_PASSWORD: unused-by-contract-suite
+          MCP_AUTH_TOKEN: unused-by-contract-suite
+        run: uv run pytest tests/test_sql_contract.py -m contract -q

@@ -51,7 +51,7 @@ def build_comm_edges_sql(a_id: str, b_id: str, since_iso: str, tenant: str) -> t
     sql = (
         f"SELECT {_EDGE_COLS} FROM ssdf.entity_edges FINAL "
         "WHERE tenant_id = {tenant:String} AND edge_type = 'communicated_with' "
-        "AND entity_edges.last_seen >= {since:String} AND ("
+        "AND entity_edges.last_seen >= parseDateTimeBestEffort({since:String}) AND ("
         "(src_id = {a:String} AND dst_id = {b:String}) OR "
         "(src_id = {b:String} AND dst_id = {a:String}))"
     )
@@ -67,7 +67,7 @@ def build_comm_edges_multi_sql(
     sql = (
         f"SELECT {_EDGE_COLS} FROM ssdf.entity_edges FINAL "
         "WHERE tenant_id = {tenant:String} AND edge_type = 'communicated_with' "
-        "AND entity_edges.last_seen >= {since:String} AND ("
+        "AND entity_edges.last_seen >= parseDateTimeBestEffort({since:String}) AND ("
         "(src_id IN {a:Array(String)} AND dst_id IN {b:Array(String)}) OR "
         "(src_id IN {b:Array(String)} AND dst_id IN {a:Array(String)}))"
     )

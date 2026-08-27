@@ -23,7 +23,10 @@ packages = ["src/ssdf_mcp_query"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["integration: requires a live ClickHouse (deselect with -m 'not integration')"]
+markers = [
+    "integration: requires the live lab (ClickHouse + MCP endpoints); deselect with -m 'not integration'",
+    "contract: requires only a throwaway ClickHouse; runs in CI against a service container",
+]
 
 [dependency-groups]
 dev = [

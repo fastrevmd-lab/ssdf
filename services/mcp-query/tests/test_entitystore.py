@@ -62,7 +62,7 @@ def test_comm_edges_sql_is_bidirectional_and_windowed():
     assert "edge_type = 'communicated_with'" in sql
     # Must qualify the column so the toString(last_seen) alias doesn't turn the
     # window filter into a lexical string compare that drops every row.
-    assert "entity_edges.last_seen >= {since:String}" in sql
+    assert "entity_edges.last_seen >= parseDateTimeBestEffort({since:String})" in sql
     assert params["a"] == "A" and params["b"] == "B"
 
 
@@ -155,7 +155,7 @@ def test_build_comm_edges_multi_sql_in_lists_both_directions():
     )
     assert "edge_type = 'communicated_with'" in sql
     # qualified column so the toString(last_seen) alias doesn't lexically drop rows
-    assert "entity_edges.last_seen >= {since:String}" in sql
+    assert "entity_edges.last_seen >= parseDateTimeBestEffort({since:String})" in sql
     assert "src_id IN {a:Array(String)} AND dst_id IN {b:Array(String)}" in sql
     assert "src_id IN {b:Array(String)} AND dst_id IN {a:Array(String)}" in sql
     assert params["a"] == ["A1", "A2"]
