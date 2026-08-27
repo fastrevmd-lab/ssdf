@@ -50,6 +50,10 @@ class Config:
     max_memory_usage: int = 1_000_000_000
     ch_secure: bool = False
     ch_ca_file: str | None = None
+    # Per-principal limits (issue #8). 0 disables, which is the default:
+    # an unconfigured deployment behaves exactly as it did before.
+    max_calls_per_minute: int = 0
+    max_concurrent_calls: int = 0
 
 
 def ch_tls_kwargs(config: "Config") -> dict:
@@ -171,4 +175,6 @@ def load_config() -> Config:
         max_memory_usage=int(os.environ.get("MCP_MAX_MEMORY_BYTES", "1000000000")),
         ch_secure=os.environ.get("CH_SECURE", "").strip().lower() in ("1", "true"),
         ch_ca_file=os.environ.get("CH_CA_FILE") or None,
+        max_calls_per_minute=int(os.environ.get("MCP_MAX_CALLS_PER_MINUTE", "0")),
+        max_concurrent_calls=int(os.environ.get("MCP_MAX_CONCURRENT_CALLS", "0")),
     )
