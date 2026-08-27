@@ -1,4 +1,4 @@
-# SSDF golden eval corpus v1 (M8). 23 questions, 5 categories, tier-tagged.
+# SSDF golden eval corpus v1 (M8). 33 questions, 5 categories, tier-tagged.
 # Contract: docs/superpowers/specs/2026-06-12-ssdf-m8-eval-harness-design.md
 
 # ---- reachability / policy ----
@@ -471,3 +471,100 @@
   required_tools: []
   predicate:
     type: refusal
+
+# ---- fabric / ingest liveness (added 2026-08-27) ----
+# These four cover the tools that shipped served-but-untestable: they were
+# absent from corpus.SOVEREIGN_TOOLS, so the lint rejected any question naming
+# them. All four are sovereign-only and never registered on the public tier.
+
+- id: change-ingest-live-firewalls
+  question: >-
+    Which firewalls has SSDF received log events from in the last 24 hours?
+  tier: sovereign
+  category: change
+  difficulty: medium
+  answer_format: 'Answer with JSON: {"firewalls": ["<name>", ...]}'
+  required_tools: [ingest_status]
+  predicate:
+    type: reference_sql
+    # Short device label, matching how ingest_status reports names (the tool
+    # normalizes an FQDN observer_hostname to its first DNS label).
+    sql: >-
+      SELECT DISTINCT splitByChar('.', observer_hostname)[1] FROM ssdf.events
+      WHERE observer_hostname != ''
+        AND timestamp >= now() - INTERVAL 24 HOUR
+    match: set_overlap
+    answer_key: firewalls
+    # Overlap, not exact: ingest_status's expected set also carries topology
+    # firewall nodes and a 7d observer window, so it legitimately reports
+    # devices this 24h query does not return. Naming any live one is the skill
+    # under test -- routing to the liveness tool at all.
+    params: {min_overlap: 1}
+
+- id: change-fabric-active-providers
+  question: >-
+    Which ingest providers have delivered events to the fabric in the last
+    24 hours?
+  tier: sovereign
+  category: change
+  difficulty: medium
+  answer_format: 'Answer with JSON: {"providers": ["<provider>", ...]}'
+  required_tools: [fabric_status]
+  predicate:
+    type: reference_sql
+    sql: >-
+      SELECT DISTINCT event_provider FROM ssdf.events
+      WHERE timestamp >= now() - INTERVAL 24 HOUR
+    match: set_overlap
+    answer_key: providers
+    params: {min_overlap: 1}
+
+- id: flows-alert-providers-24h
+  question: >-
+    Which security products have produced alert-class events (IPS detections
+    or threat logs) in the last 24 hours?
+  tier: sovereign
+  category: flows
+  difficulty: medium
+  answer_format: 'Answer with JSON: {"providers": ["<provider>", ...]}'
+  required_tools: [recent_alerts]
+  predicate:
+    type: reference_sql
+    # Mirrors the alert-class gate in alerts.build_recent_alerts_sql: an
+    # explicit alert kind, OR a UniFi IPS signature, OR a PAN-OS severity key
+    # (PAN THREAT rows keep event_kind='event').
+    sql: >-
+      SELECT DISTINCT event_provider FROM ssdf.events
+      WHERE timestamp >= now() - INTERVAL 24 HOUR
+        AND (event_kind = 'alert'
+             OR ext['unifi.ips.signature'] != ''
+             OR ext['panw.panos.severity'] != '')
+    match: set_overlap
+    answer_key: providers
+    # Deliberately NOT a count. recent_alerts returns bounded rows (limit
+    # clamped to 2000) behind a Python-side min_severity filter defaulting to
+    # "high", so no count it can return is the count of alert-class events --
+    # the honest ground truth over 7d is ~61k. A question the tool cannot
+    # answer measures nothing. Overlap also absorbs that severity floor:
+    # a provider whose alerts are all below "high" may be missing from the
+    # default call, and naming any correct provider is the routing skill here.
+    params: {min_overlap: 1}
+
+- id: topo-lab-device-count
+  question: How many devices are in the lab topology?
+  tier: sovereign
+  category: topology
+  difficulty: easy
+  answer_format: 'Answer with JSON: {"count": <int>}'
+  required_tools: [lab_topology_snapshot]
+  predicate:
+    type: reference_sql
+    # FINAL collapses the ReplacingMergeTree versions, so count() is the
+    # distinct node count -- the same current-state inventory read the snapshot
+    # uses (nodes_by_attr, no time window, isolated nodes included).
+    sql: >-
+      SELECT count() FROM ssdf.graph_nodes FINAL
+      WHERE tenant_id = 't_main' AND kind = 'device'
+    match: numeric_tolerance
+    answer_key: count
+    params: {tolerance: 0}
