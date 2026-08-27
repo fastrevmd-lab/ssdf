@@ -22,6 +22,7 @@ from .classification import load_classification, public_tool_names
 # drop it and break every test in test_server_audit.py / test_server_public.py.
 from .audit import Auditor, make_ch_auditor  # noqa: F401  (test patch seam)
 from .wrapper import audited_tool
+from .ratelimit import PrincipalLimiter
 from .clickhouse import ClickHouseClient
 from .tools import Tools
 from .graphstore import ClickHouseGraphStore
@@ -289,8 +290,26 @@ def build_app(tier: str = "sovereign") -> FastMCP:
     else:
         selected = list(raw_tools)
 
+    # Per-principal limits (issue #8). nginx's limits are per-IP, so agents
+    # behind one address share a bucket and no single principal can be
+    # throttled; this is keyed on the authenticated identity instead. Both
+    # default to 0 (off), so an unconfigured deployment is unchanged.
+    limiter = PrincipalLimiter(
+        max_per_window=config.max_calls_per_minute,
+        window_seconds=60.0,
+        max_concurrent=config.max_concurrent_calls,
+    )
+    if limiter.enabled:
+        print(
+            f"[limits] per-principal: {config.max_calls_per_minute}/min, "
+            f"{config.max_concurrent_calls} concurrent",
+            file=sys.stderr,
+        )
+
     for name in selected:
-        mcp.tool(name=name)(audited_tool(name, raw_tools[name], auditor, tier=tier))
+        mcp.tool(name=name)(
+            audited_tool(name, raw_tools[name], auditor, tier=tier, limiter=limiter)
+        )
 
     return mcp
 

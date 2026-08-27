@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from .auth import current_caller_claims
 from .classification import classes_for_tool
+from .ratelimit import ConcurrencyExceeded, PrincipalLimiter, RateLimitExceeded
 
 
 def row_count_of(result: Any) -> int:
@@ -36,16 +37,23 @@ def audited_tool(
     *,
     tier: str = "sovereign",
     caller: Callable[[], tuple] = current_caller_claims,
+    limiter: PrincipalLimiter | None = None,
 ) -> Callable[..., Any]:
     """Return ``fn`` wrapped with per-call authz + audit for ``tool_name``.
 
     ``caller`` may return ``(principal, allowed_tools)`` (legacy) or
     ``(principal, allowed_tools, not_after)``; an expired ``not_after`` is
     denied exactly like a disallowed tool (M2 token expiry).
+
+    ``limiter`` applies per-principal rate and concurrency limits (issue #8).
+    It is checked AFTER authorization: a principal that may not call a tool
+    should be told that, not have its refusal attributed to load. A limited
+    call is audited as a deny like any other, so "was it throttled" is a
+    question ``ssdf.audit`` can answer.
     """
     data_classes = sorted(classes_for_tool(tool_name))
 
-    def _deny(principal: str, kwargs: dict, detail: str) -> dict:
+    def _deny(principal: str, kwargs: dict, detail: str, error: str = "forbidden") -> dict:
         auditor.record(
             principal=principal,
             tier=tier,
@@ -54,9 +62,9 @@ def audited_tool(
             data_classes=data_classes,
             decision="deny",
             row_count=0,
-            error="forbidden",
+            error=error,
         )
-        return {"error": "forbidden", "detail": detail}
+        return {"error": error, "detail": detail}
 
     @functools.wraps(fn)
     def wrapped(*args: Any, **kwargs: Any) -> Any:
@@ -71,7 +79,24 @@ def audited_tool(
             return _deny(
                 principal, kwargs, f"tool '{tool_name}' not permitted for principal '{principal}'"
             )
-        result = fn(*args, **kwargs)
+        if limiter is not None and limiter.enabled:
+            try:
+                limiter.acquire(principal)
+            except (RateLimitExceeded, ConcurrencyExceeded) as exc:
+                # A distinct error code from "forbidden": throttling is
+                # transient and the caller should retry, where an authz denial
+                # never will succeed. Conflating them tells an agent to give up
+                # on a tool it is entitled to use.
+                return _deny(principal, kwargs, str(exc), error="rate_limited")
+            try:
+                result = fn(*args, **kwargs)
+            finally:
+                # Release even when the tool raises, or one failing call would
+                # permanently consume a concurrency slot.
+                limiter.release(principal)
+        else:
+            result = fn(*args, **kwargs)
+
         error = result.get("error", "") if isinstance(result, dict) else ""
         auditor.record(
             principal=principal,
