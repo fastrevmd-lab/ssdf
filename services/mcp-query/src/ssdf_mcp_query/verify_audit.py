@@ -41,6 +41,12 @@ _VERIFY_COLUMNS = [
     "decision",
     "row_count",
     "error",
+    # Attribution (issue #9). MUST be selected: canonical() folds these into the
+    # hash when present, so a verifier that ignored them would recompute the
+    # nine-field form for an attributed row and report a false mismatch.
+    "client_name",
+    "model_id",
+    "actor_type",
     "prev_hash",
     "row_hash",
 ]

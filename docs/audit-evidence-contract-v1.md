@@ -57,6 +57,46 @@ Consequences for a writer:
 Rows carrying no `server_id` — every `sovereign` row — group by tier alone and
 verify exactly as before.
 
+## Caller attribution columns (added 2026-08-27, ssdf#9)
+
+`ssdf.audit` carries three further columns, all `String DEFAULT ''` (migration
+`017_audit_attribution.sql`):
+
+| Column | Trust | Source |
+|---|---|---|
+| `client_name` | **client-asserted** | MCP `clientInfo.name` at initialize; a client may claim anything |
+| `model_id` | operator-declared | the token entry; requires token-file write access |
+| `actor_type` | operator-declared | the token entry; constrained to `human` \| `agent` \| `unknown` |
+
+These are not interchangeable. The trail must not imply it verified something it
+cannot, so a reader must treat `client_name` as a claim and the other two as
+statements by whoever provisioned the token.
+
+### Effect on the hash chain: none, unless a row uses them
+
+`canonical()` appends these three fields **only when at least one is non-empty**.
+So:
+
+- every row written before this migration serialises to the original
+  nine-element form and verifies against its stored hash
+- every `tier="evidence"` row from `mecmcp-audit`, which does not set these
+  columns, does the same
+
+**No coordinated release is required, and no backfill is possible.** A row
+written before this migration genuinely had no attribution; inventing one would
+be a fabricated audit record.
+
+A producer that *does* populate them must fold them into `row_hash` in this
+order — `client_name`, `model_id`, `actor_type`, appended after `error` — or its
+rows will not verify. Attribution is inside the tamper-evidence deliberately:
+otherwise anyone able to write to the table could reattribute a call to a
+different model or actor without breaking the chain, which is exactly the
+tampering the chain exists to expose.
+
+Verified end to end on 2026-08-27 against ClickHouse 24.8: a chain mixing
+unattributed and attributed rows verifies, and altering `model_id` on a stored
+row is detected.
+
 ## Scope: this contract covers the change lifecycle only
 
 **Decided 2026-08-20 (ssdf#47, mecmcp#292).** The four record types above are

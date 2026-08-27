@@ -32,8 +32,15 @@ AUDIT_BASE_COLUMNS: list[str] = [
     "row_count",
     "error",
 ]
-# Full insert column order MUST match infra/clickhouse/007_audit.sql + 009_audit_hash_chain.sql.
-AUDIT_COLUMNS: list[str] = AUDIT_BASE_COLUMNS + ["prev_hash", "row_hash"]
+# Attribution (issue #9, migration 017). Listed separately from the base nine
+# because audit_chain.canonical() treats them as a conditional tail, not as
+# part of the original fixed form.
+AUDIT_ATTRIBUTION_COLUMNS: list[str] = ["client_name", "model_id", "actor_type"]
+# Full insert column order MUST match infra/clickhouse/007_audit.sql +
+# 009_audit_hash_chain.sql + 017_audit_attribution.sql.
+AUDIT_COLUMNS: list[str] = (
+    AUDIT_BASE_COLUMNS + AUDIT_ATTRIBUTION_COLUMNS + ["prev_hash", "row_hash"]
+)
 
 
 def build_audit_row(
@@ -47,8 +54,16 @@ def build_audit_row(
     row_count: int,
     error: Any,
     ts: _dt.datetime | None = None,
+    client_name: str = "",
+    model_id: str = "",
+    actor_type: str = "",
 ) -> dict:
-    """Build the nine business fields of an audit row (pure; no hashes, no I/O)."""
+    """Build the business fields of an audit row (pure; no hashes, no I/O).
+
+    The three attribution fields (issue #9) default to empty, which is what an
+    unattributed call genuinely is -- and what keeps such a row hashing exactly
+    as it did before the columns existed.
+    """
     return {
         "ts": ts or _dt.datetime.now(_dt.timezone.utc),
         "principal": principal,
@@ -59,6 +74,9 @@ def build_audit_row(
         "decision": decision,
         "row_count": int(row_count),
         "error": str(error or ""),
+        "client_name": str(client_name or ""),
+        "model_id": str(model_id or ""),
+        "actor_type": str(actor_type or ""),
     }
 
 

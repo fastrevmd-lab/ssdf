@@ -13,6 +13,7 @@ import datetime as _dt
 import functools
 from typing import Any, Callable
 
+from .attribution import current_attribution
 from .auth import current_caller_claims
 from .classification import classes_for_tool
 from .ratelimit import ConcurrencyExceeded, PrincipalLimiter, RateLimitExceeded
@@ -38,6 +39,7 @@ def audited_tool(
     tier: str = "sovereign",
     caller: Callable[[], tuple] = current_caller_claims,
     limiter: PrincipalLimiter | None = None,
+    attribution: Callable[[], dict] = current_attribution,
 ) -> Callable[..., Any]:
     """Return ``fn`` wrapped with per-call authz + audit for ``tool_name``.
 
@@ -63,6 +65,7 @@ def audited_tool(
             decision="deny",
             row_count=0,
             error=error,
+            **attribution(),
         )
         return {"error": error, "detail": detail}
 
@@ -107,6 +110,7 @@ def audited_tool(
             decision="allow",
             row_count=row_count_of(result),
             error=error,
+            **attribution(),
         )
         return result
 
