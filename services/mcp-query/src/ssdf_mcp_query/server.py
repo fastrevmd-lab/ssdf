@@ -11,9 +11,9 @@ import os
 import sys
 
 from fastmcp import FastMCP
-from fastmcp.server.auth import StaticTokenVerifier
 
 from .config import load_config
+from .tokenstore import DigestTokenVerifier
 from .classification import load_classification, public_tool_names
 
 # `Auditor` is re-exported deliberately: the server-build tests patch
@@ -61,8 +61,12 @@ def build_app(tier: str = "sovereign") -> FastMCP:
     metrics = MetricTools(metrics_store)
     alert_tools = AlertTools(client)
 
+    # Keyed by DIGEST, not by the token (issue #7): the server never holds a
+    # secret it could leak. DigestTokenVerifier hashes what the caller presents
+    # and matches that, which FastMCP's StaticTokenVerifier cannot do -- it looks
+    # the plaintext up in a dict, and says so in its own docstring.
     verifier_tokens: dict[str, dict] = {}
-    for token, tp in config.tokens.items():
+    for token_digest, tp in config.tokens.items():
         payload = {
             "sub": tp.principal,
             "client_id": "ssdf",
@@ -73,8 +77,8 @@ def build_app(tier: str = "sovereign") -> FastMCP:
             payload["allowed_tools"] = sorted(tp.allowed_tools)
         if tp.not_after is not None:
             payload["not_after"] = tp.not_after.isoformat()
-        verifier_tokens[token] = payload
-    auth = StaticTokenVerifier(tokens=verifier_tokens)
+        verifier_tokens[token_digest] = payload
+    auth = DigestTokenVerifier(verifier_tokens)
     mcp = FastMCP("ssdf-mcp-query", auth=auth)
 
     def query_flows(

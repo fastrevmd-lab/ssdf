@@ -1,6 +1,8 @@
 import json
+import pathlib
 import pytest
 from ssdf_mcp_query.config import load_config, load_token_map, ConfigError
+from ssdf_mcp_query.tokenstore import digest_for
 
 
 def test_single_token_fallback_from_file(monkeypatch, tmp_path):
@@ -15,8 +17,9 @@ def test_single_token_fallback_from_file(monkeypatch, tmp_path):
     cfg = load_config()
     assert cfg.ch_host == "10.64.0.9"
     assert cfg.mcp_port == 30032
-    assert set(cfg.tokens) == {"secret-token"}
-    principal = cfg.tokens["secret-token"]
+    # Keyed by digest: even the single-token path never keeps the secret.
+    assert set(cfg.tokens) == {digest_for("secret-token")}
+    principal = cfg.tokens[digest_for("secret-token")]
     assert principal.principal == "agent"
     assert principal.allowed_tools is None
 
@@ -27,8 +30,8 @@ def test_inline_token_env_wins(monkeypatch):
     monkeypatch.delenv("MCP_TOKEN_FILE", raising=False)
     monkeypatch.delenv("MCP_TOKENS_FILE", raising=False)
     cfg = load_config()
-    assert set(cfg.tokens) == {"inline"}
-    assert cfg.tokens["inline"].principal == "agent"
+    assert set(cfg.tokens) == {digest_for("inline")}
+    assert cfg.tokens[digest_for("inline")].principal == "agent"
 
 
 def test_missing_token_raises(monkeypatch):
@@ -40,29 +43,36 @@ def test_missing_token_raises(monkeypatch):
         load_config()
 
 
-def test_token_map_multi_principal(monkeypatch, tmp_path):
+def _write_tokens(tmp_path, payload) -> pathlib.Path:
+    """Write a token file the loader will accept: owner-only, like the real one."""
     f = tmp_path / "tokens.json"
-    f.write_text(
-        json.dumps(
-            {
-                "tok-triage": {
-                    "principal": "triage-agent",
-                    "allowed_tools": ["query_flows", "top_talkers"],
-                },
-                "tok-admin": {"principal": "admin-agent"},
-            }
-        )
+    f.write_text(json.dumps(payload))
+    f.chmod(0o600)
+    return f
+
+
+def test_token_map_multi_principal(monkeypatch, tmp_path):
+    f = _write_tokens(
+        tmp_path,
+        {
+            digest_for("tok-triage"): {
+                "principal": "triage-agent",
+                "allowed_tools": ["query_flows", "top_talkers"],
+            },
+            digest_for("tok-admin"): {"principal": "admin-agent"},
+        },
     )
     monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
     tokens = load_token_map()
-    assert tokens["tok-triage"].principal == "triage-agent"
-    assert tokens["tok-triage"].allowed_tools == frozenset({"query_flows", "top_talkers"})
-    assert tokens["tok-admin"].allowed_tools is None
+    assert tokens[digest_for("tok-triage")].principal == "triage-agent"
+    assert tokens[digest_for("tok-triage")].allowed_tools == frozenset(
+        {"query_flows", "top_talkers"}
+    )
+    assert tokens[digest_for("tok-admin")].allowed_tools is None
 
 
 def test_token_map_empty_object_raises(monkeypatch, tmp_path):
-    f = tmp_path / "tokens.json"
-    f.write_text("{}")
+    f = _write_tokens(tmp_path, {})
     monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
     with pytest.raises(ConfigError):
         load_token_map()
@@ -102,23 +112,21 @@ def test_load_config_reads_query_limit_envs(monkeypatch):
 def test_token_map_not_after_parsed_utc(monkeypatch, tmp_path):
     import datetime as dt
 
-    f = tmp_path / "tokens.json"
-    f.write_text(
-        json.dumps(
-            {
-                "tok-exp": {"principal": "p", "not_after": "2026-09-09T12:00:00+00:00"},
-                "tok-naive": {"principal": "q", "not_after": "2026-09-09T12:00:00"},
-                "tok-forever": {"principal": "r"},
-            }
-        )
+    f = _write_tokens(
+        tmp_path,
+        {
+            digest_for("tok-exp"): {"principal": "p", "not_after": "2026-09-09T12:00:00+00:00"},
+            digest_for("tok-naive"): {"principal": "q", "not_after": "2026-09-09T12:00:00"},
+            digest_for("tok-forever"): {"principal": "r"},
+        },
     )
     monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
     tokens = load_token_map()
     expected = dt.datetime(2026, 9, 9, 12, 0, 0, tzinfo=dt.timezone.utc)
-    assert tokens["tok-exp"].not_after == expected
+    assert tokens[digest_for("tok-exp")].not_after == expected
     # naive ISO strings are treated as UTC
-    assert tokens["tok-naive"].not_after == expected
-    assert tokens["tok-forever"].not_after is None
+    assert tokens[digest_for("tok-naive")].not_after == expected
+    assert tokens[digest_for("tok-forever")].not_after is None
 
 
 def test_token_map_bad_not_after_raises(monkeypatch, tmp_path):

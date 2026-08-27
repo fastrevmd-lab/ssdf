@@ -8,6 +8,14 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .tokenstore import (
+    InsecureTokenFileError,
+    assert_file_mode_private,
+    digest_for,
+    normalize_token_keys,
+    warn_about_legacy_tokens,
+)
+
 from ssdf_common.config import ConfigError
 
 
@@ -101,28 +109,41 @@ def load_token_map() -> dict[str, TokenPrincipal]:
     """
     tokens_file = os.environ.get("MCP_TOKENS_FILE")
     if not tokens_file:
+        # Single-token path: the secret arrives by env or a file of its own, so
+        # there is no map to key by digest. Hash it here anyway, so every code
+        # path downstream deals in digests only.
         single = _read_token()
-        return {single: TokenPrincipal(principal="agent", allowed_tools=None)}
+        return {digest_for(single): TokenPrincipal(principal="agent", allowed_tools=None)}
     path = Path(tokens_file)
     if not path.is_file():
         raise ConfigError(f"MCP_TOKENS_FILE not found: {tokens_file}")
+    try:
+        assert_file_mode_private(path)
+    except InsecureTokenFileError as exc:
+        raise ConfigError(str(exc)) from exc
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ConfigError(f"invalid token map JSON: {exc}") from exc
     if not isinstance(data, dict) or not data:
         raise ConfigError("token map must be a non-empty JSON object")
-    tokens: dict[str, TokenPrincipal] = {}
     for token, meta in data.items():
         if not token or not isinstance(meta, dict):
             raise ConfigError("each token must map to an object with a 'principal'")
-        principal = meta.get("principal")
-        if not principal:
+        if not meta.get("principal"):
             raise ConfigError("token entry missing 'principal'")
+    try:
+        by_digest, legacy = normalize_token_keys(data, tokens_file)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+    warn_about_legacy_tokens(legacy, tokens_file)
+
+    tokens: dict[str, TokenPrincipal] = {}
+    for token_digest, meta in by_digest.items():
         allowed = meta.get("allowed_tools")
         allowed_set = None if allowed is None else frozenset(allowed)
-        tokens[token] = TokenPrincipal(
-            principal=principal,
+        tokens[token_digest] = TokenPrincipal(
+            principal=meta["principal"],
             allowed_tools=allowed_set,
             not_after=parse_not_after(meta.get("not_after")),
         )
