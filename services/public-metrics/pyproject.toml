@@ -1,6 +1,6 @@
 [project]
 name = "ssdf-pubmetrics"
-version = "0.1.0"
+version = "0.2.0"
 description = "SSDF M7c public de-identified metrics resolver (ssdf.events -> ssdf_public.*)"
 requires-python = ">=3.11"
 dependencies = [

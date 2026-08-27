@@ -111,6 +111,15 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 
 ### Repo-wide checks (established 2026-08-26)
 
+- **One version across the monorepo.** The root `VERSION` file is the published
+  number; all eight `services/*/pyproject.toml` declare the same one, and each
+  `uv.lock` records it for its local package. Bumping means: edit `VERSION`, bump
+  the eight pyprojects, then `uv lock` in each — a bumped pyproject with a stale
+  lock breaks `just setup` (`uv sync --locked`) rather than failing a test.
+  `services/common/tests/test_version_consistency.py` enforces both halves; the
+  repo shipped v0.1.0 through v0.1.2 with every service still reading `0.1.0`
+  because nothing connected them.
+
 - **CI runs everything.** `.github/workflows/ci.yml` = one `ruff` job (check +
   format, pinned 0.12.4 to match `.pre-commit-config.yaml`) + a matrix leg per
   service. It replaced a workflow that covered `mcp-query` alone, leaving 312 of
