@@ -1,6 +1,6 @@
 [project]
 name = "ssdf-entity"
-version = "0.1.0"
+version = "0.2.0"
 description = "SSDF M6 entity/correlation resolver (Asset + observed Policy from ssdf.events + topology)"
 requires-python = ">=3.11"
 dependencies = [

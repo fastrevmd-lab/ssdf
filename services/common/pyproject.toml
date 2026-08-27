@@ -1,6 +1,6 @@
 [project]
 name = "ssdf-common"
-version = "0.1.0"
+version = "0.2.0"
 description = "SSDF shared utilities — MCP client, ClickHouse helpers, collector registry"
 requires-python = ">=3.11"
 dependencies = [
