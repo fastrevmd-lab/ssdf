@@ -1,4 +1,4 @@
-from ssdf_pubmetrics.pseudonym import surrogate, mint_surrogate, PREFIXES
+from ssdf_pubmetrics.pseudonym import surrogate, mint_surrogate
 
 KEY = bytes.fromhex("00112233445566778899aabbccddeeff")
 

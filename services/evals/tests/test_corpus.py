@@ -1,13 +1,10 @@
 """Corpus loader + the corpus lint test (spec: 'Corpus constraints')."""
 
-import re
 from pathlib import Path
 
 import pytest
 
 from ssdf_evals.corpus import (
-    PUBLIC_TOOLS,
-    SOVEREIGN_TOOLS,
     CorpusError,
     Question,
     load_corpus,

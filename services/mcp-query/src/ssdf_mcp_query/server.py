@@ -15,7 +15,12 @@ from fastmcp.server.auth import StaticTokenVerifier
 
 from .config import load_config
 from .classification import load_classification, public_tool_names
-from .audit import Auditor, make_ch_auditor
+
+# `Auditor` is re-exported deliberately: the server-build tests patch
+# `server.Auditor` to capture audit rows without a ClickHouse connection. It is
+# unused in this module's own code, so an "unused import" cleanup will try to
+# drop it and break every test in test_server_audit.py / test_server_public.py.
+from .audit import Auditor, make_ch_auditor  # noqa: F401  (test patch seam)
 from .wrapper import audited_tool
 from .clickhouse import ClickHouseClient
 from .tools import Tools

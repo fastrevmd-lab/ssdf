@@ -1,5 +1,4 @@
 import datetime as _dt
-import pytest
 
 from ssdf_mcp_query.liveness_tools import (
     LivenessTools,

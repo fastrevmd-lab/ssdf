@@ -1,5 +1,6 @@
 # tests/test_tools.py
-import pytest
+import re
+
 from ssdf_mcp_query.tools import Tools
 
 
@@ -61,9 +62,6 @@ def test_top_talkers_invalid_arg_is_validation_error():
     tools = Tools(FakeClient(), max_rows=1000)
     out = tools.top_talkers(by="bogus")
     assert out["error"] == "validation"
-
-
-import re
 
 
 class _BoomClient:

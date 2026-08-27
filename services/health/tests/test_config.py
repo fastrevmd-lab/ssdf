@@ -1,6 +1,6 @@
 import pytest
 
-from ssdf_health.config import Config, ConfigError, load_config
+from ssdf_health.config import ConfigError, load_config
 
 
 def test_load_config_requires_ch_password(monkeypatch):

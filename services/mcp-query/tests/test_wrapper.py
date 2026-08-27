@@ -25,7 +25,10 @@ def test_row_count_default_zero():
 
 def test_allowed_tool_runs_and_audits_allow():
     rec = _Recorder()
-    fn = lambda dst_port=None: {"rows": [1, 2], "row_count": 2}
+
+    def fn(dst_port=None):
+        return {"rows": [1, 2], "row_count": 2}
+
     wrapped = audited_tool("query_flows", fn, rec, caller=lambda: ("p", None))
     assert wrapped(dst_port=443) == {"rows": [1, 2], "row_count": 2}
     assert len(rec.calls) == 1
@@ -56,7 +59,10 @@ def test_disallowed_tool_denied_and_not_invoked():
 
 def test_tool_error_result_audits_allow_with_error():
     rec = _Recorder()
-    fn = lambda query=None: {"error": "bad_sql", "detail": "nope"}
+
+    def fn(query=None):
+        return {"error": "bad_sql", "detail": "nope"}
+
     wrapped = audited_tool("run_sql", fn, rec, caller=lambda: ("p", None))
     result = wrapped(query="DROP")
     assert result["error"] == "bad_sql"
@@ -69,7 +75,9 @@ def test_audit_write_failure_does_not_break_tool():
     def boom(_row):
         raise RuntimeError("ch down")
 
-    fn = lambda: {"rows": [1]}
+    def fn():
+        return {"rows": [1]}
+
     wrapped = audited_tool("describe_schema", fn, Auditor(boom), caller=lambda: ("p", None))
     assert wrapped() == {"rows": [1]}  # tool result still returned
 
@@ -79,7 +87,10 @@ def test_unexpired_token_runs(monkeypatch):
 
     rec = _Recorder()
     future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
-    fn = lambda: {"rows": [1]}
+
+    def fn():
+        return {"rows": [1]}
+
     wrapped = audited_tool("query_flows", fn, rec, caller=lambda: ("p", None, future))
     assert wrapped() == {"rows": [1]}
     assert rec.calls[0]["decision"] == "allow"
@@ -87,7 +98,10 @@ def test_unexpired_token_runs(monkeypatch):
 
 def test_no_expiry_token_runs(monkeypatch):
     rec = _Recorder()
-    fn = lambda: {"rows": [1]}
+
+    def fn():
+        return {"rows": [1]}
+
     wrapped = audited_tool("query_flows", fn, rec, caller=lambda: ("p", None, None))
     assert wrapped() == {"rows": [1]}
     assert rec.calls[0]["decision"] == "allow"
@@ -117,7 +131,10 @@ def test_expired_token_denied_and_not_invoked():
 def test_two_tuple_caller_backward_compat():
     """Legacy (principal, allowed) callers keep working — no expiry implied."""
     rec = _Recorder()
-    fn = lambda: {"rows": [1]}
+
+    def fn():
+        return {"rows": [1]}
+
     wrapped = audited_tool("query_flows", fn, rec, caller=lambda: ("p", None))
     assert wrapped() == {"rows": [1]}
     assert rec.calls[0]["decision"] == "allow"

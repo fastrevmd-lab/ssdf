@@ -3,7 +3,6 @@
 
 import pathlib
 
-import pytest
 
 from ssdf_topo.collectors.junos import parse_arp, parse_lldp_neighbors, parse_mac_table
 

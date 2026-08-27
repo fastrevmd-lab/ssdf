@@ -30,10 +30,8 @@ def test_env_bool_default():
 def test_env_bool_truthiness():
     """env_bool recognizes "1" and "true" (case-insensitive) as True."""
     assert env_bool("FOO", default=False) is False  # unset
-    env = {"FOO": "1"}
-    # We need to mock os.environ; for simplicity, pass the env explicitly
-    # (though env_bool doesn't accept env yet — this is a limitation).
-    # Since env_bool uses os.environ, we'll test via the real environment.
+    # env_bool reads os.environ directly rather than taking a mapping, so this
+    # exercises the real environment and restores it afterwards.
     import os
 
     old = os.environ.get("TEST_ENV_BOOL")

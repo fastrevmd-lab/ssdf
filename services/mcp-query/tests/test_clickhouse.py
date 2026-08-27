@@ -2,7 +2,8 @@
 import datetime as dt
 import ipaddress
 import threading
-from ssdf_mcp_query.clickhouse import jsonify
+from ssdf_mcp_query.clickhouse import ClickHouseClient, jsonify
+from ssdf_mcp_query.config import Config
 
 
 def test_jsonify_datetime_to_iso():
@@ -25,10 +26,6 @@ def test_jsonify_nested_collections():
     assert jsonify([dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)]) == [
         "2026-01-01T00:00:00+00:00"
     ]
-
-
-from ssdf_mcp_query.clickhouse import ClickHouseClient
-from ssdf_mcp_query.config import Config
 
 
 class _FakeResult:

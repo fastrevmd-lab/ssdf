@@ -82,10 +82,8 @@ def test_fused_chain_host_to_switchport_to_firewall_rule():
     # ── Step 4: locate (switchport / bridge attachment) ────────────────────────
     loc = _call(client, "locate", identifier=host_ip)
     assert "error" not in loc, f"locate returned error: {loc}"
-    # At least one of attached_to/port/vlan must be truthy if the host is wired
-    # (may be None for wireless-only or unresolved hosts — treat as soft check)
-    has_location = bool(loc.get("attached_to") or loc.get("port") or loc.get("vlan"))
-    # We don't hard-fail here — an isolated host is valid; just confirm key presence
+    # attached_to/port/vlan may all be None for a wireless-only or unresolved
+    # host, and an isolated host is valid -- so assert key PRESENCE, not values.
     for key in ("entity", "name", "attached_to", "port", "vlan", "via"):
         assert key in loc, f"locate response missing key '{key}'"
 

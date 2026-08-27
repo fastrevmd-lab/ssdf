@@ -1,6 +1,5 @@
 # tests/test_alerts.py
 import os
-import pytest
 
 os.environ.setdefault("CH_PASSWORD", "x")
 os.environ.setdefault("MCP_AUTH_TOKEN", "t")

@@ -252,7 +252,9 @@ def resolve_graph(
             remote_sys = (
                 o.attrs.get("remote_system", "") or o.obj_id.split("if:", 1)[-1].split(":", 1)[0]
             )
-            dev_a = device_node(local_sys, at)
+            # Called for its side effect: device_node -> touch_node registers the
+            # node. Only dev_b's handle is needed (to stamp remote_chassis).
+            device_node(local_sys, at)
             dev_b = device_node(remote_sys, at)
             remote_chassis = o.attrs.get("remote_chassis", "")
             if _MAC_RE.match(remote_chassis):
@@ -296,11 +298,6 @@ def resolve_graph(
             e["confidence"] = 1.0
         e["attrs"]["evidence"] = ",".join(sorted(edge_evidence[eid]))
 
-    known_ip_aliases = {
-        n["identifiers"].get("ip")
-        for n in nodes.values()
-        if n["kind"] == HOST and n["identifiers"].get("ip")
-    }
     for fe in flow_edges:
         for endpoint in (fe["src_id"], fe["dst_id"]):
             if endpoint in nodes:

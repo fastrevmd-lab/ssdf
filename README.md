@@ -61,8 +61,15 @@ are written directly into `ssdf.audit` as hash-chained rows, per
 
 That is deliberate. A syslog path was proposed and rejected: it is cheaper, but
 syslog records are unchained, and the value of this trail is that tampering is
-detectable. The producing side is tracked in
-[mecmcp#292](https://github.com/fastrevmd-lab/mecmcp/issues/292).
+detectable. The producing side ships in
+[mecmcp](https://github.com/fastrevmd-lab/mecmcp) as `mecmcp-audit`, which
+writes hash-chained segments straight into `ssdf.audit` over HTTP with a durable
+outbox and retry ([mecmcp#292](https://github.com/fastrevmd-lab/mecmcp/issues/292),
+closed 2026-08-24).
+
+SSDF owns the schema; mecmcp produces against it. That split is why this repo
+stays Python while the vendor-control servers stay Rust — the contract is the
+integration point, not a shared runtime.
 
 `ssdf.audit` is therefore the single place to ask "who did what" — SSDF's own
 MCP servers (`tier="sovereign"`) and the `rust*mcp` family alike. `ssdf.events`

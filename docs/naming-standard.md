@@ -5,7 +5,7 @@ All vSRX devices in the SSDF lab follow a consistent **lowercase kebab-case** na
 - Proxmox VM name (e.g., `qm set <vmid> --name vsrx-prod`)
 - Junos on-box hostname (`set system host-name vsrx-prod`)
 - rust-junosmcp `devices.json` key
-- SSDF `JUNOS_DEVICES` environment variable (ct109 resolvers)
+- SSDF `JUNOS_DEVICES` environment variable (704 `ssdf-topo` resolvers)
 - `observer_hostname` field on the wire (syslog HOSTNAME → normalized at ingest)
 
 Role names derive from the enterprise topology described in `~/homelab/topology/DESIGN.md`. The entire 23-device vSRX fleet was renamed live on **2026-07-06**.
@@ -45,8 +45,8 @@ When renaming a device or onboarding a new one, update all layers in this order:
 
 1. **Device hostname + commit** — `set system host-name <new-name>` on the Junos device
 2. **rust-junosmcp devices.json** — update the key in `/etc/jmcp/devices.json` (ct601), then reload: `systemctl kill -s HUP rust-junosmcp.service`
-3. **Proxmox VM name** — `qm set <vmid> --name <new-name>` on the pve3 host
-4. **ct109 JUNOS_DEVICES** — update `JUNOS_DEVICES` in all three ct109 ENV.local files (`/etc/ssdf-topo/ENV.local`, `/etc/ssdf-policy/ENV.local`, `/etc/ssdf-health/ENV.local`)
+3. **Proxmox VM name** — `qm set <vmid> --name <new-name>` on the guest's own node
+4. **704 JUNOS_DEVICES** — update `JUNOS_DEVICES` in all three resolver ENV.local files on 704 `ssdf-topo` (`/etc/ssdf-topo/ENV.local`, `/etc/ssdf-policy/ENV.local`, `/etc/ssdf-health/ENV.local`)
 5. **Vector observer_hostname gate** — update the regex in `infra/vector/vector.toml` transforms `srx_ecs` and `panos_ecs` to accept the new name
 6. **Eval corpus** — if the device appears in `services/evals/golden/core.yaml` questions/predicates, update the references
 

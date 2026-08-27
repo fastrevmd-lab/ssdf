@@ -82,7 +82,7 @@ def run_collectors(enabled, client_factory, collector_factory, writer, now: str)
             elif hasattr(writer, "insert_observations"):
                 total += writer.insert_observations(items)
             else:
-                raise AttributeError(f"writer has no insert_observations or insert_gauges method")
+                raise AttributeError("writer has no insert_observations or insert_gauges method")
         except Exception:
             logger.warning("collector %r failed; skipping", name, exc_info=True)
     return total
