@@ -1,11 +1,11 @@
 import os
 import pytest
 
-pytestmark = pytest.mark.integration
-
 from ssdf_entity.chwriter import ClickHouseEntityWriter
 from ssdf_entity.config import load_config
 from ssdf_entity.resolve_main import run_resolver
+
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture

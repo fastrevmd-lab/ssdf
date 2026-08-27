@@ -6,11 +6,11 @@ import logging
 from defusedxml.ElementTree import fromstring as _xml_fromstring, ParseError as _XmlParseError
 import xml.etree.ElementTree as ET  # type annotations only (ET.Element)
 
-logger = logging.getLogger(__name__)
-
 from ssdf_common.mcp_envelope import envelope_truncated, unwrap_mcp_text
 
 from .base import register
+
+logger = logging.getLogger(__name__)
 
 PROVIDER = "paloalto"
 

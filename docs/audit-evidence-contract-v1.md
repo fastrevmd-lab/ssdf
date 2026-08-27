@@ -197,7 +197,7 @@ succeeded. Lengths make the field boundaries unambiguous.
 
 A retried block carrying a token ClickHouse has already seen is dropped, so the
 duplicate never lands. `ssdf.audit` is a plain (non-replicated) `MergeTree` —
-verified live — and those have supported this since 22.2; ct104 runs 26.6.
+verified live — and those have supported this since 22.2; 701 runs 26.6.
 
 Not `ReplacingMergeTree`, which was the first proposal on #49: it rewrites a
 live table and pushes `FINAL`/`argMax` semantics onto every reader, where this

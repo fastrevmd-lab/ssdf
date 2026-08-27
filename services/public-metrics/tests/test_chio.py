@@ -2,8 +2,6 @@ from ssdf_pubmetrics.chreader import EventsReader
 from ssdf_pubmetrics.chwriter import (
     MetricsWriter,
     METRIC_COLUMNS,
-    ENTITY_COLUMNS,
-    MAP_COLUMNS,
 )
 
 

@@ -1,4 +1,4 @@
-from ssdf_entity.models import ASSET, POLICY, COMMUNICATED_WITH, GOVERNED_BY, entity_id
+from ssdf_entity.models import ASSET, POLICY, COMMUNICATED_WITH, GOVERNED_BY
 from ssdf_entity.resolve_entities import (
     resolve_entities,
     normalize_segment,

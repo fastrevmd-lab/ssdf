@@ -2,12 +2,15 @@ from ssdf_mcp_query.entitystore import (
     build_entity_match_sql,
     build_comm_edges_sql,
     build_governed_by_sql,
-    build_entities_by_id_sql,
     ClickHouseEntityStore,
     build_entities_match_sql,
     build_comm_edges_multi_sql,
 )
-from ssdf_mcp_query.entitystore import build_alerts_for_pair_sql
+from ssdf_mcp_query.entitystore import (
+    build_alerts_for_pair_sql,
+    build_firewall_match_sql,
+    build_configured_governed_sql,
+)
 
 
 def test_build_alerts_for_pair_sql_filters_provider_kind_ips_and_window():
@@ -86,12 +89,6 @@ def test_store_find_entity_returns_first_row_or_none():
     assert store.find_entity("10.64.0.5") == {"entity_id": "x"}
     ch2 = _FakeCH([[]])
     assert ClickHouseEntityStore(ch2, tenant="t_main").find_entity("nope") is None
-
-
-from ssdf_mcp_query.entitystore import (
-    build_firewall_match_sql,
-    build_configured_governed_sql,
-)
 
 
 def test_firewall_match_sql_filters_kind_and_device_names():

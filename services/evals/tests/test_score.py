@@ -1,7 +1,6 @@
 """Scorer: fail-closed scoring core + CLI exit codes + scorecard artifact."""
 
 import json
-from pathlib import Path
 
 from ssdf_evals.corpus import Question
 from ssdf_evals.schemas import validate_scorecard

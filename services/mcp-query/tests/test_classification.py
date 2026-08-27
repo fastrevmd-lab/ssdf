@@ -3,6 +3,9 @@ import pytest
 from ssdf_mcp_query.classification import (
     classes_for_tool,
     load_classification,
+    public_tool_names,
+    is_tool_shareable,
+    PUBLIC_EXCLUDED_TOOLS,
     TOOL_DATA_CLASSES,
 )
 from ssdf_mcp_query.config import ConfigError
@@ -102,12 +105,6 @@ def test_missing_file_raises(tmp_path):
         load_classification(str(missing))
 
 
-from ssdf_mcp_query.classification import (
-    PUBLIC_EXCLUDED_TOOLS,
-    is_tool_shareable,
-    public_tool_names,
-)
-
 ALL_TOOLS = [
     "query_flows",
     "describe_schema",
@@ -125,7 +122,9 @@ ALL_TOOLS = [
 
 def _classification(**overrides):
     """Build a Classification with the given class->label overrides (rest sovereign)."""
-    import json, tempfile, os
+    import json
+    import tempfile
+    import os
 
     fd, path = tempfile.mkstemp(suffix=".json")
     with os.fdopen(fd, "w") as handle:

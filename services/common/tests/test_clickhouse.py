@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 
-import pytest
 
 from ssdf_common.clickhouse import client_kwargs, client_kwargs_from_config
 

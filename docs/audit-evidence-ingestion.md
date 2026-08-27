@@ -20,7 +20,7 @@ Evidence records authenticate via the existing `ssdf_audit` ClickHouse user:
 
 ```bash
 # mecmcp-audit environment (vault-backed)
-SSDF_CH_HOST=198.51.100.104  # ct104 on pve3
+SSDF_CH_HOST=198.51.100.151  # 701 ssdf-event-store on pve2
 SSDF_CH_PORT=8443
 SSDF_CH_SECURE=true
 SSDF_CH_AUDIT_USER=ssdf_audit
@@ -32,7 +32,7 @@ SSDF_CH_AUDIT_PASSWORD=<from-vault>
 Evidence records are inserted via ClickHouse HTTP interface:
 
 ```http
-POST https://198.51.100.104:8443/?database=ssdf&query=INSERT%20INTO%20audit%20FORMAT%20JSONEachRow
+POST https://198.51.100.151:8443/?database=ssdf&query=INSERT%20INTO%20audit%20FORMAT%20JSONEachRow
 Authorization: Basic <base64(ssdf_audit:password)>
 Content-Type: application/x-ndjson
 
@@ -96,7 +96,7 @@ both render as `high_water = 0`. Inserting only `> high_water` on that alone
 drops segment 0 of every new run — the first evidence record a writer ever
 produces, and the root of its chain. `count()` separates the two cases;
 `maxOrNull` returning `NULL` for the empty set would do equally well. Verified
-live against ct104: an empty run returns `[0, 0]`.
+live against 701: an empty run returns `[0, 0]`.
 
 Two identities, two statements, each doing only what it is granted. The security
 boundary stays where `007` put it.
@@ -214,11 +214,11 @@ This query runs as `ssdf_ro` (sovereign MCP tools) or `ssdf_audit_verify` (hash-
 - [ ] TLS trust anchor (ssdf CA cert in rustsdcmcp container)
 - [ ] Retry/backoff on transient failures
 - [ ] Unit test: mock ClickHouse response
-- [ ] Integration test: live insert → query back (ct104 lab instance)
+- [ ] Integration test: live insert → query back (701 lab instance)
 
 ## Security
 
-- **TLS required:** HTTP plaintext rejected (ct104 enforces HTTPS on 8443)
+- **TLS required:** HTTP plaintext rejected (701 enforces HTTPS on 8443)
 - **Credential source:** Vault-backed secret (never committed to repo)
 - **Least privilege:** ssdf_audit can INSERT ssdf.audit ONLY (no SELECT, no other tables)
 - **Audit immutability:** INSERT-only user cannot edit or delete past records

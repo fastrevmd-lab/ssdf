@@ -1,4 +1,9 @@
-from ssdf_mcp_query.graphstore import ClickHouseGraphStore, build_node_match_sql, build_subgraph_sql
+from ssdf_mcp_query.graphstore import (
+    ClickHouseGraphStore,
+    build_node_match_sql,
+    build_nodes_by_id_sql,
+    build_subgraph_sql,
+)
 
 
 class FakeCH:
@@ -74,9 +79,6 @@ def test_node_match_sql_preserves_non_mac_case():
     """Names/IPs are not MAC-shaped and must pass through verbatim."""
     _, params = build_node_match_sql("Switch-A", tenant="t_main")
     assert params["val"] == "Switch-A"
-
-
-from ssdf_mcp_query.graphstore import build_nodes_by_id_sql
 
 
 def test_builders_default_to_ssdf_schema():
