@@ -1,0 +1,4 @@
+title = "ssdf gitleaks config"
+
+[extend]
+path = ".gitleaks-vendor.toml"
