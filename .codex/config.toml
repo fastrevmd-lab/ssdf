@@ -12,21 +12,6 @@ exclude_slash_tmp = true
 [mcp_servers.gbrain]
 enabled = false
 
-[mcp_servers.prod-labmode-junos]
-enabled = true
-enabled_tools = ["get_router_list", "gather_device_facts", "get_junos_config", "junos_config_diff"]
-default_tools_approval_mode = "writes"
-
-[mcp_servers.prod-labmode-panos]
-enabled = true
-enabled_tools = ["list_devices", "get_panos_config", "gather_device_facts"]
-default_tools_approval_mode = "writes"
-
-[mcp_servers.proxmox-mcp]
-enabled = true
-enabled_tools = ["get_cluster_status", "get_nodes", "get_node_status", "get_vms", "get_vm_config", "get_containers", "get_container_config", "get_storage", "list_backups", "list_snapshots"]
-default_tools_approval_mode = "writes"
-
 [mcp_servers.unifi-mcp]
 enabled = true
 enabled_tools = ["health_check", "list_sites", "get_site_health_summary", "get_site_inventory", "get_network_topology", "list_devices_by_type", "get_device_details", "get_device_statistics"]
