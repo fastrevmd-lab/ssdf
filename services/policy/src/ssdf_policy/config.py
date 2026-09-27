@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from ssdf_common.config import ConfigError, McpEndpoint, load_mcp_endpoint
+from ssdf_common.config import ConfigError, McpEndpoint, Secret, load_mcp_endpoint
 
 ALL_COLLECTORS = ("panos", "junos")
 
@@ -19,7 +19,7 @@ class Config:
     ch_host: str
     ch_port: int
     ch_user: str
-    ch_password: str
+    ch_password: Secret
     ch_database: str
     tenant_id: str
     enabled_collectors: tuple[str, ...]
@@ -46,7 +46,7 @@ def load_config() -> Config:
         ch_host=os.environ.get("CH_HOST", "127.0.0.1"),
         ch_port=int(os.environ.get("CH_PORT", "8123")),
         ch_user=os.environ.get("CH_USER", "ssdf_entity"),
-        ch_password=password,
+        ch_password=Secret(password),
         ch_database=os.environ.get("CH_DATABASE", "ssdf"),
         tenant_id=os.environ.get("POLICY_TENANT", "t_main"),
         enabled_collectors=enabled,

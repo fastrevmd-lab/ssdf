@@ -21,7 +21,7 @@ def client_kwargs(config: Config) -> dict[str, Any]:
         host=config.ch_host,
         port=config.ch_port,
         user=config.ch_user,
-        password=config.ch_password,
+        password=config.ch_password.get(),
         database=config.ch_database,
         secure=config.ch_secure,
         ca_file=config.ch_ca_file,

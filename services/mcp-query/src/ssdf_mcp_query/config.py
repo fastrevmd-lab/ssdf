@@ -16,7 +16,7 @@ from .tokenstore import (
     warn_about_legacy_tokens,
 )
 
-from ssdf_common.config import ConfigError
+from ssdf_common.config import ConfigError, Secret, require_tls_or_loopback
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ class Config:
     ch_host: str
     ch_port: int
     ch_user: str
-    ch_password: str
+    ch_password: Secret
     ch_database: str
     mcp_bind: str
     mcp_port: int
@@ -61,7 +61,11 @@ def ch_tls_kwargs(config: "Config") -> dict:
 
     When ``ch_secure`` is set, connect over HTTPS; ``ca_cert`` is passed only
     when ``ch_ca_file`` is configured (self-signed local CA per the L1 design).
+
+    Raises ConfigError for a plaintext connection to a non-loopback host — the
+    password would otherwise cross the wire in the clear.
     """
+    require_tls_or_loopback(config.ch_host, config.ch_secure)
     if not config.ch_secure:
         return {}
     kwargs: dict = {"interface": "https"}
@@ -162,7 +166,7 @@ def load_config() -> Config:
         ch_host=os.environ.get("CH_HOST", "127.0.0.1"),
         ch_port=int(os.environ.get("CH_PORT", "8123")),
         ch_user=os.environ.get("CH_USER", "ssdf_ro"),
-        ch_password=password,
+        ch_password=Secret(password),
         ch_database=os.environ.get("CH_DATABASE", "ssdf"),
         mcp_bind=os.environ.get("MCP_BIND", "0.0.0.0"),
         mcp_port=int(os.environ.get("MCP_PORT", "30032")),

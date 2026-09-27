@@ -2,6 +2,7 @@
 import datetime as dt
 import ipaddress
 import threading
+from ssdf_common.config import Secret
 from ssdf_mcp_query.clickhouse import ClickHouseClient, jsonify
 from ssdf_mcp_query.config import Config
 
@@ -44,10 +45,10 @@ class _FakeClient:
 
 def _config(**over):
     base = dict(
-        ch_host="h",
+        ch_host="127.0.0.1",
         ch_port=8123,
         ch_user="u",
-        ch_password="p",
+        ch_password=Secret("p"),
         ch_database="ssdf",
         mcp_bind="0.0.0.0",
         mcp_port=30032,

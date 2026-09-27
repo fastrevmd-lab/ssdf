@@ -1,6 +1,9 @@
 # tests/test_ch_tls.py
 """L1: CH TLS client support — get_client kwargs across all three connect paths."""
 
+import pytest
+
+from ssdf_common.config import ConfigError, Secret
 from ssdf_mcp_query.config import Config
 from ssdf_mcp_query.clickhouse import ClickHouseClient
 from ssdf_mcp_query.audit import make_ch_auditor
@@ -9,10 +12,10 @@ from ssdf_mcp_query.verify_audit import _fetch_rows
 
 def _config(**over):
     base = dict(
-        ch_host="h",
+        ch_host="127.0.0.1",
         ch_port=8443,
         ch_user="u",
-        ch_password="p",
+        ch_password=Secret("p"),
         ch_database="ssdf",
         mcp_bind="0.0.0.0",
         mcp_port=30032,
@@ -67,6 +70,13 @@ def test_clickhouse_client_insecure_default(monkeypatch):
     ClickHouseClient(_config())
     assert "interface" not in captured[0]
     assert "ca_cert" not in captured[0]
+    assert captured[0]["password"] == "p"
+
+
+def test_clickhouse_client_rejects_plaintext_to_non_loopback_host(monkeypatch):
+    _capture_get_client(monkeypatch)
+    with pytest.raises(ConfigError):
+        ClickHouseClient(_config(ch_host="10.64.0.151"))
 
 
 def test_make_ch_auditor_secure(monkeypatch):
