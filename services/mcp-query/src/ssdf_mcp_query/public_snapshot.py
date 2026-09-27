@@ -54,10 +54,10 @@ ALLOWLIST: tuple[DisplayDevice, ...] = (
     DisplayDevice("USW Pro XG 8 PoE", "primary"),
     DisplayDevice("USW Flex 2.5G 8", "primary"),
     DisplayDevice("USP RPS", "primary"),
-    DisplayDevice("U7 Pro", "primary"),
-    DisplayDevice("AC IW Pro Basement", "primary"),
-    DisplayDevice("AC IW Pro GuestBed", "primary"),
-    DisplayDevice("AC IW Pro MasterBed", "primary"),
+    DisplayDevice("ap-1", "primary"),
+    DisplayDevice("ap-2", "primary"),
+    DisplayDevice("ap-3", "primary"),
+    DisplayDevice("ap-4", "primary"),
 )
 
 _BY_NAME = {d.name: d for d in ALLOWLIST}
