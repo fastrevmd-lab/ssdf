@@ -1412,7 +1412,7 @@ name = "unifi_cef_ssh_scan_maps_to_ecs"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus HarmanHoldfast proto=TCP spt=38738 dpt=22 act=allowed app=SSH UNIFIrisk=medium UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing deviceOutboundInterface=Internet 1 UNIFIdeviceMac=02:00:01:27:fb:2b UNIFIdeviceName=Gateway Max UNIFIdeviceModel=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIdeviceVersion=5.0.16 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcClientModel=Windows PC UNIFIsrcZone=Internal UNIFIdstClientAlias=02:00:01:27:fb:2c UNIFIdstClientMac=02:00:01:27:fb:2c UNIFIdstRegion=US UNIFIdstZone=External UNIFItotalBytes=74 UNIFItotalPackets=1 UNIFIpacketsReceived=0 UNIFIpacketsSent=1 UNIFIbytesReceived=0 UNIFIbytesSent=74 UNIFIflowCount=1 UNIFIflowId=null UNIFIflowStartTime=Jun 14, 2026 at 7:48:50.822 PM UNIFIipsSessionId=1190371755462149 UNIFIipsSignature=ET SCAN Potential SSH Scan OUTBOUND UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z msg=A network intrusion attempt from ssdf-vector to 02:00:01:27:fb:2c has been detected.'
+value = 'Jun 14 19:49:59 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus site-controller proto=TCP spt=38738 dpt=22 act=allowed app=SSH UNIFIrisk=medium UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing deviceOutboundInterface=Internet 1 UNIFIdeviceMac=02:00:01:27:fb:2b UNIFIdeviceName=Gateway Max UNIFIdeviceModel=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIdeviceVersion=5.0.16 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcClientModel=Windows PC UNIFIsrcZone=Internal UNIFIdstClientAlias=02:00:01:27:fb:2c UNIFIdstClientMac=02:00:01:27:fb:2c UNIFIdstRegion=US UNIFIdstZone=External UNIFItotalBytes=74 UNIFItotalPackets=1 UNIFIpacketsReceived=0 UNIFIpacketsSent=1 UNIFIbytesReceived=0 UNIFIbytesSent=74 UNIFIflowCount=1 UNIFIflowId=null UNIFIflowStartTime=Jun 14, 2026 at 7:48:50.822 PM UNIFIipsSessionId=1190371755462149 UNIFIipsSignature=ET SCAN Potential SSH Scan OUTBOUND UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z msg=A network intrusion attempt from ssdf-vector to 02:00:01:27:fb:2c has been detected.'
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
@@ -1461,7 +1461,7 @@ name = "unifi_cef_scan_with_dst_maps_destination_ip"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus HarmanHoldfast proto=TCP spt=38738 dpt=22 act=allowed app=SSH UNIFIrisk=medium UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing deviceOutboundInterface=Internet 1 UNIFIdeviceMac=02:00:01:27:fb:2b UNIFIdeviceName=Gateway Max UNIFIdeviceModel=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIdeviceVersion=5.0.16 dst=192.0.2.1 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcClientModel=Windows PC UNIFIsrcZone=Internal UNIFIdstClientAlias=02:00:01:27:fb:2c UNIFIdstClientMac=02:00:01:27:fb:2c UNIFIdstRegion=US UNIFIdstZone=External UNIFItotalBytes=74 UNIFItotalPackets=1 UNIFIpacketsReceived=0 UNIFIpacketsSent=1 UNIFIbytesReceived=0 UNIFIbytesSent=74 UNIFIflowCount=1 UNIFIflowId=null UNIFIflowStartTime=Jun 14, 2026 at 7:48:50.822 PM UNIFIipsSessionId=1190371755462149 UNIFIipsSignature=ET SCAN Potential SSH Scan OUTBOUND UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z msg=A network intrusion attempt from ssdf-vector to 02:00:01:27:fb:2c has been detected.'
+value = 'Jun 14 19:49:59 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus site-controller proto=TCP spt=38738 dpt=22 act=allowed app=SSH UNIFIrisk=medium UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing deviceOutboundInterface=Internet 1 UNIFIdeviceMac=02:00:01:27:fb:2b UNIFIdeviceName=Gateway Max UNIFIdeviceModel=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIdeviceVersion=5.0.16 dst=192.0.2.1 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcClientModel=Windows PC UNIFIsrcZone=Internal UNIFIdstClientAlias=02:00:01:27:fb:2c UNIFIdstClientMac=02:00:01:27:fb:2c UNIFIdstRegion=US UNIFIdstZone=External UNIFItotalBytes=74 UNIFItotalPackets=1 UNIFIpacketsReceived=0 UNIFIpacketsSent=1 UNIFIbytesReceived=0 UNIFIbytesSent=74 UNIFIflowCount=1 UNIFIflowId=null UNIFIflowStartTime=Jun 14, 2026 at 7:48:50.822 PM UNIFIipsSessionId=1190371755462149 UNIFIipsSignature=ET SCAN Potential SSH Scan OUTBOUND UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z msg=A network intrusion attempt from ssdf-vector to 02:00:01:27:fb:2c has been detected.'
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
@@ -1502,7 +1502,7 @@ name = "unifi_cef_terminal_server_scan_maps_to_ecs"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|3|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus HarmanHoldfast proto=TCP spt=51002 dpt=3389 act=allowed app=Other UNIFIrisk=low UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing UNIFIdeviceName=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcZone=Internal UNIFIdstZone=External UNIFItotalBytes=120 UNIFIbytesReceived=0 UNIFIbytesSent=120 UNIFIipsSessionId=1190371755462200 UNIFIipsSignature=ET SCAN Behavioral Unusually fast Terminal Server Traffic Potential Scan or Infection (Outbound) UNIFIipsSignatureId=2013479 UNIFIutcTime=2026-06-14T19:49:59.884Z msg=A network intrusion attempt has been detected.'
+value = 'Jun 14 19:49:59 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|3|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus site-controller proto=TCP spt=51002 dpt=3389 act=allowed app=Other UNIFIrisk=low UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing UNIFIdeviceName=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcZone=Internal UNIFIdstZone=External UNIFItotalBytes=120 UNIFIbytesReceived=0 UNIFIbytesSent=120 UNIFIipsSessionId=1190371755462200 UNIFIipsSignature=ET SCAN Behavioral Unusually fast Terminal Server Traffic Potential Scan or Infection (Outbound) UNIFIipsSignatureId=2013479 UNIFIutcTime=2026-06-14T19:49:59.884Z msg=A network intrusion attempt has been detected.'
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
@@ -1531,7 +1531,7 @@ name = "unifi_cef_trailing_newline_still_parses"
 insert_at = "unifi_ips"
 type = "raw"
 value = '''
-Jun 14 20:10:02 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security proto=TCP spt=52102 dpt=80 act=allowed app=HTTP UNIFIrisk=medium UNIFIpolicyName=Malicious User Agents UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing UNIFIdeviceName=Gateway Max UNIFIsrcClientAlias=panosvm ee:2c UNIFIsrcClientHostname=panosvm UNIFIipsSignature=ET USER_AGENTS PyCurl Suspicious User Agent Outbound UNIFIipsSignatureId=2013054 UNIFIutcTime=2026-06-14T20:10:02.442Z msg=A network intrusion attempt has been detected.
+Jun 14 20:10:02 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security proto=TCP spt=52102 dpt=80 act=allowed app=HTTP UNIFIrisk=medium UNIFIpolicyName=Malicious User Agents UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing UNIFIdeviceName=Gateway Max UNIFIsrcClientAlias=panosvm ee:2c UNIFIsrcClientHostname=panosvm UNIFIipsSignature=ET USER_AGENTS PyCurl Suspicious User Agent Outbound UNIFIipsSignatureId=2013054 UNIFIutcTime=2026-06-14T20:10:02.442Z msg=A network intrusion attempt has been detected.
 '''
 [[tests.outputs]]
 extract_from = "unifi_ips"
@@ -1552,7 +1552,7 @@ name = "unifi_cef_garbage_is_parse_error"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = 'Jun 14 19:50:00 UCK-G2-Plus-HarmanHoldfast not-a-cef-line at all'
+value = 'Jun 14 19:50:00 UCK-G2-Plus-site-controller not-a-cef-line at all'
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
@@ -1570,7 +1570,7 @@ name = "unifi_cef_threat_filter_keeps_detection"
 [[tests.inputs]]
 insert_at = "unifi_cef_threat"
 type = "raw"
-value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security proto=TCP spt=38738 dpt=22 act=allowed UNIFIpolicyName=Scanning Activity UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z'
+value = 'Jun 14 19:49:59 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security proto=TCP spt=38738 dpt=22 act=allowed UNIFIpolicyName=Scanning Activity UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z'
 [[tests.outputs]]
 extract_from = "unifi_cef_threat"
 [[tests.outputs.conditions]]
@@ -1585,7 +1585,7 @@ no_outputs_from = ["unifi_cef_threat"]
 [[tests.inputs]]
 insert_at = "unifi_cef_threat"
 type = "raw"
-value = 'Jun 14 19:49:51 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|402|WiFi Client Roamed|1|UNIFIcategory=Client Devices UNIFIhost=UCK G2 Plus HarmanHoldfast'
+value = 'Jun 14 19:49:51 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|402|WiFi Client Roamed|1|UNIFIcategory=Client Devices UNIFIhost=UCK G2 Plus site-controller'
 
 # ---------------- Proxmox (M11) unit tests ----------------
 
@@ -1849,7 +1849,7 @@ name = "junos_sys_ui_cfg_audit_set"
 [[tests.inputs]]
 insert_at = "junos_sys_ecs"
 type = "raw"
-value = "<182>1 2026-07-06T03:52:49.931Z vsrx-ci mgd 97400 UI_CFG_AUDIT_SET [junos@2636.1.1.1.2.129 username=\"netconf\" action=\"set\" pathname=\"[system login message\\]\" delimiter=\"\\\"\" data=\"m14c commit capture\" value=\"m14c commit capture\"] User 'netconf' set: [system login message] \"m14c commit capture -- \"m14c commit capture\""
+value = "<182>1 2026-07-06T03:52:49.931Z vsrx-ci mgd 97400 UI_CFG_AUDIT_SET [junos@2636.1.1.1.2.129 username=\"netconf\" action=\"set\" pathname=\"[system login message\\]\" delimiter=\"\\\"\" data=\"m14c commit capture\" value=\"m14c commit capture\"] User 'netconf' set: [system login message] \"m14c commit capture -- \"m14c commit capture\"\"
 [[tests.outputs]]
 extract_from = "junos_sys_ecs"
 [[tests.outputs.conditions]]
