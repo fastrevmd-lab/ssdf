@@ -4,7 +4,7 @@
   "title": "SSDF eval run-manifest (contract v1)",
   "type": "object",
   "required": ["schema_version", "run_id", "model", "runner", "tier",
-               "principal", "corpus_version", "questions"],
+               "principal", "corpus_version", "local", "questions"],
   "additionalProperties": false,
   "properties": {
     "schema_version": {"const": 1},
@@ -14,6 +14,10 @@
     "tier": {"enum": ["sovereign", "public"]},
     "principal": {"type": "string", "minLength": 1},
     "corpus_version": {"type": "string", "minLength": 1},
+    "local": {
+      "type": "boolean",
+      "description": "True iff `model` ran on infrastructure the operator controls (no hosted inference API). Required so the scorer can refuse hosted-model runs against the sovereign tier."
+    },
     "questions": {
       "type": "array",
       "items": {
