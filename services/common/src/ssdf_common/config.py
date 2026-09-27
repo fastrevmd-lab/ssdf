@@ -18,6 +18,57 @@ class McpEndpoint:
     token: str
 
 
+class Secret:
+    """Wraps a sensitive string so it can't leak through repr/str/logging by accident.
+
+    Config dataclasses hold their password fields as ``Secret`` instead of
+    ``str`` so a traceback or debug ``repr(config)`` never prints the value.
+    Call ``.get()`` to unwrap it at the point of use (building connection kwargs).
+    """
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str) -> None:
+        self._value = value
+
+    def get(self) -> str:
+        return self._value
+
+    def __repr__(self) -> str:
+        return "Secret('***')"
+
+    def __str__(self) -> str:
+        return "***"
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Secret):
+            return self._value == other._value
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(self._value)
+
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def require_tls_or_loopback(host: str, secure: bool) -> None:
+    """Raise ConfigError for a plaintext ClickHouse connection to a non-loopback host.
+
+    A plain-HTTP connection to anything but the local machine sends the
+    ClickHouse password (and every row read/written) in the clear. TLS
+    (``secure=True``) is required for any other host.
+    """
+    if secure:
+        return
+    if host.strip().lower() in _LOOPBACK_HOSTS:
+        return
+    raise ConfigError(
+        f"refusing a plaintext ClickHouse connection to non-loopback host {host!r}: "
+        "set ch_secure=True (CH_SECURE=1) or connect to 127.0.0.1/localhost/::1"
+    )
+
+
 def env_bool(name: str, default: bool = False) -> bool:
     """Parse an env var as a boolean (truthiness: "1" or "true", case-insensitive)."""
     value = os.environ.get(name)

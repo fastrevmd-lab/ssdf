@@ -2,6 +2,7 @@
 
 import pytest
 
+from ssdf_common.config import Secret
 from ssdf_evals.config import Config, ConfigError, client_kwargs, load_config
 
 REQUIRED = {"CH_PASSWORD": "ro-pw", "CH_AUDIT_VERIFY_PASSWORD": "av-pw"}
@@ -43,7 +44,7 @@ def test_defaults(monkeypatch):
         ch_host="127.0.0.1",
         ch_port=8123,
         ch_user="ssdf_ro",
-        ch_password="ro-pw",
+        ch_password=Secret("ro-pw"),
         ch_database="ssdf",
         ch_secure=False,
         ch_ca_file="",
@@ -81,3 +82,10 @@ def test_client_kwargs_identity_override(monkeypatch):
     kwargs = client_kwargs(load_config(), username="ssdf_audit_verify", password="av-pw2")
     assert kwargs["username"] == "ssdf_audit_verify"
     assert kwargs["password"] == "av-pw2"
+
+
+def test_client_kwargs_rejects_plaintext_to_non_loopback_host(monkeypatch):
+    _set_required(monkeypatch)
+    monkeypatch.setenv("CH_HOST", "198.51.100.152")
+    with pytest.raises(ConfigError):
+        client_kwargs(load_config())

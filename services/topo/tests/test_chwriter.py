@@ -1,4 +1,7 @@
 # tests/test_chwriter.py
+import pytest
+
+from ssdf_common.config import ConfigError, Secret
 from ssdf_topo.config import Config
 from ssdf_topo.models import Observation
 from ssdf_topo import chwriter
@@ -14,10 +17,10 @@ from ssdf_topo.chwriter import (
 
 def _config(**overrides):
     base = dict(
-        ch_host="10.64.0.151",
+        ch_host="127.0.0.1",
         ch_port=8123,
         ch_user="ssdf_topo",
-        ch_password="pw",
+        ch_password=Secret("pw"),
         ch_database="ssdf",
         tenant_id="t_main",
         window_hours=24,
@@ -35,10 +38,21 @@ def test_writer_default_is_plain_http(monkeypatch):
         lambda **kwargs: captured.update(kwargs) or object(),
     )
     chwriter.ClickHouseWriter(_config())
-    assert captured["host"] == "10.64.0.151"
+    assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 8123
+    assert captured["password"] == "pw"
     assert "interface" not in captured
     assert "ca_cert" not in captured
+
+
+def test_writer_rejects_plaintext_to_non_loopback_host(monkeypatch):
+    monkeypatch.setattr(
+        chwriter.clickhouse_connect,
+        "get_client",
+        lambda **kwargs: object(),
+    )
+    with pytest.raises(ConfigError):
+        chwriter.ClickHouseWriter(_config(ch_host="10.64.0.151"))
 
 
 def test_writer_secure_passes_https_and_ca(monkeypatch):

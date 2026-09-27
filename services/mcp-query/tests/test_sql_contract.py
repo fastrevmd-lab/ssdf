@@ -39,6 +39,7 @@ pytestmark = pytest.mark.contract
 
 clickhouse_connect = pytest.importorskip("clickhouse_connect")
 
+from ssdf_common.config import Secret  # noqa: E402
 from ssdf_mcp_query.alerts import build_recent_alerts_sql  # noqa: E402
 from ssdf_mcp_query.builders import build_query_flows, build_top_talkers  # noqa: E402
 from ssdf_mcp_query.clickhouse import ClickHouseClient  # noqa: E402
@@ -111,7 +112,7 @@ def ch(raw):
             ch_host=os.environ.get("CH_CONTRACT_HOST", ""),
             ch_port=int(os.environ.get("CH_CONTRACT_PORT", "8123")),
             ch_user=os.environ.get("CH_CONTRACT_USER", "default"),
-            ch_password=os.environ.get("CH_CONTRACT_PASSWORD", ""),
+            ch_password=Secret(os.environ.get("CH_CONTRACT_PASSWORD", "")),
             ch_database="ssdf",
             mcp_bind="127.0.0.1",
             mcp_port=0,

@@ -52,7 +52,7 @@ class ClickHouseClient:
             host=self._config.ch_host,
             port=self._config.ch_port,
             username=self._config.ch_user,
-            password=self._config.ch_password,
+            password=self._config.ch_password.get(),
             database=self._config.ch_database,
             **ch_tls_kwargs(self._config),
         )

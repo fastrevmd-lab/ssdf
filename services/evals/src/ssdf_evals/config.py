@@ -11,7 +11,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from ssdf_common.config import ConfigError
+from ssdf_common.config import ConfigError, Secret
 from ssdf_common.clickhouse import client_kwargs as _shared_client_kwargs
 
 
@@ -20,7 +20,7 @@ class Config:
     ch_host: str
     ch_port: int
     ch_user: str
-    ch_password: str
+    ch_password: Secret
     ch_database: str
     ch_secure: bool
     ch_ca_file: str
@@ -39,7 +39,7 @@ def load_config() -> Config:
         ch_host=os.environ.get("CH_HOST", "127.0.0.1"),
         ch_port=int(os.environ.get("CH_PORT", "8123")),
         ch_user=os.environ.get("CH_USER", "ssdf_ro"),
-        ch_password=password,
+        ch_password=Secret(password),
         ch_database=os.environ.get("CH_DATABASE", "ssdf"),
         ch_secure=os.environ.get("CH_SECURE", "0").strip().lower() in ("1", "true"),
         ch_ca_file=os.environ.get("CH_CA_FILE", ""),
@@ -61,7 +61,7 @@ def client_kwargs(
         host=config.ch_host,
         port=config.ch_port,
         user=username or config.ch_user,
-        password=config.ch_password if password is None else password,
+        password=config.ch_password.get() if password is None else password,
         database=config.ch_database,
         secure=config.ch_secure,
         ca_file=config.ch_ca_file,

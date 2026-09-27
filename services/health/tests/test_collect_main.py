@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from ssdf_common.config import Secret
 from ssdf_health import collect_main
 from ssdf_health.config import Config
 from ssdf_health.gauge import Gauge
@@ -10,7 +11,7 @@ def _config(**over):
         ch_host="h",
         ch_port=8443,
         ch_user="ssdf_health",
-        ch_password="p",
+        ch_password=Secret("p"),
         ch_database="ssdf",
         tenant_id="t_main",
         enabled_collectors=("junos", "panos", "unifi", "proxmox"),
