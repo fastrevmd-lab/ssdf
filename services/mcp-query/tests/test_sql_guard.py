@@ -135,6 +135,11 @@ IN_TABLE_BYPASSES = [
     "SELECT * FROM ssdf.events WHERE globalNotIn(src_ip, ssdf.pseudonym_map)",
     "SELECT * FROM ssdf.events WHERE notIn(src_ip, ssdf.pseudonym_map)",
     "SELECT * FROM ssdf.events WHERE nullIn(src_ip, ssdf.topo_observations)",
+    # Extra parens wrap the Column in exp.Paren; ClickHouse still reads a table.
+    "SELECT * FROM ssdf.events WHERE src_ip IN ((ssdf.pseudonym_map))",
+    "SELECT * FROM ssdf.events WHERE src_ip IN (((pseudonym_map)))",
+    "SELECT * FROM ssdf.events WHERE src_ip NOT IN ((ssdf.audit))",
+    "SELECT * FROM ssdf.events WHERE src_ip IN ((ssdf.pseudonym_map), '192.0.2.1')",
 ]
 
 

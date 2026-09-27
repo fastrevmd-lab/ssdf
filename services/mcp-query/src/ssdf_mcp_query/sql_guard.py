@@ -88,8 +88,9 @@ def guard_sql(query: str, max_limit: int = 1000) -> str:
     # as a Column, so the Table walk below never sees it. The right side of IN
     # must be a subquery or a list of non-column values.
     for node in stmt.find_all(exp.In):
+        # find(), not isinstance(): `x IN ((ssdf.t))` wraps the Column in Paren.
         if node.args.get("field") is not None or any(
-            isinstance(e, exp.Column) for e in node.expressions
+            e.find(exp.Column) is not None for e in node.expressions
         ):
             raise GuardError("IN must take a subquery or a literal list, not a table name")
     for func in stmt.find_all(exp.Anonymous):
