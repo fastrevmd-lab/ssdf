@@ -875,7 +875,12 @@ if err == null {
     # Keep msgid-tagged audit events (commits, rollbacks, config changes, logins)
     is_config_audit = msg_id == "UI_COMMIT" || msg_id == "UI_COMMIT_COMPLETED" ||
         msg_id == "UI_COMMIT_NOT_CONFIRMED" || msg_id == "UI_ROLLBACK_EVENT" ||
-        msg_id == "UI_CFG_AUDIT_SET" || msg_id == "UI_CFG_AUDIT_OTHER"
+        msg_id == "UI_CFG_AUDIT_SET" || msg_id == "UI_CFG_AUDIT_OTHER" ||
+        # MEC-186: Junos never puts a secret-typed value in UI_CFG_AUDIT_SET --
+        # a password/PSK/RADIUS-secret set is emitted under this msgid instead
+        # (pathname only, no data/value params). Dropping it (the prior filter)
+        # meant those config changes never reached ssdf.events at all.
+        msg_id == "UI_CFG_AUDIT_SET_SECRET"
     is_auth_audit = msg_id == "UI_LOGIN_EVENT" || msg_id == "UI_LOGOUT_EVENT" ||
         msg_id == "UI_AUTH_EVENT" || msg_id == "SSHD_LOGIN_FAILED" ||
         msg_id == "SSHD_LOGIN_ATTEMPTS_THRESHOLD" ||
@@ -1054,7 +1059,7 @@ if perr != null {
                 # "[snmp community <name> authorization]"), not just in `data`.
                 # Redact the name leaf, in both the stored pathname and .raw
                 # (SD `pathname=` param and the free-text message tail).
-                _cm, _cme = parse_regex(pathname, r'community\s+(?P<name>\S+)')
+                _cm, _cme = parse_regex(pathname, r'community\s+(?P<name>[^\s\\]+)')
                 if _cme == null {
                     _community_name = string(_cm.name) ?? ""
                     if _community_name != "" {
@@ -1065,6 +1070,15 @@ if perr != null {
                 ext = set!(ext, ["junos.sys.pathname"], pathname)
             }
         }
+        # MEC-186: `data` is the OLD value (or `unconfigured`), `value` is the
+        # NEW value -- there are no `old-value`/`new-value` params. Extracting
+        # `data` alone (the prior code) left the NEW secret value -- the one
+        # actually being set -- unredacted in `value=` and the free-text tail.
+        # Both go through the same secret-shaped-pathname / encrypted-marker test.
+        _secret_path, _secret_path_err = parse_regex(
+            downcase(pathname),
+            r'secret|password|pre-shared-key|psk|\bkey\b|authentication-key|community|ascii-text|hexadecimal|simple-password|auth-password|privacy-password|private'
+        )
         dm, dme = parse_regex(raw, r'data="(?P<dat>[^"]*)"')
         if dme == null {
             data_val = string(dm.dat) ?? ""
@@ -1076,10 +1090,6 @@ if perr != null {
                 # F5 (MEC-167): the original keyword net missed the bare `key`
                 # leaf (e.g. an OSPF/BGP authentication `... key ]` pathname) and
                 # several other secret-shaped value encodings Junos uses.
-                _secret_path, _secret_path_err = parse_regex(
-                    downcase(pathname),
-                    r'secret|password|pre-shared-key|psk|\bkey\b|authentication-key|community|ascii-text|hexadecimal|simple-password|auth-password|privacy-password|private'
-                )
                 _encrypted_marker, _encrypted_marker_err = parse_regex(data_val, r'^\$[0-9]+\$')
                 if _secret_path_err == null || _encrypted_marker_err == null {
                     ext = set!(ext, ["junos.sys.data"], "[REDACTED]")
@@ -1090,6 +1100,49 @@ if perr != null {
                 } else {
                     ext = set!(ext, ["junos.sys.data"], data_val)
                 }
+            }
+        }
+        vm, vme = parse_regex(raw, r'value="(?P<val>[^"]*)"')
+        if vme == null {
+            value_val = string(vm.val) ?? ""
+            if value_val != "" {
+                # MEC-186: the NEW value, redacted with the same rule as `data`.
+                _value_marker, _value_marker_err = parse_regex(value_val, r'^\$[0-9]+\$')
+                if _secret_path_err == null || _value_marker_err == null {
+                    ext = set!(ext, ["junos.sys.value"], "[REDACTED]")
+                    ev.raw = replace(ev.raw, value_val, "[REDACTED]")
+                } else {
+                    ext = set!(ext, ["junos.sys.value"], value_val)
+                }
+            }
+        }
+        am, ame = parse_regex(raw, r'action="(?P<act>[^"]*)"')
+        if ame == null {
+            action = string(am.act) ?? ""
+            if action != "" { ext = set!(ext, ["junos.sys.action"], action) }
+        }
+    } else if msg_id == "UI_CFG_AUDIT_SET_SECRET" {
+        # MEC-186: Junos emits this msgid (not UI_CFG_AUDIT_SET) for a
+        # secret-typed set -- pathname only, no data/value params at all.
+        ev.event_category = ["configuration"]
+        ev.event_action = "configuration_change"
+        ev.event_outcome = "success"
+        ext = set!(ext, ["junos.sys.secret"], true)
+        um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
+        if ume == null { ev.user_name = string(um.u) ?? "" }
+        pm, pme = parse_regex(raw, r'pathname="(?P<path>[^"]*)"')
+        if pme == null {
+            pathname = string(pm.path) ?? ""
+            if pathname != "" {
+                _cm, _cme = parse_regex(pathname, r'community\s+(?P<name>[^\s\\]+)')
+                if _cme == null {
+                    _community_name = string(_cm.name) ?? ""
+                    if _community_name != "" {
+                        pathname = replace(pathname, _community_name, "[REDACTED]")
+                        ev.raw = replace(ev.raw, _community_name, "[REDACTED]")
+                    }
+                }
+                ext = set!(ext, ["junos.sys.pathname"], pathname)
             }
         }
         am, ame = parse_regex(raw, r'action="(?P<act>[^"]*)"')
@@ -1103,6 +1156,24 @@ if perr != null {
         ev.event_outcome = "success"
         um, ume = parse_regex(raw, r'username="(?P<u>[^"]*)"')
         if ume == null { ev.user_name = string(um.u) ?? "" }
+        # MEC-186: UI_CFG_AUDIT_OTHER also carries pathname (e.g. an SNMP
+        # community change lands here, not under UI_CFG_AUDIT_SET) -- apply the
+        # same community-name redaction as the SET branch.
+        pm, pme = parse_regex(raw, r'pathname="(?P<path>[^"]*)"')
+        if pme == null {
+            pathname = string(pm.path) ?? ""
+            if pathname != "" {
+                _cm, _cme = parse_regex(pathname, r'community\s+(?P<name>[^\s\\]+)')
+                if _cme == null {
+                    _community_name = string(_cm.name) ?? ""
+                    if _community_name != "" {
+                        pathname = replace(pathname, _community_name, "[REDACTED]")
+                        ev.raw = replace(ev.raw, _community_name, "[REDACTED]")
+                    }
+                }
+                ext = set!(ext, ["junos.sys.pathname"], pathname)
+            }
+        }
     }
 
     ev.ext = ext
@@ -1979,6 +2050,8 @@ assert_eq!(.user_name, "netconf")
 assert_eq!(.event_category, ["configuration"])
 # Non-secret pathname/data: passed through unredacted.
 assert_eq!(.ext."junos.sys.data", "m14c commit capture")
+# MEC-186: `value` (the NEW value) is extracted the same as `data`.
+assert_eq!(.ext."junos.sys.value", "m14c commit capture")
 '''
 
 [[tests]]
@@ -1999,6 +2072,10 @@ assert_eq!(.event_action, "configuration_change")
 assert_eq!(.ext."junos.sys.pathname", "system login user admin authentication encrypted-password")
 assert_eq!(.ext."junos.sys.data", "[REDACTED]")
 assert!(.ext."junos.sys.data" != "$$9$$FAKEsecretHashData123")
+# MEC-186: `value` (the NEW value being set) must be redacted too, not just
+# `data` (the OLD value) -- that was the actual secret-leak gap.
+assert_eq!(.ext."junos.sys.value", "[REDACTED]")
+assert!(.ext."junos.sys.value" != "$$9$$FAKEsecretHashData123")
 # F1 (MEC-167): the secret must not survive in .raw -- SD `data=`, SD
 # `value=`, and the free-text message tail all carry the same string.
 assert!(!contains(string!(.raw), "$$9$$FAKEsecretHashData123"))
@@ -2239,6 +2316,49 @@ source = '''
 assert_eq!(.event_provider, "juniper")
 assert_eq!(.observer_hostname, "vsrx-prod")
 assert!(starts_with(string!(.event_action), "configuration"))
+'''
+
+[[tests]]
+name = "junos_sys_ui_cfg_audit_set_secret_not_dropped"
+[[tests.inputs]]
+insert_at = "junos_sys_sec"
+type = "raw"
+value = "<182>1 2026-07-06T03:52:49.932Z vsrx-ci mgd 97400 UI_CFG_AUDIT_SET_SECRET [junos@2636.1.1.1.2.129 username=\"netconf\" action=\"set\" pathname=\"[security ike policy FAKEpol pre-shared-key ascii-text\\]\"] User 'netconf' set: [security ike policy FAKEpol pre-shared-key ascii-text]"
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+# MEC-186: Junos never puts a secret-typed value in UI_CFG_AUDIT_SET -- it
+# emits this msgid instead (pathname only, no data/value). The prior filter
+# dropped it entirely, so PSK/password/RADIUS-secret changes never reached
+# ssdf.events at all. Must now be admitted, tagged, and pathname-only.
+assert_eq!(.event_provider, "juniper")
+assert_eq!(.event_category, ["configuration"])
+assert_eq!(.event_action, "configuration_change")
+assert_eq!(.user_name, "netconf")
+assert_eq!(.ext."junos.sys.secret", true)
+assert_eq!(.ext."junos.sys.pathname", "[security ike policy FAKEpol pre-shared-key ascii-text\\]")
+assert_eq!(.ext."junos.sys.msgid", "UI_CFG_AUDIT_SET_SECRET")
+'''
+
+[[tests]]
+name = "junos_sys_ui_cfg_audit_other_redacts_snmp_community_pathname"
+[[tests.inputs]]
+insert_at = "junos_sys_ecs"
+type = "raw"
+value = "<182>1 2026-07-06T03:52:49.933Z vsrx-ci mgd 97400 UI_CFG_AUDIT_OTHER [junos@2636.1.1.1.2.129 username=\"netconf\" action=\"set\" pathname=\"[snmp community FAKEcomm1\\]\" delimiter=\"\" value=\"\"] User 'netconf' set: [snmp community FAKEcomm1]"
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+# MEC-186: an SNMP community change can land under UI_CFG_AUDIT_OTHER (not
+# just UI_CFG_AUDIT_SET) -- the community NAME in pathname is secret-shaped
+# and must be redacted here too.
+assert_eq!(.event_action, "configuration_change")
+assert!(!contains(string!(.ext."junos.sys.pathname"), "FAKEcomm1"))
+assert!(!contains(string!(.raw), "FAKEcomm1"))
 '''
 
 [[tests]]
