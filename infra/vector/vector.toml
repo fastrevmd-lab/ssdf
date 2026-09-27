@@ -1079,7 +1079,11 @@ if perr != null {
             downcase(pathname),
             r'secret|password|pre-shared-key|psk|\bkey\b|authentication-key|community|ascii-text|hexadecimal|simple-password|auth-password|privacy-password|private'
         )
-        dm, dme = parse_regex(raw, r'data="(?P<dat>[^"]*)"')
+        # MEC-219 N2: match the SD-escaped value, not just up to the first
+        # `\"` -- the naive `[^"]*` truncated at an escaped quote inside the
+        # secret, leaving the tail of the value (and the rest of the free-text
+        # message) unredacted below.
+        dm, dme = parse_regex(raw, r'data="(?P<dat>(?:[^"\\]|\\.)*)"')
         if dme == null {
             data_val = string(dm.dat) ?? ""
             if data_val != "" {
@@ -1102,7 +1106,7 @@ if perr != null {
                 }
             }
         }
-        vm, vme = parse_regex(raw, r'value="(?P<val>[^"]*)"')
+        vm, vme = parse_regex(raw, r'value="(?P<val>(?:[^"\\]|\\.)*)"')
         if vme == null {
             value_val = string(vm.val) ?? ""
             if value_val != "" {
@@ -1159,6 +1163,7 @@ if perr != null {
         # MEC-186: UI_CFG_AUDIT_OTHER also carries pathname (e.g. an SNMP
         # community change lands here, not under UI_CFG_AUDIT_SET) -- apply the
         # same community-name redaction as the SET branch.
+        pathname = ""
         pm, pme = parse_regex(raw, r'pathname="(?P<path>[^"]*)"')
         if pme == null {
             pathname = string(pm.path) ?? ""
@@ -1174,7 +1179,37 @@ if perr != null {
                 ext = set!(ext, ["junos.sys.pathname"], pathname)
             }
         }
+        # MEC-219 N1: OTHER can also carry a `value=` param (e.g. a delete,
+        # deactivate, or rename of a secret leaf) -- it previously only had
+        # the pathname/community redaction above, so a secret `value=` (a
+        # PSK, password, or Junos `$$N$$`-encrypted blob) survived verbatim in
+        # both ext and .raw. Apply the same secret-path / encrypted-marker
+        # rule the SET branch uses.
+        _secret_path, _secret_path_err = parse_regex(
+            downcase(pathname),
+            r'secret|password|pre-shared-key|psk|\bkey\b|authentication-key|community|ascii-text|hexadecimal|simple-password|auth-password|privacy-password|private'
+        )
+        vm, vme = parse_regex(raw, r'value="(?P<val>(?:[^"\\]|\\.)*)"')
+        if vme == null {
+            value_val = string(vm.val) ?? ""
+            if value_val != "" {
+                _value_marker, _value_marker_err = parse_regex(value_val, r'^\$[0-9]+\$')
+                if _secret_path_err == null || _value_marker_err == null {
+                    ext = set!(ext, ["junos.sys.value"], "[REDACTED]")
+                    ev.raw = replace(ev.raw, value_val, "[REDACTED]")
+                } else {
+                    ext = set!(ext, ["junos.sys.value"], value_val)
+                }
+            }
+        }
     }
+
+    # MEC-219 N1: catch-all safety net -- scrub any Junos encrypted-secret
+    # marker ($$9$$, $$8$$, etc.) that survives in .raw regardless of which
+    # msgid carried it, so an undocumented or future UI_CFG_AUDIT_* variant
+    # fails closed instead of leaking the encrypted blob into the shareable
+    # `ssdf.events` tier.
+    ev.raw = replace(ev.raw, r'\$[0-9]+\$[^\s"\\\]]+', "[REDACTED]")
 
     ev.ext = ext
     . = ev
@@ -2359,6 +2394,46 @@ source = '''
 assert_eq!(.event_action, "configuration_change")
 assert!(!contains(string!(.ext."junos.sys.pathname"), "FAKEcomm1"))
 assert!(!contains(string!(.raw), "FAKEcomm1"))
+'''
+
+[[tests]]
+name = "junos_sys_ui_cfg_audit_other_redacts_secret_value"
+[[tests.inputs]]
+insert_at = "junos_sys_ecs"
+type = "raw"
+value = "<182>1 2026-07-06T03:52:49.934Z vsrx-ci mgd 97400 UI_CFG_AUDIT_OTHER [junos@2636.1.1.1.2.129 username=\"netconf\" action=\"delete\" pathname=\"[security ike policy FAKEpol pre-shared-key\\]\" value=\"ascii-text $$9$$FAKEpskOther\"] User 'netconf' delete: [security ike policy FAKEpol pre-shared-key] \"ascii-text $$9$$FAKEpskOther\""
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+# MEC-219 N1: a delete/deactivate/rename of a secret leaf can land under
+# UI_CFG_AUDIT_OTHER carrying the encrypted value in `value=` -- the OTHER
+# branch previously only redacted the pathname's community name, so this
+# survived verbatim in both ext and .raw (fails against 9e9d57f).
+assert_eq!(.event_action, "configuration_change")
+assert_eq!(.ext."junos.sys.value", "[REDACTED]")
+assert!(!contains(string!(.raw), "FAKEpskOther"))
+'''
+
+[[tests]]
+name = "junos_sys_ui_cfg_audit_set_redacts_secret_past_an_escaped_quote"
+[[tests.inputs]]
+insert_at = "junos_sys_ecs"
+type = "raw"
+value = "<182>1 2026-07-06T03:52:49.935Z vsrx-ci mgd 97400 UI_CFG_AUDIT_SET [junos@2636.1.1.1.2.129 username=\"netconf\" action=\"set\" pathname=\"[system login user admin authentication-password\\]\" data=\"ab\\\"TAILsecret\" value=\"ab\\\"TAILsecret\"] User 'netconf' set: [system login user admin authentication-password] \"ab\\\"TAILsecret\""
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+# MEC-219 N2: the naive `value="(?P<val>[^"]*)"` stopped at the first
+# escaped quote inside the secret, so the tail of the value ("TAILsecret")
+# stayed verbatim in .raw even though ext.value was redacted (fails
+# against 9e9d57f). The escape-aware regex must capture the whole value.
+assert_eq!(.event_action, "configuration_change")
+assert_eq!(.ext."junos.sys.value", "[REDACTED]")
+assert!(!contains(string!(.raw), "TAILsecret"))
 '''
 
 [[tests]]
