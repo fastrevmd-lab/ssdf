@@ -119,3 +119,41 @@ def test_blocked_table_rejected_via_join():
             "JOIN ssdf.pseudonym_map AS p ON e.source_ip = p.real_value",
             max_limit=1000,
         )
+
+
+# F1: ClickHouse reads `x IN t` / `x IN (t)` (default db `ssdf`) and the
+# globalNotIn/notIn/nullIn function family as `x IN (SELECT * FROM t)`, but
+# sqlglot parses the right-hand side as a bare Column, not a Table -- so the
+# _BLOCKED_TABLES walk over exp.Table never saw it and a run_sql-only token
+# could reverse a surrogate via `src_ip IN ssdf.pseudonym_map`.
+IN_TABLE_BYPASSES = [
+    "SELECT * FROM ssdf.events WHERE src_ip IN ssdf.pseudonym_map",
+    "SELECT * FROM ssdf.events WHERE src_ip GLOBAL IN ssdf.pseudonym_map",
+    "SELECT * FROM ssdf.events WHERE src_ip NOT IN ssdf.audit",
+    "SELECT * FROM ssdf.events WHERE src_ip IN (ssdf.pseudonym_map)",
+    "SELECT * FROM ssdf.events WHERE src_ip IN pseudonym_map",
+    "SELECT * FROM ssdf.events WHERE globalNotIn(src_ip, ssdf.pseudonym_map)",
+    "SELECT * FROM ssdf.events WHERE notIn(src_ip, ssdf.pseudonym_map)",
+    "SELECT * FROM ssdf.events WHERE nullIn(src_ip, ssdf.topo_observations)",
+]
+
+
+@pytest.mark.parametrize("query", IN_TABLE_BYPASSES)
+def test_in_table_bypass_rejected(query):
+    with pytest.raises(GuardError):
+        guard_sql(query, max_limit=1000)
+
+
+# Legitimate IN forms (literal lists, subqueries, tuple-lists) must keep working.
+IN_STILL_ALLOWED = [
+    "SELECT * FROM ssdf.events WHERE src_ip IN ('192.0.2.1','192.0.2.2')",
+    "SELECT * FROM ssdf.events WHERE dst_port IN (22, 443)",
+    "SELECT * FROM ssdf.events WHERE src_ip IN (SELECT source_ip FROM ssdf.events)",
+    "SELECT * FROM ssdf.events WHERE (src_ip, dst_port) IN (('192.0.2.1', 22))",
+]
+
+
+@pytest.mark.parametrize("query", IN_STILL_ALLOWED)
+def test_in_legitimate_forms_still_allowed(query):
+    out = guard_sql(query, max_limit=1000)
+    assert "ssdf" in out.lower()

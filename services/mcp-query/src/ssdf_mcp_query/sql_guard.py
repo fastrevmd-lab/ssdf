@@ -22,6 +22,18 @@ _BLOCKED_TABLES = {
     "pseudonym_map",
     "topo_observations",
 }
+# ClickHouse's IN-family functions accept a bare table name as the set
+# (`globalNotIn(x, ssdf.t)`); sqlglot leaves them as Anonymous calls.
+_IN_FUNCTIONS = {
+    "in",
+    "notin",
+    "globalin",
+    "globalnotin",
+    "nullin",
+    "notnullin",
+    "globalnullin",
+    "globalnotnullin",
+}
 _TABLE_FUNCTIONS = {
     "url",
     "file",
@@ -70,6 +82,19 @@ def guard_sql(query: str, max_limit: int = 1000) -> str:
         name = (func.name or "").lower()
         if name in _TABLE_FUNCTIONS:
             raise GuardError(f"table function not allowed: {name}")
+
+    # ClickHouse reads `x IN ssdf.t` / `x IN (ssdf.t)` / `x IN t` as
+    # `x IN (SELECT * FROM ssdf.t)`, but sqlglot parses the right-hand operand
+    # as a Column, so the Table walk below never sees it. The right side of IN
+    # must be a subquery or a list of non-column values.
+    for node in stmt.find_all(exp.In):
+        if node.args.get("field") is not None or any(
+            isinstance(e, exp.Column) for e in node.expressions
+        ):
+            raise GuardError("IN must take a subquery or a literal list, not a table name")
+    for func in stmt.find_all(exp.Anonymous):
+        if (func.name or "").lower() in _IN_FUNCTIONS:
+            raise GuardError(f"function not allowed: {func.name}")
 
     tables = list(stmt.find_all(exp.Table))
     if not tables:
