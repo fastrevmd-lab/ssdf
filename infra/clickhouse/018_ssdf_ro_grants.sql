@@ -9,18 +9,43 @@
 -- ended up able to `SELECT real_value FROM ssdf.pseudonym_map` and reverse a
 -- surrogate the reidentify tool was supposed to gate. The actual fix for that
 -- is the table exclusion in sql_guard.py (run_sql refuses audit, pseudonym_map
--- and topo_observations at the application layer); this file is the DB-level
--- ceiling those app-level rules sit under, made explicit and reviewable.
+-- and topo_observations at the application layer); this file states the DB-level
+-- grants those app-level rules sit under, made explicit and reviewable -- it is
+-- NOT a ceiling: GRANT only adds, so a hand-made grant on a live cluster (e.g. a
+-- database-wide `ssdf.*`) is not revoked by re-running this file. After
+-- applying, confirm the live grant set matches this file exactly:
+--   SELECT database, table, access_type FROM system.grants
+--   WHERE user_name = 'ssdf_ro' ORDER BY 1, 2;
+-- Expect no row with a NULL table (a database-wide grant) and no row for
+-- ssdf.audit.
+--
+-- FRESH CLUSTER: 005, 010, 013 and 014 grant to or ALTER USER ssdf_ro before
+-- this file creates it, so applying migrations in numeric order on a clean
+-- cluster fails at 005 with "ssdf_ro not found". Apply 018 before 005 on a
+-- fresh cluster; re-running 018 afterwards (in numeric order, on subsequent
+-- deploys) is still the idempotent no-op described below.
 --
 -- Re-running this file is a no-op on an already-provisioned lab: CREATE USER
--- IF NOT EXISTS never touches an existing user's password, and GRANT is
--- idempotent.
+-- IF NOT EXISTS never touches an existing user's password, GRANT is
+-- idempotent, and the ALTER USER SETTINGS block below is a plain overwrite of
+-- the same values.
 --
 -- ClickHouse does NOT expand {name:Type} params inside CREATE USER ... BY '...',
 -- so inject the password before applying (never commit the real value):
---   RO_PW="$CH_RO_PASSWORD" envsubst < 018_ssdf_ro_grants.sql \
+--   : "${RO_PW:?RO_PW must be set}"; RO_PW="$RO_PW" envsubst < 018_ssdf_ro_grants.sql \
 --     | clickhouse-client --host <ct104> --multiquery
 CREATE USER IF NOT EXISTS ssdf_ro IDENTIFIED WITH sha256_password BY '${RO_PW}';
+
+-- Same bounded caps as 010_ro_settings_constraints.sql, copied here so a fresh
+-- cluster gets them from the user's first CREATE rather than depending on 010
+-- running afterwards: readonly=1 users reject per-query settings unless
+-- declared CHANGEABLE_IN_READONLY with MAX bounds (live-found, M1).
+ALTER USER ssdf_ro SETTINGS
+    readonly = 1,
+    max_execution_time = 10 MAX 60 CHANGEABLE_IN_READONLY,
+    max_result_rows = 100000 MAX 1000000 CHANGEABLE_IN_READONLY,
+    max_memory_usage = 1000000000 MAX 4000000000 CHANGEABLE_IN_READONLY,
+    result_overflow_mode = 'throw' CHANGEABLE_IN_READONLY;
 
 -- Base query surface: the tables the sovereign MCP tools (query_flows,
 -- top_talkers, describe_schema, run_sql, topology/entity tools) read directly.
