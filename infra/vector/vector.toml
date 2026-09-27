@@ -1,5 +1,19 @@
 # SSDF M1 — SRX security logs (sd-syslog) -> ECS subset -> ClickHouse.
 # CH_HOST is injected via environment at runtime (see infra/ENV.local).
+#
+# USERNAME_HASH_KEY (F4, MEC-167) is REQUIRED -- Vector refuses to start
+# without it (mandatory-with-error env interpolation), never falls back to a
+# value published in this MIT repo. NOTE: do not write that interpolation
+# syntax literally in this comment -- Vector expands dollar-brace env
+# references across the whole raw config file, comments included, so a
+# literal example here breaks config load with "Missing environment variable
+# in config". Set the real value in the same systemd drop-in that supplies
+# CH_HOST:
+# /etc/systemd/system/vector.service.d/env.conf, e.g.
+#   Environment=USERNAME_HASH_KEY=<32+ random bytes, hex or base64>
+# `vector test` needs a value too; CI and local runs export a fixed
+# throwaway test key (see the [[tests]] blocks below) that must never be
+# reused as a real USERNAME_HASH_KEY.
 
 [sources.srx_syslog]
 type = "socket"
@@ -749,7 +763,11 @@ if perr != null {
                 # ssdf.events is the shareable-tier source, not a sovereign secret.
                 _fm_user = string(fm.user) ?? ""
                 if _fm_user != "" {
-                    ev.user_name = encode_base16(hmac(_fm_user, "${USERNAME_HASH_KEY:-ssdf-default-username-hash-key}", algorithm: "SHA-256"))
+                    ev.user_name = encode_base16(hmac(_fm_user, "${USERNAME_HASH_KEY:?USERNAME_HASH_KEY must be set}", algorithm: "SHA-256"))
+                    # F1 (MEC-167): the hash landing in .user_name does nothing
+                    # if the plaintext username is still sitting in .raw, the
+                    # original syslog line stored verbatim below.
+                    ev.raw = replace(ev.raw, _fm_user, "[HASHED]")
                 }
                 _fm4, _fm4e = parse_regex(string(fm.ip) ?? "", r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
                 if _fm4e == null { ev.source_ip = fm.ip } else { ext = set!(ext, ["proxmox.source_addr"], string(fm.ip) ?? "") }
@@ -800,7 +818,9 @@ if perr != null {
                 # the sshd "Failed password" branch above.
                 _afm_user = string(afm.user) ?? ""
                 if _afm_user != "" {
-                    ev.user_name = encode_base16(hmac(_afm_user, "${USERNAME_HASH_KEY:-ssdf-default-username-hash-key}", algorithm: "SHA-256"))
+                    ev.user_name = encode_base16(hmac(_afm_user, "${USERNAME_HASH_KEY:?USERNAME_HASH_KEY must be set}", algorithm: "SHA-256"))
+                    # F1 (MEC-167): scrub the plaintext username out of .raw too.
+                    ev.raw = replace(ev.raw, _afm_user, "[HASHED]")
                 }
                 _afm4, _afm4e = parse_regex(string(afm.ip) ?? "", r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
                 if _afm4e == null { ev.source_ip = afm.ip } else { ext = set!(ext, ["proxmox.source_addr"], string(afm.ip) ?? "") }
@@ -932,7 +952,9 @@ if perr != null {
             _u = string(um.u) ?? ""
             # Hash, not store plaintext, on a failed login (M16c).
             if _u != "" {
-                ev.user_name = encode_base16(hmac(_u, "${USERNAME_HASH_KEY:-ssdf-default-username-hash-key}", algorithm: "SHA-256"))
+                ev.user_name = encode_base16(hmac(_u, "${USERNAME_HASH_KEY:?USERNAME_HASH_KEY must be set}", algorithm: "SHA-256"))
+                # F1 (MEC-167): scrub the plaintext username out of .raw too.
+                ev.raw = replace(ev.raw, _u, "[HASHED]")
             }
         }
         # Extract source-address from SD params
@@ -947,7 +969,9 @@ if perr != null {
             _u = string(um.u) ?? ""
             # Hash, not store plaintext, on a failed login (M16c).
             if _u != "" {
-                ev.user_name = encode_base16(hmac(_u, "${USERNAME_HASH_KEY:-ssdf-default-username-hash-key}", algorithm: "SHA-256"))
+                ev.user_name = encode_base16(hmac(_u, "${USERNAME_HASH_KEY:?USERNAME_HASH_KEY must be set}", algorithm: "SHA-256"))
+                # F1 (MEC-167): scrub the plaintext username out of .raw too.
+                ev.raw = replace(ev.raw, _u, "[HASHED]")
             }
         }
         lm, lme = parse_regex(raw, r'limit="(?P<lim>[^"]*)"')
@@ -1024,7 +1048,22 @@ if perr != null {
         pm, pme = parse_regex(raw, r'pathname="(?P<path>[^"]*)"')
         if pme == null {
             pathname = string(pm.path) ?? ""
-            if pathname != "" { ext = set!(ext, ["junos.sys.pathname"], pathname) }
+            if pathname != "" {
+                # F5 (MEC-167): an SNMP community NAME is itself secret-shaped
+                # and Junos puts it directly in the pathname (e.g.
+                # "[snmp community <name> authorization]"), not just in `data`.
+                # Redact the name leaf, in both the stored pathname and .raw
+                # (SD `pathname=` param and the free-text message tail).
+                _cm, _cme = parse_regex(pathname, r'community\s+(?P<name>\S+)')
+                if _cme == null {
+                    _community_name = string(_cm.name) ?? ""
+                    if _community_name != "" {
+                        pathname = replace(pathname, _community_name, "[REDACTED]")
+                        ev.raw = replace(ev.raw, _community_name, "[REDACTED]")
+                    }
+                }
+                ext = set!(ext, ["junos.sys.pathname"], pathname)
+            }
         }
         dm, dme = parse_regex(raw, r'data="(?P<dat>[^"]*)"')
         if dme == null {
@@ -1034,13 +1073,20 @@ if perr != null {
                 # (authentication keys, PSKs, passwords, SNMP community strings)
                 # or already carrying a Junos encrypted-secret marker ($$9$$ etc.)
                 # must never land in ssdf.events verbatim.
+                # F5 (MEC-167): the original keyword net missed the bare `key`
+                # leaf (e.g. an OSPF/BGP authentication `... key ]` pathname) and
+                # several other secret-shaped value encodings Junos uses.
                 _secret_path, _secret_path_err = parse_regex(
                     downcase(pathname),
-                    r'secret|password|pre-shared-key|authentication-key|community'
+                    r'secret|password|pre-shared-key|psk|\bkey\b|authentication-key|community|ascii-text|hexadecimal|simple-password|auth-password|privacy-password|private'
                 )
                 _encrypted_marker, _encrypted_marker_err = parse_regex(data_val, r'^\$[0-9]+\$')
                 if _secret_path_err == null || _encrypted_marker_err == null {
                     ext = set!(ext, ["junos.sys.data"], "[REDACTED]")
+                    # F1 (MEC-167): the same secret value is also embedded
+                    # verbatim in .raw (SD `data=`/`value=` params and the
+                    # free-text message tail) -- scrub it there too.
+                    ev.raw = replace(ev.raw, data_val, "[REDACTED]")
                 } else {
                     ext = set!(ext, ["junos.sys.data"], data_val)
                 }
@@ -1663,9 +1709,11 @@ assert_eq!(.event_category, ["authentication"])
 assert_eq!(.event_action, "auth_failure")
 assert_eq!(.event_outcome, "failure")
 # M16c: a failed-login username is hashed, never stored plaintext.
-assert_eq!(.user_name, encode_base16(hmac("root@pam", "ssdf-default-username-hash-key", algorithm: "SHA-256")))
+assert_eq!(.user_name, encode_base16(hmac("root@pam", "${USERNAME_HASH_KEY}", algorithm: "SHA-256")))
 assert!(.user_name != "root@pam")
 assert_eq!(.source_ip, "198.51.100.9")
+# F1 (MEC-167): the plaintext username must not survive in .raw either.
+assert!(!contains(string!(.raw), "user=root@pam"))
 '''
 
 [[tests]]
@@ -1721,11 +1769,13 @@ source = '''
 assert_eq!(.event_action, "auth_failure")
 assert_eq!(.event_outcome, "failure")
 # M16c: a failed-login username is hashed, never stored plaintext.
-assert_eq!(.user_name, encode_base16(hmac("admin", "ssdf-default-username-hash-key", algorithm: "SHA-256")))
+assert_eq!(.user_name, encode_base16(hmac("admin", "${USERNAME_HASH_KEY}", algorithm: "SHA-256")))
 assert!(.user_name != "admin")
 assert_eq!(.source_ip, "203.0.113.7")
 assert_eq!(.source_port, 40222)
 assert_eq!(.ext."proxmox.invalid_user", "true")
+# F1 (MEC-167): the plaintext username must not survive in .raw either.
+assert!(!contains(string!(.raw), "invalid user admin"))
 '''
 
 [[tests]]
@@ -1863,12 +1913,15 @@ type = "vrl"
 source = '''
 assert_eq!(.event_action, "auth_failure")
 # M16c: a failed-login username is hashed, never stored plaintext.
-assert_eq!(.user_name, encode_base16(hmac("baduser", "ssdf-default-username-hash-key", algorithm: "SHA-256")))
+assert_eq!(.user_name, encode_base16(hmac("baduser", "${USERNAME_HASH_KEY}", algorithm: "SHA-256")))
 assert!(.user_name != "baduser")
 assert_eq!(.source_ip, "198.51.100.148")
 assert_eq!(.observer_hostname, "vsrx-ci")
 assert_eq!(.event_category, ["authentication"])
 assert_eq!(.event_outcome, "failure")
+# F1 (MEC-167): the plaintext username must not survive in .raw either.
+assert!(!contains(string!(.raw), "username=\"baduser\""))
+assert!(!contains(string!(.raw), "user 'baduser'"))
 '''
 
 [[tests]]
@@ -1884,9 +1937,12 @@ type = "vrl"
 source = '''
 assert_eq!(.event_action, "auth_attempts_threshold")
 # M16c: a failed-login username is hashed, never stored plaintext.
-assert_eq!(.user_name, encode_base16(hmac("baduser", "ssdf-default-username-hash-key", algorithm: "SHA-256")))
+assert_eq!(.user_name, encode_base16(hmac("baduser", "${USERNAME_HASH_KEY}", algorithm: "SHA-256")))
 assert!(.user_name != "baduser")
 assert_eq!(.ext."junos.sys.limit", "3")
+# F1 (MEC-167): the plaintext username must not survive in .raw either.
+assert!(!contains(string!(.raw), "username=\"baduser\""))
+assert!(!contains(string!(.raw), "user 'baduser'"))
 '''
 
 [[tests]]
@@ -1943,6 +1999,9 @@ assert_eq!(.event_action, "configuration_change")
 assert_eq!(.ext."junos.sys.pathname", "system login user admin authentication encrypted-password")
 assert_eq!(.ext."junos.sys.data", "[REDACTED]")
 assert!(.ext."junos.sys.data" != "$$9$$FAKEsecretHashData123")
+# F1 (MEC-167): the secret must not survive in .raw -- SD `data=`, SD
+# `value=`, and the free-text message tail all carry the same string.
+assert!(!contains(string!(.raw), "$$9$$FAKEsecretHashData123"))
 '''
 
 [[tests]]
@@ -1961,6 +2020,44 @@ source = '''
 # net for exactly this case ("community" pathname is ALSO caught here, but the
 # marker check alone is what must not regress).
 assert_eq!(.ext."junos.sys.data", "[REDACTED]")
+# F1 (MEC-167): the secret must not survive in .raw either.
+assert!(!contains(string!(.raw), "$$9$$FAKEcommunityHash456"))
+'''
+
+[[tests]]
+name = "junos_sys_ui_cfg_audit_set_redacts_bare_key_pathname"
+[[tests.inputs]]
+insert_at = "junos_sys_ecs"
+type = "raw"
+value = "<182>1 2026-07-06T03:52:49.933Z vsrx-ci mgd 97400 UI_CFG_AUDIT_SET [junos@2636.1.1.1.2.129 username=\"netconf\" action=\"set\" pathname=\"[protocols ospf area 0 interface ge-0/0/0.0 authentication md5 1 key\\]\" data=\"plaintextkey\" value=\"plaintextkey\"] User 'netconf' set: [protocols ospf area 0 interface ge-0/0/0.0 authentication md5 1 key] \"plaintextkey\""
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+# F5 (MEC-167): a bare `key` pathname leaf (OSPF/BGP/RIP authentication keys,
+# none of which carry a Junos $-numbered-encrypted value or the older
+# keyword list's "authentication-key"/"pre-shared-key" phrasing) must still
+# redact `data`.
+assert_eq!(.ext."junos.sys.data", "[REDACTED]")
+assert!(!contains(string!(.raw), "plaintextkey"))
+'''
+
+[[tests]]
+name = "junos_sys_ui_cfg_audit_set_redacts_snmp_community_name_in_pathname"
+[[tests.inputs]]
+insert_at = "junos_sys_ecs"
+type = "raw"
+value = "<182>1 2026-07-06T03:52:49.934Z vsrx-ci mgd 97400 UI_CFG_AUDIT_SET [junos@2636.1.1.1.2.129 username=\"netconf\" action=\"set\" pathname=\"[snmp community FAKEcommunityName authorization\\]\" data=\"read-only\" value=\"read-only\"] User 'netconf' set: [snmp community FAKEcommunityName authorization] \"read-only\""
+[[tests.outputs]]
+extract_from = "junos_sys_ecs"
+[[tests.outputs.conditions]]
+type = "vrl"
+source = '''
+# F5 (MEC-167): the SNMP community NAME is itself secret-shaped and Junos puts
+# it directly in the pathname, not in `data` -- redact the pathname leaf too.
+assert!(!contains(string!(.ext."junos.sys.pathname"), "FAKEcommunityName"))
+assert!(!contains(string!(.raw), "FAKEcommunityName"))
 '''
 
 [[tests]]
