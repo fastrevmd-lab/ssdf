@@ -104,8 +104,13 @@ def audited_tool(
             result = fn(*args, **kwargs)
             error = result.get("error", "") if isinstance(result, dict) else ""
             return result
-        except Exception as exc:  # noqa: BLE001 - audited below, then re-raised
-            error = str(exc)
+        except BaseException as exc:  # noqa: BLE001 - audited below, then re-raised
+            # str(exc) is "" for a message-less exception (e.g. raise
+            # TimeoutError()), which would record as a clean allow with no
+            # error -- indistinguishable from success. Bare `Exception` also
+            # let a BaseException (e.g. KeyboardInterrupt/SystemExit) skip the
+            # audit write entirely, since it isn't caught here at all.
+            error = f"{type(exc).__name__}: {exc}"
             raise
         finally:
             if limiter is not None and limiter.enabled:

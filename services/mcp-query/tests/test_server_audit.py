@@ -128,3 +128,40 @@ def test_not_after_lands_in_verifier_claims(monkeypatch, tmp_path):
     assert captured[digest_for("tok-exp")]["not_after"] == "2026-09-09T12:00:00+00:00"
     assert "not_after" not in captured[digest_for("tok-forever")]
     assert not any(k.startswith("tok-") for k in captured), "a plaintext token reached the verifier"
+
+
+def test_mask_error_details_hides_exception_detail(monkeypatch):
+    """F6: build_app() must wire FastMCP(..., mask_error_details=True) so an
+    uncaught tool exception never reaches the model as tool-call output --
+    only ssdf.audit (via wrapper.audited_tool's finally-block write) gets the
+    real detail. Exercised end-to-end through an in-memory fastmcp.Client
+    against the real built app, not just the FastMCP constructor call."""
+    import ssdf_mcp_query.server as server
+    from fastmcp import Client
+    from fastmcp.exceptions import ToolError
+
+    _patch_ch(monkeypatch, server)
+
+    secret_detail = "clickhouse: connection refused at 192.0.2.10:8443 password=hunter2"
+
+    def _boom(self, **kwargs):
+        raise RuntimeError(secret_detail)
+
+    # query_flows has no internal try/except around the ClickHouse call in
+    # Tools (unlike describe_schema/run_sql, which scrub upstream errors
+    # themselves) -- patch it directly so the exception reaches FastMCP
+    # unguarded, the same as a genuine unexpected bug would.
+    monkeypatch.setattr(server.Tools, "query_flows", _boom)
+
+    app = server.build_app()
+
+    async def _call():
+        async with Client(app) as client:
+            return await client.call_tool("query_flows", {})
+
+    with pytest.raises(ToolError) as excinfo:
+        asyncio.run(_call())
+
+    assert str(excinfo.value) == "Error calling tool 'query_flows'"
+    assert "hunter2" not in str(excinfo.value)
+    assert "RuntimeError" not in str(excinfo.value)

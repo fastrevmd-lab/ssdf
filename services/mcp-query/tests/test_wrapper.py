@@ -149,7 +149,7 @@ def test_tool_exception_still_writes_audit_row():
     rec = _Recorder()
 
     def fn(query=None):
-        raise RuntimeError("clickhouse: connection refused at 10.0.0.1:8443")
+        raise RuntimeError("clickhouse: connection refused at 192.0.2.1:8443")
 
     wrapped = audited_tool("run_sql", fn, rec, caller=lambda: ("p", None))
     with pytest.raises(RuntimeError):
@@ -160,6 +160,25 @@ def test_tool_exception_still_writes_audit_row():
     assert call["principal"] == "p"
     assert "connection refused" in call["error"]
     assert call["row_count"] == 0
+
+
+def test_message_less_exception_still_audits_a_nonempty_error():
+    """F5: `str(exc)` is "" for a message-less exception, so the old
+    `error = str(exc)` recorded an empty string -- indistinguishable from a
+    clean allow. The audited error must always name the exception type."""
+    rec = _Recorder()
+
+    def fn(query=None):
+        raise TimeoutError()
+
+    wrapped = audited_tool("run_sql", fn, rec, caller=lambda: ("p", None))
+    with pytest.raises(TimeoutError):
+        wrapped(query="SELECT 1")
+    assert len(rec.calls) == 1
+    call = rec.calls[0]
+    assert call["decision"] == "allow"
+    assert call["error"] == "TimeoutError: "
+    assert call["error"] != ""
 
 
 def test_tool_exception_releases_limiter_slot_and_audits():
@@ -176,7 +195,7 @@ def test_tool_exception_releases_limiter_slot_and_audits():
         wrapped()
     assert limiter.in_flight("p") == 0  # released despite the exception
     assert len(rec.calls) == 1
-    assert rec.calls[0]["error"] == "boom"
+    assert rec.calls[0]["error"] == "ValueError: boom"
 
 
 def test_wrapped_preserves_signature_and_doc():
