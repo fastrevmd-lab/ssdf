@@ -1,14 +1,20 @@
 import datetime as dt
 import json
 import threading
+from dataclasses import dataclass
+
+import pytest
+
 from ssdf_mcp_query.audit import (
     build_audit_row,
+    make_ch_auditor,
     Auditor,
     AUDIT_COLUMNS,
     AUDIT_BASE_COLUMNS,
     AUDIT_ATTRIBUTION_COLUMNS,
 )
 from ssdf_mcp_query.audit_chain import compute_row_hash
+from ssdf_common.config import ConfigError
 
 
 def test_build_audit_row_shapes_all_columns():
@@ -179,3 +185,40 @@ def test_record_concurrent_calls_form_valid_chain():
     for r in captured:
         if r["prev_hash"] != "":
             assert r["prev_hash"] in by_hash
+
+
+@dataclass
+class _FakeConfig:
+    """The handful of Config fields make_ch_auditor actually reads."""
+
+    ch_audit_password: str | None
+    audit_required: bool = False
+    ch_audit_verify_password: str | None = None
+    ch_host: str = "127.0.0.1"
+    ch_port: int = 8123
+    ch_audit_user: str = "ssdf_audit"
+    ch_database: str = "ssdf"
+    ch_secure: bool = False
+    ch_ca_file: str | None = None
+
+
+def test_make_ch_auditor_noop_when_password_unset_and_not_required(capsys):
+    auditor = make_ch_auditor(_FakeConfig(ch_audit_password=None, audit_required=False))
+    auditor.record(
+        principal="p",
+        tier="sovereign",
+        tool="locate",
+        args={},
+        data_classes=["topology"],
+        decision="allow",
+        row_count=0,
+        error="",
+    )  # must not raise; audit is a documented no-op here
+    assert "audit disabled" in capsys.readouterr().err.lower()
+
+
+def test_make_ch_auditor_fails_closed_when_required_and_password_unset():
+    """M16f: MCP_AUDIT_REQUIRED with no CH_AUDIT_PASSWORD must refuse to start,
+    not silently fall back to the no-op auditor."""
+    with pytest.raises(ConfigError):
+        make_ch_auditor(_FakeConfig(ch_audit_password=None, audit_required=True))

@@ -45,6 +45,10 @@ class Config:
     ch_audit_user: str = "ssdf_audit"
     ch_audit_password: str | None = None
     ch_audit_verify_password: str | None = None
+    # M16f: default False preserves the existing (best-effort) deploy; set
+    # MCP_AUDIT_REQUIRED=1 to refuse startup rather than silently run with
+    # audit disabled when CH_AUDIT_PASSWORD is unset.
+    audit_required: bool = False
     max_execution_time: int = 10
     max_result_rows: int = 100000
     max_memory_usage: int = 1_000_000_000
@@ -174,6 +178,7 @@ def load_config() -> Config:
         ch_audit_user=os.environ.get("CH_AUDIT_USER", "ssdf_audit"),
         ch_audit_password=os.environ.get("CH_AUDIT_PASSWORD"),
         ch_audit_verify_password=os.environ.get("CH_AUDIT_VERIFY_PASSWORD"),
+        audit_required=os.environ.get("MCP_AUDIT_REQUIRED", "").strip().lower() in ("1", "true"),
         max_execution_time=int(os.environ.get("MCP_MAX_EXEC_SECS", "10")),
         max_result_rows=int(os.environ.get("MCP_MAX_RESULT_ROWS", "100000")),
         max_memory_usage=int(os.environ.get("MCP_MAX_MEMORY_BYTES", "1000000000")),
