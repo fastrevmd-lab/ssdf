@@ -26,6 +26,61 @@ def test_parse_clients_emits_attach_and_address():
     assert "port" in first_mac.attrs
 
 
+def test_parse_clients_raw_drops_unallowlisted_fields():
+    """A UniFi client row can carry a free-text `note`; only the allowlisted
+    fields belong in the stored `raw` column."""
+    payload = json.dumps(
+        [
+            {
+                "mac": "02:01:01:75:d4:41",
+                "ip": "198.51.100.151",
+                "hostname": "host1",
+                "is_wired": True,
+                "sw_mac": "02:03:01:c3:3e:98",
+                "sw_port": 4,
+                "vlan": 10,
+                "note": "FAKE-do-not-store-this",
+                "usergroup_id": "FAKE-internal-id",
+            }
+        ]
+    )
+    obs = parse_clients(payload, SOURCE, NOW)
+    mac_obs = [o for o in obs if o.observation_type == "mac_entry"][0]
+    raw = json.loads(mac_obs.raw)
+    assert "note" not in raw
+    assert "usergroup_id" not in raw
+    assert "FAKE-do-not-store-this" not in mac_obs.raw
+    assert raw["mac"] == "02:01:01:75:d4:41"
+
+
+def test_parse_devices_raw_drops_unallowlisted_fields():
+    """A UniFi device row can carry management fields like `x_authkey`; only
+    the allowlisted fields belong in the stored `raw` column."""
+    payload = json.dumps(
+        [
+            {
+                "id": "6a2480a32b1489e5ec5c83f8",
+                "mac": "02:08:01:d6:f7:6d",
+                "ip": "198.51.100.195",
+                "name": "USP RPS",
+                "model": "USPRPS",
+                "type": "usw",
+                "state": 1,
+                "adopted": True,
+                "note": "FAKE-do-not-store-this",
+                "x_authkey": "FAKE-device-authkey",
+            }
+        ]
+    )
+    obs = parse_devices(payload, SOURCE, NOW)
+    raw = json.loads(obs[0].raw)
+    assert "note" not in raw
+    assert "x_authkey" not in raw
+    assert "FAKE-do-not-store-this" not in obs[0].raw
+    assert "FAKE-device-authkey" not in obs[0].raw
+    assert raw["mac"] == "02:08:01:d6:f7:6d"
+
+
 def test_parse_devices_emits_inventory():
     obs = parse_devices(_load("unifi_devices_usw.json"), SOURCE, NOW)
     assert len(obs) > 0

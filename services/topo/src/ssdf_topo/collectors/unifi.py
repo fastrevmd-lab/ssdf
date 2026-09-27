@@ -13,6 +13,30 @@ logger = logging.getLogger(__name__)
 
 _ENVELOPE_KEYS = ("result", "data", "clients", "devices", "items")
 
+# UniFi client/device rows can carry a free-text `note`, and devices can carry
+# management fields like `x_authkey`. None of that belongs in a stored
+# observation, so the `raw` column gets only this allowlist per row shape
+# rather than the vendor row wholesale.
+_CLIENT_RAW_FIELDS = (
+    "mac",
+    "ip",
+    "hostname",
+    "is_wired",
+    "is_guest",
+    "sw_mac",
+    "ap_mac",
+    "vlan",
+    "sw_port",
+    "network",
+    "essid",
+    "oui",
+)
+_DEVICE_RAW_FIELDS = ("id", "mac", "ip", "name", "model", "type", "state", "adopted")
+
+
+def _allowlisted(row: dict, fields: tuple[str, ...]) -> dict:
+    return {field: row[field] for field in fields if field in row}
+
 
 def _rows(text: str) -> list[dict]:
     """Unwrap a JSON envelope and return the first list found under known keys.
@@ -63,7 +87,7 @@ def parse_clients(text: str, source_device: str, now: str) -> list[Observation]:
                     obj_kind="device",
                     obj_id=f"device:{uplink}",
                     attrs={"vlan": vlan, "port": sw_port, "wired": str(is_wired)},
-                    raw=json.dumps(row),
+                    raw=json.dumps(_allowlisted(row, _CLIENT_RAW_FIELDS)),
                 )
             )
 
@@ -129,7 +153,7 @@ def parse_devices(text: str, source_device: str, now: str) -> list[Observation]:
                     "mac": mac,
                     "ip": str(row.get("ip") or ""),
                 },
-                raw=json.dumps(row),
+                raw=json.dumps(_allowlisted(row, _DEVICE_RAW_FIELDS)),
             )
         )
     return observations
