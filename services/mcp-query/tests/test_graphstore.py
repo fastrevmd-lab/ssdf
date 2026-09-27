@@ -1,3 +1,5 @@
+import pytest
+
 from ssdf_mcp_query.graphstore import (
     ClickHouseGraphStore,
     build_node_match_sql,
@@ -104,6 +106,63 @@ def test_builders_honor_public_schema():
     assert "ssdf.graph_edges" not in edge_sql
 
 
+# --- F3 (MEC-167): the ssdf_public views (infra/clickhouse/008_public_views.sql,
+# M16a) have no name/identifiers/attrs column. Every builder must select only
+# what the target schema actually has, or ClickHouse fails public-tier graph
+# queries with "Code 47: unknown column" -- the live exploit path Percy's
+# review found for locate/neighbors/find_path/topology_snapshot.
+
+
+def test_public_node_columns_exclude_name_identifiers_and_attrs():
+    sql, _ = build_node_match_sql("10.64.0.5", tenant="t_main", schema="ssdf_public")
+    for leaked in ("name", "identifiers", "attrs"):
+        assert leaked not in sql
+
+
+def test_public_node_match_looks_up_by_node_id_only():
+    """The public view has no `identifiers` map to match a raw MAC/IP against --
+    a public caller can only already hold a pseudonymised node_id."""
+    sql, params = build_node_match_sql("aa:bb:cc:dd:ee:ff", tenant="t_main", schema="ssdf_public")
+    assert "identifiers" not in sql
+    assert "has(mapValues" not in sql
+    # Unlike the sovereign path, the public path must NOT lowercase a
+    # MAC-shaped value -- pseudonymised ids are opaque hex, not MACs.
+    assert params["val"] == "aa:bb:cc:dd:ee:ff"
+
+
+def test_public_edge_columns_exclude_attrs():
+    sql, _ = build_subgraph_sql(
+        since_iso="2026-06-06T00:00:00+00:00", tenant="t_main", schema="ssdf_public"
+    )
+    assert "attrs" not in sql
+
+
+def test_public_nodes_by_id_columns_exclude_name_identifiers_and_attrs():
+    sql, _ = build_nodes_by_id_sql(["n1"], tenant="t_main", schema="ssdf_public")
+    for leaked in ("name", "identifiers", "attrs"):
+        assert leaked not in sql
+
+
+def test_nodes_by_attr_role_filter_fails_closed_on_public_schema():
+    """`attrs['role']` is not selectable on ssdf_public.graph_nodes -- refuse
+    rather than emit SQL naming a column the public view doesn't have."""
+    from ssdf_mcp_query.graphstore import build_nodes_by_attr_sql
+
+    with pytest.raises(ValueError):
+        build_nodes_by_attr_sql(role="firewall", kind=None, tenant="t_main", schema="ssdf_public")
+
+
+def test_nodes_by_attr_kind_only_is_available_on_public_schema():
+    from ssdf_mcp_query.graphstore import build_nodes_by_attr_sql
+
+    sql, params = build_nodes_by_attr_sql(
+        role=None, kind="device", tenant="t_main", schema="ssdf_public"
+    )
+    assert "ssdf_public.graph_nodes FINAL" in sql
+    assert "attrs" not in sql
+    assert params == {"tenant": "t_main", "kind": "device"}
+
+
 def test_store_threads_schema_into_queries():
     fake = FakeCH()
     store = ClickHouseGraphStore(fake, tenant="t_main", schema="ssdf_public")
@@ -124,10 +183,8 @@ def test_nodes_by_attr_sql_selects_directly_by_role_no_window():
 def test_nodes_by_attr_sql_combines_role_and_kind():
     from ssdf_mcp_query.graphstore import build_nodes_by_attr_sql
 
-    sql, params = build_nodes_by_attr_sql(
-        role="firewall", kind="device", tenant="t_main", schema="ssdf_public"
-    )
-    assert "ssdf_public.graph_nodes FINAL" in sql
+    sql, params = build_nodes_by_attr_sql(role="firewall", kind="device", tenant="t_main")
+    assert "ssdf.graph_nodes FINAL" in sql
     assert "attrs['role'] = {role:String}" in sql
     assert "kind = {kind:String}" in sql
     assert params == {"tenant": "t_main", "role": "firewall", "kind": "device"}

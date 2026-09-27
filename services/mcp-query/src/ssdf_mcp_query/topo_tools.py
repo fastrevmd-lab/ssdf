@@ -65,10 +65,15 @@ class TopoTools:
         if nid in graph:
             for _, dst, data in graph.out_edges(nid, data=True):
                 if data.get("edge_type") == "attaches_to":
+                    # F3 (MEC-167): the ssdf_public edge view has no `attrs`
+                    # column at all -- .get(), not [...], so a public-tier
+                    # `locate()` degrades to "no port/vlan" instead of a
+                    # KeyError.
+                    attrs = data.get("attrs", {})
                     result["attached_to"] = dst
-                    result["port"] = data["attrs"].get("port") or data["attrs"].get("bridge")
-                    result["vlan"] = data["attrs"].get("vlan")
-                    result["via"] = "bridge" if data["attrs"].get("bridge") else "switchport"
+                    result["port"] = attrs.get("port") or attrs.get("bridge")
+                    result["vlan"] = attrs.get("vlan")
+                    result["via"] = "bridge" if attrs.get("bridge") else "switchport"
                     break
         return result
 
@@ -130,9 +135,10 @@ class TopoTools:
                 for g in edges:
                     if g["edge_type"] == "governed_by" and g["src_id"] == tid:
                         rule = node_by_id.get(g["dst_id"], {})
-                        rules.add(rule.get("name") or g["attrs"].get("rule_name", ""))
+                        # F3 (MEC-167): no `attrs` column on the public edge view.
+                        rules.add(rule.get("name") or g.get("attrs", {}).get("rule_name", ""))
             if e["edge_type"] == "in_zone" and e["src_id"] in (s, d):
-                zones.add(e["attrs"].get("zone", ""))
+                zones.add(e.get("attrs", {}).get("zone", ""))
         ug = self._undirected_layer(graph, {"l1", "l2"})
         for endpoint in (s, d):
             if endpoint not in ug:

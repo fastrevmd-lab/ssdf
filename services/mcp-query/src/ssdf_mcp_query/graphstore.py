@@ -8,6 +8,29 @@ from typing import Protocol
 
 _MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", re.IGNORECASE)
 
+# F3 (MEC-167): ssdf_public.graph_nodes/graph_edges (infra/clickhouse/008_public_views.sql,
+# M16a) project an explicit column allowlist that does NOT include name,
+# identifiers or attrs -- those are sovereign-only. Every builder below must
+# select only columns the target schema actually has, or ClickHouse fails
+# every public-tier graph query with "Code 47: unknown column".
+_SOVEREIGN_NODE_COLUMNS = "node_id, kind, name, identifiers, toString(first_seen) AS first_seen, toString(last_seen) AS last_seen, attrs"
+_PUBLIC_NODE_COLUMNS = (
+    "node_id, kind, toString(first_seen) AS first_seen, toString(last_seen) AS last_seen"
+)
+_SOVEREIGN_EDGE_COLUMNS = "edge_id, src_id, dst_id, edge_type, layer, toString(first_seen) AS first_seen, toString(last_seen) AS last_seen, confidence, attrs"
+_PUBLIC_EDGE_COLUMNS = (
+    "edge_id, src_id, dst_id, edge_type, layer, "
+    "toString(first_seen) AS first_seen, toString(last_seen) AS last_seen, confidence"
+)
+
+
+def _node_columns(schema: str) -> str:
+    return _PUBLIC_NODE_COLUMNS if schema == "ssdf_public" else _SOVEREIGN_NODE_COLUMNS
+
+
+def _edge_columns(schema: str) -> str:
+    return _PUBLIC_EDGE_COLUMNS if schema == "ssdf_public" else _SOVEREIGN_EDGE_COLUMNS
+
 
 def _normalize_identifier(value: str) -> str:
     """Lowercase MAC-shaped lookups since MACs are stored lowercase; pass
@@ -17,9 +40,18 @@ def _normalize_identifier(value: str) -> str:
 
 # `schema` is a fixed build-time constant ("ssdf" or "ssdf_public"), never user input.
 def build_node_match_sql(value: str, tenant: str, schema: str = "ssdf") -> tuple[str, dict]:
+    if schema == "ssdf_public":
+        # F3: the public view has no `identifiers` column to match a raw MAC/IP
+        # against -- a public caller can only already hold a pseudonymised
+        # node_id (e.g. from a prior subgraph/topology_snapshot call).
+        sql = (
+            f"SELECT {_node_columns(schema)} FROM {schema}.graph_nodes FINAL "
+            "WHERE tenant_id = {tenant:String} AND node_id = {val:String} "
+            "ORDER BY last_seen DESC LIMIT 1"
+        )
+        return sql, {"tenant": tenant, "val": value}
     sql = (
-        "SELECT node_id, kind, name, identifiers, toString(first_seen) AS first_seen, "
-        f"toString(last_seen) AS last_seen, attrs FROM {schema}.graph_nodes FINAL "
+        f"SELECT {_node_columns(schema)} FROM {schema}.graph_nodes FINAL "
         "WHERE tenant_id = {tenant:String} AND ("
         "node_id = {val:String} OR has(mapValues(identifiers), {val:String})) "
         "ORDER BY last_seen DESC LIMIT 1"
@@ -38,9 +70,7 @@ def build_subgraph_sql(
     # silently dropped — a same-day window returned 0 edges instead of all of
     # them, with no error. Qualify the column and parse the bound explicitly.
     sql = (
-        "SELECT edge_id, src_id, dst_id, edge_type, layer, "
-        "toString(first_seen) AS first_seen, toString(last_seen) AS last_seen, "
-        f"confidence, attrs FROM {schema}.graph_edges FINAL "
+        f"SELECT {_edge_columns(schema)} FROM {schema}.graph_edges FINAL "
         "WHERE tenant_id = {tenant:String} "
         "AND graph_edges.last_seen >= parseDateTimeBestEffort({since:String}) "
         f"ORDER BY graph_edges.last_seen DESC LIMIT {int(limit)}"
@@ -52,8 +82,7 @@ def build_nodes_by_id_sql(
     node_ids: list[str], tenant: str, schema: str = "ssdf"
 ) -> tuple[str, dict]:
     sql = (
-        "SELECT node_id, kind, name, identifiers, toString(first_seen) AS first_seen, "
-        f"toString(last_seen) AS last_seen, attrs FROM {schema}.graph_nodes FINAL "
+        f"SELECT {_node_columns(schema)} FROM {schema}.graph_nodes FINAL "
         "WHERE tenant_id = {tenant:String} AND node_id IN {ids:Array(String)}"
     )
     return sql, {"tenant": tenant, "ids": node_ids}
@@ -71,6 +100,11 @@ def build_nodes_by_attr_sql(
     # (no edges), so an edge-first subgraph can never surface them. No time
     # window — "which devices are firewalls" is a current-state question, and a
     # node lingering stale (collector lull) is still part of the inventory.
+    if role is not None and schema == "ssdf_public":
+        # F3: `attrs` (where `role` lives) is sovereign-only and not projected
+        # into ssdf_public.graph_nodes -- fail closed rather than emit SQL
+        # that names a column the public view doesn't have.
+        raise ValueError("role filter is unavailable on the public schema (no attrs column)")
     clauses = ["tenant_id = {tenant:String}"]
     params: dict = {"tenant": tenant}
     if role is not None:
@@ -80,8 +114,7 @@ def build_nodes_by_attr_sql(
         clauses.append("kind = {kind:String}")
         params["kind"] = kind
     sql = (
-        "SELECT node_id, kind, name, identifiers, toString(first_seen) AS first_seen, "
-        f"toString(last_seen) AS last_seen, attrs FROM {schema}.graph_nodes FINAL "
+        f"SELECT {_node_columns(schema)} FROM {schema}.graph_nodes FINAL "
         "WHERE " + " AND ".join(clauses) + f" ORDER BY last_seen DESC LIMIT {int(limit)}"
     )
     return sql, params
