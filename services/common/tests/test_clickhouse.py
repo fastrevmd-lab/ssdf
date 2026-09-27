@@ -2,8 +2,10 @@
 
 from dataclasses import dataclass
 
+import pytest
 
 from ssdf_common.clickhouse import client_kwargs, client_kwargs_from_config
+from ssdf_common.config import ConfigError, Secret
 
 
 def test_client_kwargs_plaintext():
@@ -53,6 +55,18 @@ def test_client_kwargs_secure_with_ca():
     assert kwargs["ca_cert"] == "/path/to/ca.crt"
 
 
+def test_client_kwargs_rejects_plaintext_to_non_loopback_host():
+    """client_kwargs refuses plain HTTP to anything but a loopback host."""
+    with pytest.raises(ConfigError):
+        client_kwargs(
+            host="198.51.100.152",
+            port=8123,
+            user="ssdf_ro",
+            password="pw",
+            database="ssdf",
+        )
+
+
 def test_client_kwargs_from_config():
     """client_kwargs_from_config extracts from a Config-like object."""
 
@@ -61,7 +75,7 @@ def test_client_kwargs_from_config():
         ch_host: str
         ch_port: int
         ch_user: str
-        ch_password: str
+        ch_password: Secret
         ch_database: str
         ch_secure: bool
         ch_ca_file: str
@@ -70,7 +84,7 @@ def test_client_kwargs_from_config():
         ch_host="ct104",
         ch_port=8443,
         ch_user="ssdf_topo",
-        ch_password="secret",
+        ch_password=Secret("secret"),
         ch_database="ssdf",
         ch_secure=True,
         ch_ca_file="/etc/ca.crt",

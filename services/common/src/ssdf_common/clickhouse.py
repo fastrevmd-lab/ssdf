@@ -6,6 +6,8 @@ from typing import Any
 
 import clickhouse_connect
 
+from .config import require_tls_or_loopback
+
 
 def client_kwargs(
     *,
@@ -30,7 +32,12 @@ def client_kwargs(
 
     Returns:
         dict suitable for **unpacking into get_client.
+
+    Raises:
+        ConfigError: connecting over plaintext (secure=False) to anything but
+            a loopback host — the password would go over the wire in the clear.
     """
+    require_tls_or_loopback(host, secure)
     kwargs: dict[str, Any] = dict(
         host=host,
         port=port,
@@ -53,14 +60,14 @@ def get_client(**kwargs: Any):
 def client_kwargs_from_config(config) -> dict[str, Any]:
     """Adapter: extract client_kwargs from a Config with ch_* attributes.
 
-    Assumes the config has: ch_host, ch_port, ch_user, ch_password, ch_database,
-    ch_secure (bool), ch_ca_file (str).
+    Assumes the config has: ch_host, ch_port, ch_user, ch_password (a Secret),
+    ch_database, ch_secure (bool), ch_ca_file (str).
     """
     return client_kwargs(
         host=config.ch_host,
         port=config.ch_port,
         user=config.ch_user,
-        password=config.ch_password,
+        password=config.ch_password.get(),
         database=config.ch_database,
         secure=config.ch_secure,
         ca_file=config.ch_ca_file,
