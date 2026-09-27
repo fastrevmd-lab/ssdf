@@ -1,3 +1,5 @@
+import pytest
+
 from ssdf_mcp_query.wrapper import audited_tool, row_count_of
 from ssdf_mcp_query.audit import Auditor
 
@@ -138,6 +140,43 @@ def test_two_tuple_caller_backward_compat():
     wrapped = audited_tool("query_flows", fn, rec, caller=lambda: ("p", None))
     assert wrapped() == {"rows": [1]}
     assert rec.calls[0]["decision"] == "allow"
+
+
+def test_tool_exception_still_writes_audit_row():
+    """M16f: a tool that raises must still be recorded -- it used to skip the
+    audit row entirely because the record() call sat after the fn() call with
+    no finally, so an exception jumped straight past it."""
+    rec = _Recorder()
+
+    def fn(query=None):
+        raise RuntimeError("clickhouse: connection refused at 10.0.0.1:8443")
+
+    wrapped = audited_tool("run_sql", fn, rec, caller=lambda: ("p", None))
+    with pytest.raises(RuntimeError):
+        wrapped(query="SELECT 1")
+    assert len(rec.calls) == 1
+    call = rec.calls[0]
+    assert call["tool"] == "run_sql"
+    assert call["principal"] == "p"
+    assert "connection refused" in call["error"]
+    assert call["row_count"] == 0
+
+
+def test_tool_exception_releases_limiter_slot_and_audits():
+    from ssdf_mcp_query.ratelimit import PrincipalLimiter
+
+    rec = _Recorder()
+    limiter = PrincipalLimiter(max_per_window=0, max_concurrent=1)
+
+    def fn():
+        raise ValueError("boom")
+
+    wrapped = audited_tool("query_flows", fn, rec, caller=lambda: ("p", None), limiter=limiter)
+    with pytest.raises(ValueError):
+        wrapped()
+    assert limiter.in_flight("p") == 0  # released despite the exception
+    assert len(rec.calls) == 1
+    assert rec.calls[0]["error"] == "boom"
 
 
 def test_wrapped_preserves_signature_and_doc():

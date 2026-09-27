@@ -164,6 +164,19 @@ def test_ch_secure_env_parsing(monkeypatch):
     assert load_config().ch_secure is False
 
 
+def test_audit_required_env_parsing(monkeypatch):
+    monkeypatch.setenv("CH_PASSWORD", "x")
+    monkeypatch.setenv("MCP_AUTH_TOKEN", "t")
+    monkeypatch.delenv("MCP_AUDIT_REQUIRED", raising=False)
+    assert load_config().audit_required is False
+    monkeypatch.setenv("MCP_AUDIT_REQUIRED", "1")
+    assert load_config().audit_required is True
+    monkeypatch.setenv("MCP_AUDIT_REQUIRED", "true")
+    assert load_config().audit_required is True
+    monkeypatch.setenv("MCP_AUDIT_REQUIRED", "0")
+    assert load_config().audit_required is False
+
+
 def test_load_config_query_limit_defaults(monkeypatch):
     from ssdf_mcp_query.config import load_config
 

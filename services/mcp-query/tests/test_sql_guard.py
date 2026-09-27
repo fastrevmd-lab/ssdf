@@ -82,3 +82,40 @@ def test_lowercase_ssdf_table_is_allowed():
     out = guard_sql("SELECT * FROM ssdf.events", max_limit=1000)
     assert "ssdf.events" in out.lower()
     assert "limit" in out.lower()
+
+
+# M16d: a run_sql-only token must not be able to read these tables directly,
+# even though ssdf_ro holds SELECT on them for other, access-controlled tools
+# (reidentify, fabric_status, the audit hash-chain seed).
+BLOCKED_TABLES = ["audit", "pseudonym_map", "topo_observations"]
+
+
+@pytest.mark.parametrize("table", BLOCKED_TABLES)
+def test_blocked_tables_rejected(table):
+    with pytest.raises(GuardError):
+        guard_sql(f"SELECT * FROM ssdf.{table}", max_limit=1000)
+
+
+@pytest.mark.parametrize("table", BLOCKED_TABLES)
+def test_blocked_tables_rejected_case_insensitive(table):
+    with pytest.raises(GuardError):
+        guard_sql(f"SELECT * FROM ssdf.{table.upper()}", max_limit=1000)
+
+
+def test_pseudonym_map_reversal_is_refused():
+    """The concrete exploit this guards against: reversing a surrogate via run_sql
+    instead of the access-controlled reidentify tool."""
+    with pytest.raises(GuardError):
+        guard_sql(
+            "SELECT real_value FROM ssdf.pseudonym_map WHERE surrogate = 'h_3f9a'",
+            max_limit=1000,
+        )
+
+
+def test_blocked_table_rejected_via_join():
+    with pytest.raises(GuardError):
+        guard_sql(
+            "SELECT e.* FROM ssdf.events AS e "
+            "JOIN ssdf.pseudonym_map AS p ON e.source_ip = p.real_value",
+            max_limit=1000,
+        )

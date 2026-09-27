@@ -19,6 +19,7 @@ from typing import Any, Callable, Iterable
 
 from .audit_chain import compute_row_hash
 from .config import ch_tls_kwargs
+from ssdf_common.config import ConfigError
 
 # The nine stored business fields (what build_audit_row produces).
 AUDIT_BASE_COLUMNS: list[str] = [
@@ -136,8 +137,20 @@ def _seed_last_hash(config, tier: str) -> str:
 
 
 def make_ch_auditor(config, tier: str = "sovereign") -> Auditor:
-    """Build a CH-backed Auditor, or a no-op one when no audit password is set."""
+    """Build a CH-backed Auditor, or a no-op one when no audit password is set.
+
+    M16f: a missing audit password used to fail OPEN -- the server started
+    anyway with every call going unrecorded. When ``MCP_AUDIT_REQUIRED`` is
+    set, that becomes a startup failure instead, since an unaudited sovereign
+    MCP server is a silent gap an operator should have to opt out of, not
+    default into.
+    """
     if not config.ch_audit_password:
+        if config.audit_required:
+            raise ConfigError(
+                "MCP_AUDIT_REQUIRED is set but CH_AUDIT_PASSWORD is unset; "
+                "refusing to start with audit disabled"
+            )
         print("[audit] CH_AUDIT_PASSWORD unset; audit disabled (no-op)", file=sys.stderr)
         return Auditor(_noop_insert)
     import clickhouse_connect

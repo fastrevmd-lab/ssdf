@@ -91,27 +91,37 @@ def audited_tool(
                 # never will succeed. Conflating them tells an agent to give up
                 # on a tool it is entitled to use.
                 return _deny(principal, kwargs, str(exc), error="rate_limited")
-            try:
-                result = fn(*args, **kwargs)
-            finally:
+
+        # M16f: the audit row is written in `finally` so a tool that raises is
+        # still recorded -- it used to skip the audit entirely, because the
+        # record() call below the try/except never ran once an exception
+        # propagated past it. The exception itself still propagates (FastMCP's
+        # mask_error_details keeps its detail from reaching the model); only
+        # the audit write is unconditional.
+        result: Any = None
+        error = ""
+        try:
+            result = fn(*args, **kwargs)
+            error = result.get("error", "") if isinstance(result, dict) else ""
+            return result
+        except Exception as exc:  # noqa: BLE001 - audited below, then re-raised
+            error = str(exc)
+            raise
+        finally:
+            if limiter is not None and limiter.enabled:
                 # Release even when the tool raises, or one failing call would
                 # permanently consume a concurrency slot.
                 limiter.release(principal)
-        else:
-            result = fn(*args, **kwargs)
-
-        error = result.get("error", "") if isinstance(result, dict) else ""
-        auditor.record(
-            principal=principal,
-            tier=tier,
-            tool=tool_name,
-            args=kwargs,
-            data_classes=data_classes,
-            decision="allow",
-            row_count=row_count_of(result),
-            error=error,
-            **attribution(),
-        )
-        return result
+            auditor.record(
+                principal=principal,
+                tier=tier,
+                tool=tool_name,
+                args=kwargs,
+                data_classes=data_classes,
+                decision="allow",
+                row_count=row_count_of(result) if isinstance(result, dict) else 0,
+                error=error,
+                **attribution(),
+            )
 
     return wrapped

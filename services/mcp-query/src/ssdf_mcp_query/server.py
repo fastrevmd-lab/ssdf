@@ -80,7 +80,10 @@ def build_app(tier: str = "sovereign") -> FastMCP:
             payload["not_after"] = tp.not_after.isoformat()
         verifier_tokens[token_digest] = payload
     auth = DigestTokenVerifier(verifier_tokens)
-    mcp = FastMCP("ssdf-mcp-query", auth=auth)
+    # M16f: mask_error_details=True so an uncaught exception (e.g. a raw
+    # ClickHouse error) never reaches the model as tool-call output -- the
+    # detail still lands in ssdf.audit via audited_tool's finally-block write.
+    mcp = FastMCP("ssdf-mcp-query", auth=auth, mask_error_details=True)
 
     def query_flows(
         src_ip: str | None = None,

@@ -1,7 +1,10 @@
 import asyncio
 import json
 
+import pytest
+
 from ssdf_mcp_query.tokenstore import digest_for
+from ssdf_common.config import ConfigError
 import os
 
 os.environ.setdefault("CH_PASSWORD", "x")
@@ -77,6 +80,24 @@ def test_multi_principal_tokens_register(monkeypatch, tmp_path):
     _patch_ch(monkeypatch, server)
     app = server.build_app()
     assert _names(app) == EXPECTED_TOOLS
+
+
+def test_build_app_fails_closed_when_audit_required_without_password(monkeypatch):
+    """M16f: MCP_AUDIT_REQUIRED=1 with no CH_AUDIT_PASSWORD must refuse to
+    start the server rather than silently run with audit disabled. Only
+    ClickHouseClient is stubbed here -- make_ch_auditor runs for real, since
+    that is exactly the fail-closed path under test."""
+    import ssdf_mcp_query.server as server
+
+    class _Dummy:
+        def __init__(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(server, "ClickHouseClient", _Dummy)
+    monkeypatch.setenv("MCP_AUDIT_REQUIRED", "1")
+    monkeypatch.delenv("CH_AUDIT_PASSWORD", raising=False)
+    with pytest.raises(ConfigError):
+        server.build_app()
 
 
 def test_not_after_lands_in_verifier_claims(monkeypatch, tmp_path):

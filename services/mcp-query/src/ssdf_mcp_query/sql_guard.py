@@ -11,6 +11,17 @@ from sqlglot import exp
 
 ALLOWED_DB = "ssdf"
 _DIALECT = "clickhouse"
+
+# Tables ssdf_ro can SELECT for other, narrowly-scoped tools (reidentify,
+# fabric_status, audit chain seeding) but that run_sql must never reach
+# directly: a generic ad hoc query is not the access-controlled path those
+# tools provide, and DB grants alone are one drift away from a direct
+# pseudonym reversal or audit-trail read (see infra/clickhouse/018_ssdf_ro_grants.sql).
+_BLOCKED_TABLES = {
+    "audit",
+    "pseudonym_map",
+    "topo_observations",
+}
 _TABLE_FUNCTIONS = {
     "url",
     "file",
@@ -73,6 +84,9 @@ def guard_sql(query: str, max_limit: int = 1000) -> str:
             raise GuardError(
                 f"only the '{ALLOWED_DB}' database is allowed (got {table.db or 'unqualified'}.{table.name})"
             )
+        name = (table.name or "").lower()
+        if name in _BLOCKED_TABLES:
+            raise GuardError(f"table '{ALLOWED_DB}.{table.name}' is not queryable via run_sql")
 
     limit = stmt.args.get("limit")
     if limit is None:
