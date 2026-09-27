@@ -13,8 +13,9 @@
 --
 -- Enforcement model: ssdf_public is granted SELECT on the ssdf_public.* views
 -- ONLY (no base-table grant). The views run with SQL SECURITY DEFINER as
--- ssdf_view_definer, which can read ONLY the two shareable base tables. So the
--- public process is structurally unable to name a sovereign table.
+-- ssdf_view_definer, which can read ONLY the two shareable base tables plus
+-- (below) the pseudonym-key table. So the public process is structurally
+-- unable to name a sovereign table.
 --
 -- Column model: the views select an explicit allowlist, never every column. `name`,
 -- `identifiers` (raw MACs/IPs/hostnames) and `attrs` (free-form, collector-set)
@@ -30,6 +31,17 @@
 -- one-way), just a different keyed hash because ClickHouse SQL has no literal
 -- HMAC to call. The same key is used for both views so a public `src_id`/
 -- `dst_id` still joins against the corresponding public `node_id`.
+--
+-- F2 (MEC-167): the key itself must NEVER be an inline literal in a view
+-- body. A view's `AS SELECT ...` is queryable by anyone holding SELECT on the
+-- view -- `SHOW CREATE TABLE` and `system.tables.as_select` both return it
+-- verbatim -- so a literal key here handed ssdf_public everything needed to
+-- recompute pseudonyms offline from a dictionary of plausible MACs/IPs/names,
+-- defeating the pseudonymisation this migration exists to provide. The key
+-- instead lives in the sovereign-only `ssdf.view_pseudonym_key` table (SELECT
+-- granted to ssdf_view_definer alone, never to ssdf_public) and the views
+-- resolve it at query time through a `WITH (SELECT ...) AS k` scalar
+-- subquery, which is NOT present in the compiled view text.
 
 CREATE DATABASE IF NOT EXISTS ssdf_public;
 
@@ -38,11 +50,23 @@ CREATE USER IF NOT EXISTS ssdf_view_definer IDENTIFIED WITH sha256_password BY '
 GRANT SELECT ON ssdf.graph_nodes TO ssdf_view_definer;
 GRANT SELECT ON ssdf.graph_edges TO ssdf_view_definer;
 
+-- Sovereign-only key table (F2). TinyLog: one row, no merge/versioning needed.
+-- The `WHERE (SELECT count() ...) = 0` guard makes the seed idempotent -- a
+-- re-apply of this migration (e.g. adding a future public view) must never
+-- rotate the key out from under already-pseudonymised ids.
+CREATE TABLE IF NOT EXISTS ssdf.view_pseudonym_key (hi UInt64, lo UInt64) ENGINE = TinyLog;
+INSERT INTO ssdf.view_pseudonym_key (hi, lo)
+    SELECT toUInt64(${VIEW_PSEUDONYM_KEY_HI}), toUInt64(${VIEW_PSEUDONYM_KEY_LO})
+    WHERE (SELECT count() FROM ssdf.view_pseudonym_key) = 0;
+-- ssdf_view_definer ONLY. Never grant this table to ssdf_public or ssdf_ro.
+GRANT SELECT ON ssdf.view_pseudonym_key TO ssdf_view_definer;
+
 -- De-identified shareable views: pseudonymised ids only, no name/identifiers/attrs.
 CREATE OR REPLACE VIEW ssdf_public.graph_nodes
     DEFINER = ssdf_view_definer SQL SECURITY DEFINER
-    AS SELECT
-        hex(sipHash128Keyed((toUInt64(${VIEW_PSEUDONYM_KEY_HI}), toUInt64(${VIEW_PSEUDONYM_KEY_LO})), node_id)) AS node_id,
+    AS WITH (SELECT (hi, lo) FROM ssdf.view_pseudonym_key LIMIT 1) AS k
+    SELECT
+        hex(sipHash128Keyed(k, node_id)) AS node_id,
         tenant_id,
         kind,
         first_seen,
@@ -51,11 +75,12 @@ CREATE OR REPLACE VIEW ssdf_public.graph_nodes
 
 CREATE OR REPLACE VIEW ssdf_public.graph_edges
     DEFINER = ssdf_view_definer SQL SECURITY DEFINER
-    AS SELECT
-        hex(sipHash128Keyed((toUInt64(${VIEW_PSEUDONYM_KEY_HI}), toUInt64(${VIEW_PSEUDONYM_KEY_LO})), edge_id)) AS edge_id,
+    AS WITH (SELECT (hi, lo) FROM ssdf.view_pseudonym_key LIMIT 1) AS k
+    SELECT
+        hex(sipHash128Keyed(k, edge_id)) AS edge_id,
         tenant_id,
-        hex(sipHash128Keyed((toUInt64(${VIEW_PSEUDONYM_KEY_HI}), toUInt64(${VIEW_PSEUDONYM_KEY_LO})), src_id)) AS src_id,
-        hex(sipHash128Keyed((toUInt64(${VIEW_PSEUDONYM_KEY_HI}), toUInt64(${VIEW_PSEUDONYM_KEY_LO})), dst_id)) AS dst_id,
+        hex(sipHash128Keyed(k, src_id)) AS src_id,
+        hex(sipHash128Keyed(k, dst_id)) AS dst_id,
         edge_type,
         layer,
         first_seen,
@@ -63,7 +88,8 @@ CREATE OR REPLACE VIEW ssdf_public.graph_edges
         confidence
     FROM ssdf.graph_edges;
 
--- Public reader: granted on the VIEWS ONLY. No base ssdf.* grant.
+-- Public reader: granted on the VIEWS ONLY. No base ssdf.* grant, no grant on
+-- ssdf.view_pseudonym_key.
 CREATE USER IF NOT EXISTS ssdf_public IDENTIFIED WITH sha256_password BY '${PUBLIC_PW}';
 GRANT SELECT ON ssdf_public.graph_nodes TO ssdf_public;
 GRANT SELECT ON ssdf_public.graph_edges TO ssdf_public;

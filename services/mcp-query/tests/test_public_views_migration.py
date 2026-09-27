@@ -204,3 +204,100 @@ def test_public_reader_cannot_read_sovereign_base_tables(base_url):
     client.query("SELECT count() FROM ssdf_public.graph_nodes")
     with pytest.raises(Exception):
         client.query("SELECT count() FROM ssdf.graph_nodes")
+
+
+# --- F2 (MEC-167): the pseudonym key must never be readable from the public
+# tier, in ANY form -- not as a base-table grant, and not embedded as a
+# literal in a view's compiled definition (queryable via SHOW CREATE /
+# system.tables by anyone holding SELECT on the view).
+
+
+def test_public_reader_cannot_read_the_pseudonym_key_table(base_url):
+    from urllib.parse import urlparse
+
+    parsed = urlparse(base_url)
+    client = clickhouse_connect.get_client(
+        host=parsed.hostname,
+        port=parsed.port,
+        username="ssdf_public",
+        password=_PUBLIC_PW,
+        database="ssdf_public",
+    )
+    with pytest.raises(Exception):
+        client.query("SELECT * FROM ssdf.view_pseudonym_key")
+
+
+def test_public_view_definitions_do_not_contain_the_pseudonym_key(public_client):
+    for table in ("graph_nodes", "graph_edges"):
+        create_stmt = public_client.query(f"SHOW CREATE TABLE ssdf_public.{table}").result_rows[0][
+            0
+        ]
+        assert _KEY_HI not in create_stmt
+        assert _KEY_LO not in create_stmt
+
+    for (as_select,) in public_client.query(
+        "SELECT as_select FROM system.tables WHERE database = 'ssdf_public'"
+    ).result_rows:
+        assert _KEY_HI not in as_select
+        assert _KEY_LO not in as_select
+
+
+def test_public_views_still_pseudonymise_consistently_via_the_key_table(public_client):
+    """The key moved out of the view body (F2); the pseudonymisation and the
+    node/edge join-key property (M16a) it must not have regressed."""
+    node_id = public_client.query(
+        "SELECT DISTINCT node_id FROM ssdf_public.graph_nodes WHERE tenant_id = 't_contract_views'"
+    ).result_rows[0][0]
+    src_id = public_client.query(
+        "SELECT DISTINCT src_id FROM ssdf_public.graph_edges WHERE tenant_id = 't_contract_views'"
+    ).result_rows[0][0]
+    assert node_id == src_id
+    assert node_id != "contract-test-node-01"
+
+
+# --- F3 (MEC-167): every graphstore.py SQL builder must actually run against
+# the migrated ssdf_public view (no "Code 47: unknown column"), the failure
+# mode that made locate/neighbors/find_path/topology_snapshot non-functional
+# on the public tier after M16a dropped name/identifiers/attrs from the view.
+
+
+def test_graphstore_builders_run_against_the_public_view(public_client):
+    from ssdf_mcp_query.graphstore import (
+        build_node_match_sql,
+        build_nodes_by_attr_sql,
+        build_nodes_by_id_sql,
+        build_subgraph_sql,
+    )
+
+    node_id = public_client.query(
+        "SELECT DISTINCT node_id FROM ssdf_public.graph_nodes WHERE tenant_id = 't_contract_views'"
+    ).result_rows[0][0]
+
+    sql, params = build_node_match_sql(node_id, tenant="t_contract_views", schema="ssdf_public")
+    rows = public_client.query(sql, parameters=params).result_rows
+    assert len(rows) == 1
+
+    sql, params = build_subgraph_sql(
+        "2000-01-01T00:00:00+00:00", tenant="t_contract_views", schema="ssdf_public"
+    )
+    public_client.query(sql, parameters=params)  # must not raise Code 47
+
+    sql, params = build_nodes_by_id_sql([node_id], tenant="t_contract_views", schema="ssdf_public")
+    rows = public_client.query(sql, parameters=params).result_rows
+    assert len(rows) == 1
+
+    sql, params = build_nodes_by_attr_sql(
+        role=None, kind="device", tenant="t_contract_views", schema="ssdf_public"
+    )
+    public_client.query(sql, parameters=params)  # must not raise Code 47
+
+
+def test_graphstore_role_filter_refuses_the_public_schema():
+    """attrs['role'] is not selectable on the public view -- this must fail
+    closed in Python before it ever reaches ClickHouse."""
+    from ssdf_mcp_query.graphstore import build_nodes_by_attr_sql
+
+    with pytest.raises(ValueError):
+        build_nodes_by_attr_sql(
+            role="firewall", kind=None, tenant="t_contract_views", schema="ssdf_public"
+        )
