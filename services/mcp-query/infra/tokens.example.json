@@ -1,6 +1,7 @@
 {
   "sha256:9b239b071c5cd6c4574787ba44d3d927bcb1c5aa3718c47548f8f9c02556cc29": {
     "principal": "triage-agent",
+    "local_only": true,
     "allowed_tools": [
       "query_flows",
       "top_talkers",

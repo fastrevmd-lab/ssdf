@@ -25,11 +25,18 @@ class TokenPrincipal:
 
     ``not_after=None`` means the token never expires; otherwise it is a
     timezone-aware UTC datetime after which the token is denied per call.
+
+    ``local_only`` is the token-holder's attestation that it drives a model
+    running on infrastructure the operator controls (M16e). It defaults to
+    ``False`` (fail closed): a token file entry that never mentions it is
+    treated as unattested and cannot authenticate against a ``tier="sovereign"``
+    build, regardless of what the caller claims elsewhere.
     """
 
     principal: str
     allowed_tools: frozenset[str] | None
     not_after: _dt.datetime | None = None
+    local_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -96,6 +103,15 @@ def parse_not_after(value: object) -> _dt.datetime | None:
     return parsed
 
 
+def parse_local_only(value: object) -> bool:
+    """Parse a tokens-file ``local_only`` flag. Absent ⇒ False (fail closed)."""
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise ConfigError(f"local_only must be a boolean, got {type(value).__name__}")
+    return value
+
+
 def _read_token() -> str:
     inline = os.environ.get("MCP_AUTH_TOKEN")
     if inline:
@@ -125,7 +141,15 @@ def load_token_map() -> dict[str, TokenPrincipal]:
         # there is no map to key by digest. Hash it here anyway, so every code
         # path downstream deals in digests only.
         single = _read_token()
-        return {digest_for(single): TokenPrincipal(principal="agent", allowed_tools=None)}
+        local_only = os.environ.get("MCP_AUTH_TOKEN_LOCAL_ONLY", "").strip().lower() in (
+            "1",
+            "true",
+        )
+        return {
+            digest_for(single): TokenPrincipal(
+                principal="agent", allowed_tools=None, local_only=local_only
+            )
+        }
     path = Path(tokens_file)
     if not path.is_file():
         raise ConfigError(f"MCP_TOKENS_FILE not found: {tokens_file}")
@@ -158,6 +182,7 @@ def load_token_map() -> dict[str, TokenPrincipal]:
             principal=meta["principal"],
             allowed_tools=allowed_set,
             not_after=parse_not_after(meta.get("not_after")),
+            local_only=parse_local_only(meta.get("local_only")),
         )
     return tokens
 

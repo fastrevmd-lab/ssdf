@@ -21,6 +21,24 @@ It is not recoverable afterwards. That is the point of the change.
 
 Omit `--allowed-tools` to grant every tool. `--days 0` means no expiry.
 
+## Sovereign tier requires `local_only` (M16e)
+
+A `tier="sovereign"` build refuses to authenticate any token whose entry does
+not set `"local_only": true`. This is not a preference the token can override
+by claiming to be local elsewhere (a manifest field, a client header) — the
+server drops the token from its verifier entirely before auth runs. Set it via
+`mint_token --local-only`, or add `"local_only": true` by hand to an existing
+entry. A token without it still works fine against a `tier="public"` build; the
+attestation only gates the sovereign tier, and it exists because a hosted-model
+runner reading real lab data through a sovereign token is exactly what leaked
+lab IPs and rule names into committed eval scorecards.
+
+**Migration:** existing sovereign-tier (ct106-class) token files predate this
+field, so every entry in them is currently unattested and will be rejected once
+this ships. Re-mint each principal that should keep sovereign access with
+`--local-only`, or add the field by hand and restart; there is no default that
+preserves old behavior; unattested means untrusted.
+
 ## Rotate
 
 Add the new entry alongside the old, restart, move clients across, delete the

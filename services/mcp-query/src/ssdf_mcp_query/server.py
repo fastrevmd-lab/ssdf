@@ -66,8 +66,15 @@ def build_app(tier: str = "sovereign") -> FastMCP:
     # secret it could leak. DigestTokenVerifier hashes what the caller presents
     # and matches that, which FastMCP's StaticTokenVerifier cannot do -- it looks
     # the plaintext up in a dict, and says so in its own docstring.
+    # M16e: the sovereign tier is for local models only. A token lacking the
+    # local_only attestation is dropped from the verifier entirely -- it can't
+    # authenticate, no matter what it claims -- so a hosted-model credential
+    # cannot reach this build even if some other layer (the eval runner, an
+    # operator) got the model/tier pairing wrong.
     verifier_tokens: dict[str, dict] = {}
     for token_digest, tp in config.tokens.items():
+        if tier == "sovereign" and not tp.local_only:
+            continue
         payload = {
             "sub": tp.principal,
             "client_id": "ssdf",
