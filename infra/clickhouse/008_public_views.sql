@@ -2,8 +2,12 @@
 -- M7b: public-tier shareable views + least-privilege users.
 --
 -- ClickHouse does NOT expand {name:Type} params inside CREATE USER ... BY '...',
--- so inject the two passwords before applying (never commit real values):
+-- so inject the two passwords and the two pseudonym-key halves before applying
+-- (never commit real values). The key halves are two independent UInt64s (e.g.
+-- `python3 -c "print(__import__('secrets').randbits(64))"`, run twice):
 --   DEFINER_PW="$CH_DEFINER_PASSWORD" PUBLIC_PW="$CH_PUBLIC_PASSWORD" \
+--     VIEW_PSEUDONYM_KEY_HI="$CH_VIEW_PSEUDONYM_KEY_HI" \
+--     VIEW_PSEUDONYM_KEY_LO="$CH_VIEW_PSEUDONYM_KEY_LO" \
 --     envsubst < 008_public_views.sql \
 --     | clickhouse-client --host <ct104> --multiquery
 --
@@ -11,6 +15,21 @@
 -- ONLY (no base-table grant). The views run with SQL SECURITY DEFINER as
 -- ssdf_view_definer, which can read ONLY the two shareable base tables. So the
 -- public process is structurally unable to name a sovereign table.
+--
+-- Column model: the views select an explicit allowlist, never every column. `name`,
+-- `identifiers` (raw MACs/IPs/hostnames) and `attrs` (free-form, collector-set)
+-- are sovereign-only and are never projected into ssdf_public. `node_id` /
+-- `src_id` / `dst_id` / `edge_id` are re-hashed with a keyed hash before
+-- exposure: the sovereign id is `sha1(tenant|kind|canonical_key)[:16]` (see
+-- ssdf_topo.models), which is unkeyed and guessable by dictionary attack over
+-- plausible names/MACs/IPs, so passing it through unchanged would let a public
+-- reader dictionary-attack the sovereign id space. ClickHouse has no built-in
+-- HMAC function, so `sipHash128Keyed` (its native keyed, cryptographic-strength
+-- hash) is the pseudonymization primitive instead -- same property the
+-- HMAC-SHA256 in ssdf_pubmetrics.pseudonym provides (keyed, deterministic,
+-- one-way), just a different keyed hash because ClickHouse SQL has no literal
+-- HMAC to call. The same key is used for both views so a public `src_id`/
+-- `dst_id` still joins against the corresponding public `node_id`.
 
 CREATE DATABASE IF NOT EXISTS ssdf_public;
 
@@ -19,15 +38,30 @@ CREATE USER IF NOT EXISTS ssdf_view_definer IDENTIFIED WITH sha256_password BY '
 GRANT SELECT ON ssdf.graph_nodes TO ssdf_view_definer;
 GRANT SELECT ON ssdf.graph_edges TO ssdf_view_definer;
 
--- Coarse v0 shareable views (full node/edge shape; tenant filtering stays in the
--- tool SQL exactly like the sovereign path).
+-- De-identified shareable views: pseudonymised ids only, no name/identifiers/attrs.
 CREATE OR REPLACE VIEW ssdf_public.graph_nodes
     DEFINER = ssdf_view_definer SQL SECURITY DEFINER
-    AS SELECT * FROM ssdf.graph_nodes;
+    AS SELECT
+        hex(sipHash128Keyed((toUInt64(${VIEW_PSEUDONYM_KEY_HI}), toUInt64(${VIEW_PSEUDONYM_KEY_LO})), node_id)) AS node_id,
+        tenant_id,
+        kind,
+        first_seen,
+        last_seen
+    FROM ssdf.graph_nodes;
 
 CREATE OR REPLACE VIEW ssdf_public.graph_edges
     DEFINER = ssdf_view_definer SQL SECURITY DEFINER
-    AS SELECT * FROM ssdf.graph_edges;
+    AS SELECT
+        hex(sipHash128Keyed((toUInt64(${VIEW_PSEUDONYM_KEY_HI}), toUInt64(${VIEW_PSEUDONYM_KEY_LO})), edge_id)) AS edge_id,
+        tenant_id,
+        hex(sipHash128Keyed((toUInt64(${VIEW_PSEUDONYM_KEY_HI}), toUInt64(${VIEW_PSEUDONYM_KEY_LO})), src_id)) AS src_id,
+        hex(sipHash128Keyed((toUInt64(${VIEW_PSEUDONYM_KEY_HI}), toUInt64(${VIEW_PSEUDONYM_KEY_LO})), dst_id)) AS dst_id,
+        edge_type,
+        layer,
+        first_seen,
+        last_seen,
+        confidence
+    FROM ssdf.graph_edges;
 
 -- Public reader: granted on the VIEWS ONLY. No base ssdf.* grant.
 CREATE USER IF NOT EXISTS ssdf_public IDENTIFIED WITH sha256_password BY '${PUBLIC_PW}';

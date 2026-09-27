@@ -115,4 +115,4 @@ jobs:
           CH_CONTRACT_PORT: "8123"
           CH_PASSWORD: unused-by-contract-suite
           MCP_AUTH_TOKEN: unused-by-contract-suite
-        run: uv run pytest tests/test_sql_contract.py -m contract -q
+        run: uv run pytest tests/test_sql_contract.py tests/test_public_views_migration.py -m contract -q
