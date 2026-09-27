@@ -32,4 +32,4 @@ the synthetic fixtures under tests/fixtures/ where possible.
 <!-- Python version, OS, ClickHouse version if relevant -->
 
 **Relevant log output**
-<!-- Sanitized log output or error text, if any -->
+<!-- Sanitized log output or error text, if any. Debug/trace logs can contain full config payloads, including password hashes and keys -- redact before pasting. -->
