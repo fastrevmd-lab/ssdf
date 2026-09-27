@@ -47,7 +47,9 @@ def _text() -> str:
 def _statements(sql: str):
     for chunk in sql.split(";"):
         lines = [
-            line for line in chunk.splitlines() if line.strip() and not line.strip().startswith("--")
+            line
+            for line in chunk.splitlines()
+            if line.strip() and not line.strip().startswith("--")
         ]
         statement = "\n".join(lines).strip()
         if statement:
@@ -141,12 +143,16 @@ def public_client(base_url, applied):
 
 
 def test_public_nodes_view_has_no_raw_columns(public_client):
-    columns = {row[0] for row in public_client.query("DESCRIBE ssdf_public.graph_nodes").result_rows}
+    columns = {
+        row[0] for row in public_client.query("DESCRIBE ssdf_public.graph_nodes").result_rows
+    }
     assert columns == {"node_id", "tenant_id", "kind", "first_seen", "last_seen"}
 
 
 def test_public_edges_view_has_no_raw_columns(public_client):
-    columns = {row[0] for row in public_client.query("DESCRIBE ssdf_public.graph_edges").result_rows}
+    columns = {
+        row[0] for row in public_client.query("DESCRIBE ssdf_public.graph_edges").result_rows
+    }
     assert columns == {
         "edge_id",
         "tenant_id",
