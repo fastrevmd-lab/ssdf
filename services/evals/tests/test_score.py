@@ -176,7 +176,9 @@ def test_score_run_refuses_non_local_sovereign_model():
 
 
 def test_score_run_allows_local_sovereign_model():
-    scorecard = score_run(make_manifest(), CORPUS, *clients(), slop_secs=5)  # local=True, must not raise
+    scorecard = score_run(
+        make_manifest(), CORPUS, *clients(), slop_secs=5
+    )  # local=True, must not raise
     validate_scorecard(scorecard)
 
 

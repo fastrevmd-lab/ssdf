@@ -165,9 +165,7 @@ def test_token_map_local_only_defaults_false(monkeypatch, tmp_path):
 
 
 def test_token_map_local_only_true(monkeypatch, tmp_path):
-    f = _write_tokens(
-        tmp_path, {digest_for("tok"): {"principal": "p", "local_only": True}}
-    )
+    f = _write_tokens(tmp_path, {digest_for("tok"): {"principal": "p", "local_only": True}})
     monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
     tokens = load_token_map()
     assert tokens[digest_for("tok")].local_only is True
