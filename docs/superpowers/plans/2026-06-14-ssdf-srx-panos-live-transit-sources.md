@@ -4,7 +4,7 @@
 
 **Goal:** Make vm103 (Junos vSRX "ProductionSRX") and panosvm (PAN-OS 12.1.5) live, continuously-ingesting SSDF transit sources by placing one Alpine LXC endpoint behind each firewall and running a shared traffic generator that produces permitted internet egress plus deliberate denied DNS attempts.
 
-**Architecture:** Source-onboarding + lab infra ONLY — SSDF's read-only data path is unchanged (Vector `srx_ecs`/`panos_ecs` VRL and both deny paths already exist; no schema or MCP-tool change). Each firewall has an untrust leg on the flat LAN (`198.51.100.0/24` over vmbr0) and a trust leg on a Proxmox-only VLAN over vmbr1 whose tag matches the endpoint CTID (ct198→VLAN 198 `10.74.12.0/24`, ct199→VLAN 199 `10.74.11.0/24`). Firewall configs are applied via the external vendor MCPs (rust-junosmcp / panos-mcp), never by SSDF. ct115 is retired.
+**Architecture:** Source-onboarding + lab infra ONLY — SSDF's read-only data path is unchanged (Vector `srx_ecs`/`panos_ecs` VRL and both deny paths already exist; no schema or MCP-tool change). Each firewall has an untrust leg on the flat LAN (`198.51.100.0/24` over vmbr0) and a trust leg on a Proxmox-only VLAN over vmbr1 whose tag matches the endpoint CTID (ct198→VLAN 198 `192.0.2.0/24`, ct199→VLAN 199 `203.0.113.0/24`). Firewall configs are applied via the external vendor MCPs (rust-junosmcp / panos-mcp), never by SSDF. ct115 is retired.
 
 **Tech Stack:** Proxmox (pct/qm, proxmox-mcp), UniFi MCP (DHCP reservations), rust-junosmcp (Junos set-config), panos-mcp (PAN-OS config), Vector VRL (verify only), ClickHouse (verify), bash (the generator), Alpine/OpenRC.
 
@@ -40,7 +40,7 @@ No SSDF service code, schema, or Vector transform changes.
 - [ ] **Step 1: Create and switch to the feature branch**
 
 ```bash
-cd /home/mharman/SSDF
+cd /home/operator/SSDF
 git checkout main && git pull --ff-only
 git checkout -b m-srx-panos-live-transit
 git status
@@ -182,13 +182,13 @@ Expected: NO match for 198/199 (free); 115 present (ct115, to be retired later).
 ssh root@pve3.example.com 'pct create 198 local:vztmpl/alpine-3.22-default_20250617_amd64.tar.xz \
   --hostname ssdf-ep-srx --unprivileged 1 --cores 1 --memory 128 --swap 0 \
   --rootfs local-lvm:1 \
-  --net0 name=eth0,bridge=vmbr1,tag=198,ip=10.74.12.20/24,gw=10.74.12.1 \
+  --net0 name=eth0,bridge=vmbr1,tag=198,ip=192.0.2.20/24,gw=192.0.2.1 \
   --onboot 1 --start 1'
 
 ssh root@pve3.example.com 'pct create 199 local:vztmpl/alpine-3.22-default_20250617_amd64.tar.xz \
   --hostname ssdf-ep-panos --unprivileged 1 --cores 1 --memory 128 --swap 0 \
   --rootfs local-lvm:1 \
-  --net0 name=eth0,bridge=vmbr1,tag=199,ip=10.74.11.20/24,gw=10.74.11.1 \
+  --net0 name=eth0,bridge=vmbr1,tag=199,ip=203.0.113.20/24,gw=203.0.113.1 \
   --onboot 1 --start 1'
 ```
 
@@ -314,14 +314,14 @@ Apply this set-config via rust-junosmcp `load_and_commit_config` (router `vm103-
 
 ```
 set interfaces ge-0/0/0 unit 0 family inet address 198.51.100.240/24
-set interfaces ge-0/0/1 unit 0 family inet address 10.74.12.1/24
+set interfaces ge-0/0/1 unit 0 family inet address 192.0.2.1/24
 set routing-options static route 0.0.0.0/0 next-hop 198.51.100.1
 set security zones security-zone untrust interfaces ge-0/0/0.0
 set security zones security-zone trust interfaces ge-0/0/1.0 host-inbound-traffic system-services ping
 set security zones security-zone trust interfaces ge-0/0/1.0 host-inbound-traffic system-services dns
 set security nat source rule-set trust-to-untrust from zone trust
 set security nat source rule-set trust-to-untrust to zone untrust
-set security nat source rule-set trust-to-untrust rule snat-egress match source-address 10.74.12.0/24
+set security nat source rule-set trust-to-untrust rule snat-egress match source-address 192.0.2.0/24
 set security nat source rule-set trust-to-untrust rule snat-egress then source-nat interface
 set security address-book global address dns-cloudflare-1 1.1.1.2/32
 set security address-book global address dns-cloudflare-2 1.0.0.2/32
@@ -364,7 +364,7 @@ Expected: diff shows the new interfaces/zones/nat/policies/log stanza; commit re
 
 ```
 execute_junos_command(router_name="vm103-srx", command="show interfaces ge-0/0/0.0 terse")   # 198.51.100.240/24
-execute_junos_command(router_name="vm103-srx", command="show interfaces ge-0/0/1.0 terse")   # 10.74.12.1/24
+execute_junos_command(router_name="vm103-srx", command="show interfaces ge-0/0/1.0 terse")   # 192.0.2.1/24
 execute_junos_command(router_name="vm103-srx", command="show security policies from-zone trust to-zone untrust")
 ```
 
@@ -386,7 +386,7 @@ ssh root@pve3.example.com 'qm set 900 -net2 virtio=<PANOS_ETH12_MAC>,bridge=vmbr
 ssh root@pve3.example.com 'qm config 900 | grep -E "^net2:"'   # now tag=199
 ```
 
-Use the existing eth1/2 MAC from the first `grep` for `<PANOS_ETH12_MAC>` (keep the same MAC; only the tag changes). PAN-OS keeps `10.74.11.1/24` — only the L2 tag moves so it shares VLAN 199 with ct199. (ct199 was already created on tag 199 in Task 3.)
+Use the existing eth1/2 MAC from the first `grep` for `<PANOS_ETH12_MAC>` (keep the same MAC; only the tag changes). PAN-OS keeps `203.0.113.1/24` — only the L2 tag moves so it shares VLAN 199 with ct199. (ct199 was already created on tag 199 in Task 3.)
 
 - [ ] **Step 2: Preview the PAN-OS strict-DNS policy diff**
 
@@ -430,7 +430,7 @@ Expected: apk success on both (proves trust→untrust DNS/web egress works end-t
 
 ```bash
 for c in 198 199; do
-  ssh root@pve3.example.com "pct push $c /home/mharman/SSDF/scripts/labgen_endpoint.sh /usr/local/bin/labgen_endpoint.sh --perms 0755"
+  ssh root@pve3.example.com "pct push $c /home/operator/SSDF/scripts/labgen_endpoint.sh /usr/local/bin/labgen_endpoint.sh --perms 0755"
   ssh root@pve3.example.com "pct exec $c -- sh -c 'cat > /etc/init.d/labgen <<EOF
 #!/sbin/openrc-run
 name=\"labgen\"
@@ -444,7 +444,7 @@ chmod 0755 /etc/init.d/labgen && rc-update add labgen default && rc-service labg
 done
 ```
 
-Note: scp/`pct push` runs from pve3, but the file lives on the dev host. If pve3 cannot read `/home/mharman/...`, first `scp scripts/labgen_endpoint.sh root@pve3.example.com:/tmp/` then `pct push $c /tmp/labgen_endpoint.sh ...`.
+Note: scp/`pct push` runs from pve3, but the file lives on the dev host. If pve3 cannot read `/home/operator/...`, first `scp scripts/labgen_endpoint.sh root@pve3.example.com:/tmp/` then `pct push $c /tmp/labgen_endpoint.sh ...`.
 
 Expected: `labgen` added to the default runlevel and started on both; `pct exec $c -- rc-service labgen status` shows `started`.
 
@@ -502,7 +502,7 @@ Expected: a row for `srx` and a row for `paloalto` with `destination_ip = 8.8.8.
 
 - [ ] **Step 4: Confirm provenance bridge via the MCP (after one resolver cycle, ≤5 min)**
 
-On the sovereign MCP, `explain_access` for the SRX endpoint pair (`client=10.74.12.20`, `server=1.1.1.1` or the LAN gateway) and the PAN-OS pair (`10.74.11.20` → gateway). Expected: `firewall_basis:provenance`, `firewalls` containing the SRX / `panosvm` short name, `coverage.configured ≥ 1`.
+On the sovereign MCP, `explain_access` for the SRX endpoint pair (`client=192.0.2.20`, `server=1.1.1.1` or the LAN gateway) and the PAN-OS pair (`203.0.113.20` → gateway). Expected: `firewall_basis:provenance`, `firewalls` containing the SRX / `panosvm` short name, `coverage.configured ≥ 1`.
 
 - [ ] **Step 5: No repo change — proceed to Task 10.**
 
@@ -535,11 +535,11 @@ Expected: `ct115 removed` (status errors because it no longer exists). ct115 was
 
 - [ ] **Step 1: Write the SRX endpoint runbook**
 
-Create `onboarding/srx/transit-endpoint.md` capturing, with the REAL values recorded during execution: vm103 interface map (ge-0/0/0 untrust `.240`, ge-0/0/1 trust `10.74.12.1`, VLAN 198), the strict-DNS policy intent (allow DNS only to 198.51.100.1/1.1.1.2/1.0.0.2, deny+log rest → `flow_session_deny`), the stream-syslog stanza, ct198 build command, generator install (OpenRC service), and the UTC-clock requirement. Mirror the structure of `onboarding/proxmox/rsyslog.md` (deployment-values section + captured-samples section with one real `RT_FLOW_SESSION_DENY` line for 8.8.8.8).
+Create `onboarding/srx/transit-endpoint.md` capturing, with the REAL values recorded during execution: vm103 interface map (ge-0/0/0 untrust `.240`, ge-0/0/1 trust `192.0.2.1`, VLAN 198), the strict-DNS policy intent (allow DNS only to 198.51.100.1/1.1.1.2/1.0.0.2, deny+log rest → `flow_session_deny`), the stream-syslog stanza, ct198 build command, generator install (OpenRC service), and the UTC-clock requirement. Mirror the structure of `onboarding/proxmox/rsyslog.md` (deployment-values section + captured-samples section with one real `RT_FLOW_SESSION_DENY` line for 8.8.8.8).
 
 - [ ] **Step 2: Rewrite the PAN-OS transit runbook for ct199**
 
-Rewrite `onboarding/panos/transit-traffic.md`: replace the ct115/labgen_transit content with ct199 (`ssdf-ep-panos`, 10.74.11.20, VLAN 199 over vmbr1), the trust-NIC re-tag 103→199, the new strict-DNS rules (allow-dns-ok / deny-dns-other above the broad allow), and the shared `scripts/labgen_endpoint.sh` generator. Keep the existing verify queries (update VLAN/tag references).
+Rewrite `onboarding/panos/transit-traffic.md`: replace the ct115/labgen_transit content with ct199 (`ssdf-ep-panos`, 203.0.113.20, VLAN 199 over vmbr1), the trust-NIC re-tag 103→199, the new strict-DNS rules (allow-dns-ok / deny-dns-other above the broad allow), and the shared `scripts/labgen_endpoint.sh` generator. Keep the existing verify queries (update VLAN/tag references).
 
 - [ ] **Step 3: Delete the superseded single-shot generator**
 
@@ -590,4 +590,4 @@ Use `superpowers:finishing-a-development-branch`. Push and open a PR summarizing
 
 - **Spec coverage:** addressing/VLAN table → Task 3/6/7; UniFi reservations (.240, repoint .210) → Task 5; SRX config incl. UTC + strict-DNS + stream syslog → Task 6; panosvm strict-DNS + re-tag → Task 7; Alpine endpoints → Task 3; shared generator → Task 2/8; data-flow/live-proof (permit+deny, observer_hostname, 8.8.8.8) → Task 9; ct115 retire → Task 10; runbooks/supersede → Task 11; vSRX vNIC-ordering risk → Task 4 Step 4; SRX MAC-after-up risk → Task 5 uses the Proxmox vNIC MAC (known from vm config). The spec's "possible SRX deny VRL tweak" risk is RESOLVED — `flow_session_deny` already exists and is tested, so no VRL task is needed.
 - **No SSDF code/schema/transform change** — consistent with the read-only-fabric constraint.
-- **Naming consistency:** ct198=VLAN198=10.74.12.x=SRX everywhere; ct199=VLAN199=10.74.11.x=PAN-OS everywhere; generator `labgen_endpoint.sh` + test `labgen_endpoint_test.sh` consistent across Tasks 2/8/12.
+- **Naming consistency:** ct198=VLAN198=192.0.2.x=SRX everywhere; ct199=VLAN199=203.0.113.x=PAN-OS everywhere; generator `labgen_endpoint.sh` + test `labgen_endpoint_test.sh` consistent across Tasks 2/8/12.

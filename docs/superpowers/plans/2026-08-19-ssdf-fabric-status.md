@@ -271,7 +271,7 @@ Expected: PASS (6 tests)
 - [ ] **Step 5: Lint and commit**
 
 ```bash
-cd /home/mharman/Projects/SSDF
+cd /home/operator/Projects/SSDF
 ruff check services && ruff format --check services
 git add services/mcp-query/src/ssdf_mcp_query/fabric_manifest.py services/mcp-query/tests/test_fabric_manifest.py
 git commit -m "feat(mcp-query): declare fabric liveness subjects and their probe SQL"
@@ -533,7 +533,7 @@ Expected: PASS (9 tests)
 - [ ] **Step 5: Lint and commit**
 
 ```bash
-cd /home/mharman/Projects/SSDF
+cd /home/operator/Projects/SSDF
 ruff check services && ruff format --check services
 git add services/mcp-query/src/ssdf_mcp_query/fabric_tools.py services/mcp-query/tests/test_fabric_tools.py
 git commit -m "feat(mcp-query): fabric_status probes every declared subject, surfacing errors"
@@ -658,7 +658,7 @@ Add to `CLAUDE.md` under the M14d bullet that describes `ingest_status`:
 - [ ] **Step 8: Lint and commit**
 
 ```bash
-cd /home/mharman/Projects/SSDF
+cd /home/operator/Projects/SSDF
 ruff check services && ruff format --check services
 git add services/mcp-query CLAUDE.md
 git commit -m "feat(mcp-query): register fabric_status as a sovereign-only tool"
@@ -680,7 +680,7 @@ git commit -m "feat(mcp-query): register fabric_status as a sovereign-only tool"
 Guest 702 (`ssdf-sovereign-mcp`, was ct106) is an editable install at `/opt/src/mcp-query/src`.
 
 ```bash
-cd /home/mharman/Projects/SSDF
+cd /home/operator/Projects/SSDF
 scp -q services/mcp-query/src/ssdf_mcp_query/fabric_manifest.py root@pve2.example.com:/tmp/
 scp -q services/mcp-query/src/ssdf_mcp_query/fabric_tools.py root@pve2.example.com:/tmp/
 scp -q services/mcp-query/src/ssdf_mcp_query/classification.py root@pve2.example.com:/tmp/
@@ -736,7 +736,7 @@ Confirm the timer is running again afterwards: `pct exec 704 -- systemctl is-act
 Add a row to `docs/superpowers/STATUS.md` describing the tool, its deployment on guest 702, and the live verification result including the stall test.
 
 ```bash
-cd /home/mharman/Projects/SSDF
+cd /home/operator/Projects/SSDF
 git add docs/superpowers/STATUS.md
 git commit -m "docs(status): fabric_status deployed and live-verified"
 ```

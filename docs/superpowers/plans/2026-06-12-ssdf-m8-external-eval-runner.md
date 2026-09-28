@@ -9,7 +9,7 @@
 **Tech Stack:** Python 3.12 + uv; libs `pyyaml`, `jsonschema`, `mcp`, `ollama`, `httpx`. External live deps: `claude` CLI (Claude Code, OAuth auth), local Ollama (`qwen2.5-coder:7b`), SSDF MCP edges, ct104 ClickHouse.
 
 **Key constants (do not guess — these are verified):**
-- SSDF checkout: `/home/mharman/SSDF` (env `SSDF_ROOT`, default this path).
+- SSDF checkout: `/home/operator/SSDF` (env `SSDF_ROOT`, default this path).
 - Corpus: `$SSDF_ROOT/services/evals/golden/core.yaml`. Manifest schema: `$SSDF_ROOT/services/evals/schemas/manifest.schema.json`.
 - CA: `$SSDF_ROOT/infra/tls-local/ssdf-ca.crt`.
 - Endpoints: sovereign `https://198.51.100.152:30032/mcp`, public `https://198.51.100.154:30033/mcp`.
@@ -39,7 +39,7 @@
     test_core.py
 ```
 
-Scorecards are produced INTO `/home/mharman/SSDF/services/evals/results/` by the SSDF scorer (Task 8/10/11) — never written by the runner.
+Scorecards are produced INTO `/home/operator/SSDF/services/evals/results/` by the SSDF scorer (Task 8/10/11) — never written by the runner.
 
 ---
 
@@ -100,7 +100,7 @@ manifests/
 
 ```bash
 # Path to the SSDF checkout (corpus, schema, CA, tokens all read from here)
-SSDF_ROOT=/home/mharman/SSDF
+SSDF_ROOT=/home/operator/SSDF
 # Eval tokens live in $SSDF_ROOT/services/evals/infra/ENV.local — source that file
 # before running; do NOT copy token values here.
 ```
@@ -334,7 +334,7 @@ import os
 
 
 def _schema_path():
-    root = os.environ.get("SSDF_ROOT", "/home/mharman/SSDF")
+    root = os.environ.get("SSDF_ROOT", "/home/operator/SSDF")
     return Path(root) / "services" / "evals" / "schemas" / "manifest.schema.json"
 
 
@@ -408,7 +408,7 @@ def validate_manifest(manifest: dict, schema_path: Path) -> None:
 - [ ] **Step 4: Run to verify pass**
 
 ```bash
-cd ~/ssdf-eval-runner && SSDF_ROOT=/home/mharman/SSDF uv run pytest tests/test_core.py -q
+cd ~/ssdf-eval-runner && SSDF_ROOT=/home/operator/SSDF uv run pytest tests/test_core.py -q
 ```
 Expected: all passed (9 total).
 
@@ -544,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
 
-    root = Path(os.environ.get("SSDF_ROOT", "/home/mharman/SSDF"))
+    root = Path(os.environ.get("SSDF_ROOT", "/home/operator/SSDF"))
     corpus = root / "services" / "evals" / "golden" / "core.yaml"
     schema = root / "services" / "evals" / "schemas" / "manifest.schema.json"
     ca_file = str(root / "infra" / "tls-local" / "ssdf-ca.crt")
@@ -619,8 +619,8 @@ This is the first live integration test of the whole chain. Pin the exact CLI be
 
 ```bash
 cd ~/ssdf-eval-runner
-set -a; . /home/mharman/SSDF/services/evals/infra/ENV.local; set +a
-export SSDF_ROOT=/home/mharman/SSDF
+set -a; . /home/operator/SSDF/services/evals/infra/ENV.local; set +a
+export SSDF_ROOT=/home/operator/SSDF
 NODE_EXTRA_CA_CERTS=$SSDF_ROOT/infra/tls-local/ssdf-ca.crt \
 claude -p 'Which devices in the topology are firewalls? Answer with JSON: {"firewalls": ["<name>", ...]}' \
   --output-format json --strict-mcp-config \
@@ -650,10 +650,10 @@ Save the value as `$SSDF_RO_PW` in your shell. (This is the `ssdf_ro` query pass
 - [ ] **Step 4: Score the manifest**
 
 ```bash
-cd /home/mharman/SSDF/services/evals
+cd /home/operator/SSDF/services/evals
 set -a; . infra/ENV.local 2>/dev/null; . ../mcp-query/infra/ENV.local; set +a
 CH_HOST=198.51.100.151 CH_PORT=8443 CH_SECURE=1 \
-  CH_CA_FILE=/home/mharman/SSDF/infra/tls-local/ssdf-ca.crt \
+  CH_CA_FILE=/home/operator/SSDF/infra/tls-local/ssdf-ca.crt \
   CH_PASSWORD="$SSDF_RO_PW" \
   CH_AUDIT_VERIFY_PASSWORD="$CH_AUDIT_VERIFY_PASSWORD" \
   uv run python -m ssdf_evals.score ~/ssdf-eval-runner/manifests/claude-sovereign.json
@@ -663,7 +663,7 @@ Expected: `scored N/17 -> results/2026-06-12-claude-sonnet-4-6-...json`, exit 0.
 - [ ] **Step 5: Inspect the scorecard — confirm tool-checks joined audit**
 
 ```bash
-cd /home/mharman/SSDF/services/evals
+cd /home/operator/SSDF/services/evals
 ls -t results/*.json | head -1 | xargs python3 -m json.tool | \
   grep -E '"id"|"pass"|tools_observed' | head -60
 ```
@@ -672,7 +672,7 @@ Expected: questions with `required_tools` show non-empty `tools_observed` (prove
 - [ ] **Step 6: Commit the proving scorecard + note**
 
 ```bash
-cd /home/mharman/SSDF
+cd /home/operator/SSDF
 git add services/evals/results/*.json
 git commit -q -m "eval(m8): claude-sonnet-4-6 sovereign scorecard (first live run)"
 ```
@@ -687,8 +687,8 @@ Run AFTER Task 7 fully completes (same principal `eval-claude` — serial, non-o
 
 ```bash
 cd ~/ssdf-eval-runner
-set -a; . /home/mharman/SSDF/services/evals/infra/ENV.local; set +a
-export SSDF_ROOT=/home/mharman/SSDF
+set -a; . /home/operator/SSDF/services/evals/infra/ENV.local; set +a
+export SSDF_ROOT=/home/operator/SSDF
 uv run ssdf-eval-run --model claude --tier public --out manifests/claude-public.json
 ```
 Expected: 6 questions (`tier ∈ {public, both}`), `wrote manifests/claude-public.json`.
@@ -696,10 +696,10 @@ Expected: 6 questions (`tier ∈ {public, both}`), `wrote manifests/claude-publi
 - [ ] **Step 2: Score it**
 
 ```bash
-cd /home/mharman/SSDF/services/evals
+cd /home/operator/SSDF/services/evals
 set -a; . ../mcp-query/infra/ENV.local; set +a
 CH_HOST=198.51.100.151 CH_PORT=8443 CH_SECURE=1 \
-  CH_CA_FILE=/home/mharman/SSDF/infra/tls-local/ssdf-ca.crt \
+  CH_CA_FILE=/home/operator/SSDF/infra/tls-local/ssdf-ca.crt \
   CH_PASSWORD="$SSDF_RO_PW" CH_AUDIT_VERIFY_PASSWORD="$CH_AUDIT_VERIFY_PASSWORD" \
   uv run python -m ssdf_evals.score ~/ssdf-eval-runner/manifests/claude-public.json
 ```
@@ -708,7 +708,7 @@ Expected: `scored N/6 -> results/...`, exit 0. Public-containment is enforced by
 - [ ] **Step 3: Commit the scorecard**
 
 ```bash
-cd /home/mharman/SSDF
+cd /home/operator/SSDF
 git add services/evals/results/*.json
 git commit -q -m "eval(m8): claude-sonnet-4-6 public scorecard"
 ```
@@ -831,13 +831,13 @@ Run AFTER Tasks 7–8 (different principal, but keep strictly serial to be safe)
 
 ```bash
 cd ~/ssdf-eval-runner
-set -a; . /home/mharman/SSDF/services/evals/infra/ENV.local; set +a
+set -a; . /home/operator/SSDF/services/evals/infra/ENV.local; set +a
 uv run python -c "
 from ssdf_runner.qwen_adapter import run_question
 import os
 a,e = run_question('Which devices in the topology are firewalls? Answer with JSON: {\"firewalls\": [\"<name>\", ...]}',
   url='https://198.51.100.152:30032/mcp', token=os.environ['EVAL_QWEN_SOVEREIGN_TOKEN'],
-  ca_file='/home/mharman/SSDF/infra/tls-local/ssdf-ca.crt')
+  ca_file='/home/operator/SSDF/infra/tls-local/ssdf-ca.crt')
 print('answer', a, 'error', e)"
 ```
 Expected: a parsed answer or a clear error (7B may need the loop). If the MCP handshake fails on TLS, fix per Task 9 Step 2 before the full run.
@@ -846,7 +846,7 @@ Expected: a parsed answer or a clear error (7B may need the loop). If the MCP ha
 
 ```bash
 cd ~/ssdf-eval-runner
-export SSDF_ROOT=/home/mharman/SSDF
+export SSDF_ROOT=/home/operator/SSDF
 uv run ssdf-eval-run --model qwen --tier sovereign --out manifests/qwen-sovereign.json
 uv run ssdf-eval-run --model qwen --tier public   --out manifests/qwen-public.json
 ```
@@ -855,11 +855,11 @@ Expected: two manifests written (17 and 6 questions). Lower `ANSWER` rate than C
 - [ ] **Step 3: Score both**
 
 ```bash
-cd /home/mharman/SSDF/services/evals
+cd /home/operator/SSDF/services/evals
 set -a; . ../mcp-query/infra/ENV.local; set +a
 for m in qwen-sovereign qwen-public; do
   CH_HOST=198.51.100.151 CH_PORT=8443 CH_SECURE=1 \
-    CH_CA_FILE=/home/mharman/SSDF/infra/tls-local/ssdf-ca.crt \
+    CH_CA_FILE=/home/operator/SSDF/infra/tls-local/ssdf-ca.crt \
     CH_PASSWORD="$SSDF_RO_PW" CH_AUDIT_VERIFY_PASSWORD="$CH_AUDIT_VERIFY_PASSWORD" \
     uv run python -m ssdf_evals.score ~/ssdf-eval-runner/manifests/$m.json
 done
@@ -869,7 +869,7 @@ Expected: two `scored N/.. -> results/...` lines, exit 0 each.
 - [ ] **Step 4: Commit the scorecards**
 
 ```bash
-cd /home/mharman/SSDF
+cd /home/operator/SSDF
 git add services/evals/results/*.json
 git commit -q -m "eval(m8): qwen2.5-coder:7b sovereign + public scorecards"
 ```
@@ -880,13 +880,13 @@ git commit -q -m "eval(m8): qwen2.5-coder:7b sovereign + public scorecards"
 
 **Files:**
 - Create: `~/ssdf-eval-runner/README.md`
-- Modify: `/home/mharman/SSDF/docs/superpowers/STATUS.md`
-- Modify: `/home/mharman/SSDF/CLAUDE.md` (M8 section — add the live-run note)
+- Modify: `/home/operator/SSDF/docs/superpowers/STATUS.md`
+- Modify: `/home/operator/SSDF/CLAUDE.md` (M8 section — add the live-run note)
 
 - [ ] **Step 1: Run the regression gate on each new scorecard**
 
 ```bash
-cd /home/mharman/SSDF/services/evals
+cd /home/operator/SSDF/services/evals
 for sc in results/*claude-sonnet-4-6* results/*qwen2.5-coder*; do
   echo "== $sc =="; uv run python -m ssdf_evals.regress "$sc"; echo "exit $?"
 done
@@ -906,7 +906,7 @@ repo** — SSDF owns the corpus/contract/scorer; this owns the MCP client harnes
 ## Run
 
     set -a; . $SSDF_ROOT/services/evals/infra/ENV.local; set +a
-    export SSDF_ROOT=/home/mharman/SSDF
+    export SSDF_ROOT=/home/operator/SSDF
     uv run ssdf-eval-run --model claude --tier sovereign --out manifests/claude-sovereign.json
     uv run ssdf-eval-run --model qwen   --tier public    --out manifests/qwen-public.json
 
@@ -944,7 +944,7 @@ Add a short "M8 live-proven end-to-end" note to `docs/superpowers/STATUS.md` and
 - [ ] **Step 5: Commit the SSDF docs**
 
 ```bash
-cd /home/mharman/SSDF
+cd /home/operator/SSDF
 git add docs/superpowers/STATUS.md CLAUDE.md
 git commit -q -m "docs(m8): record external runner + 4 live scorecards (M8 end-to-end)"
 ```

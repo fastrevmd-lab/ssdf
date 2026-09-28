@@ -25,7 +25,7 @@ vendor MCPs (rust-junosmcp for Junos, panos-mcp for PAN-OS), never by SSDF.
   events. SRX and PAN-OS are lab VMs: SRX currently emits **0 events** (genuinely
   dead), and PAN-OS's current `paloalto` volume is **system noise**, not endpoint
   transit (confirmed: 577 system vs 16 transit events in a 2h window).
-- A prior generator, **ct115 `ssdf-labgen`** (10.74.11.20, 15-min cron), fed only
+- A prior generator, **ct115 `ssdf-labgen`** (203.0.113.20, 15-min cron), fed only
   the PAN-OS trust segment. This work supersedes it with a symmetric pair of
   endpoints (one per firewall) running a richer continuous daemon. ct115 is
   retired (its sole job was traffic generation).
@@ -40,11 +40,11 @@ syslog source IP must land in that band.
 | Element | Side | Network / VLAN | IP | Bridge / NIC |
 |---|---|---|---|---|
 | vm103 SRX `ge-0/0/0.0` | untrust | LAN 198.51.100.0/24 | **198.51.100.240/24** (new, free, in nft band) | vmbr0 |
-| vm103 SRX `ge-0/0/1.0` | trust | **VLAN 198** 10.74.12.0/24 | 10.74.12.1/24 (gateway) | vmbr1 tag 198 |
-| ct198 (Alpine) | trust | VLAN 198 10.74.12.0/24 | **10.74.12.20/24** | vmbr1 tag 198 |
+| vm103 SRX `ge-0/0/1.0` | trust | **VLAN 198** 192.0.2.0/24 | 192.0.2.1/24 (gateway) | vmbr1 tag 198 |
+| ct198 (Alpine) | trust | VLAN 198 192.0.2.0/24 | **192.0.2.20/24** | vmbr1 tag 198 |
 | panosvm `eth1/1` | untrust | LAN 198.51.100.0/24 | **198.51.100.210/24** (existing) | vmbr0 (net1) |
-| panosvm `eth1/2` | trust | **VLAN 199** 10.74.11.0/24 | 10.74.11.1/24 (gateway) | vmbr1 tag 199 (re-tag from 103) |
-| ct199 (Alpine) | trust | VLAN 199 10.74.11.0/24 | **10.74.11.20/24** | vmbr1 tag 199 |
+| panosvm `eth1/2` | trust | **VLAN 199** 203.0.113.0/24 | 203.0.113.1/24 (gateway) | vmbr1 tag 199 (re-tag from 103) |
+| ct199 (Alpine) | trust | VLAN 199 203.0.113.0/24 | **203.0.113.20/24** | vmbr1 tag 199 |
 | panosvm mgmt / syslog source | — | LAN | 198.51.100.225 (existing reservation) | — |
 
 Decisions locked during brainstorming:
@@ -56,8 +56,8 @@ Decisions locked during brainstorming:
   firewall trust NIC tag). **No UniFi network objects** are created for 198/199;
   UniFi never sees them. ct198↔vm103 and ct199↔panosvm L2 stays local to pve3's
   vmbr1.
-- PAN-OS trust keeps its existing subnet `10.74.11.0/24` and IP `10.74.11.1`; only
-  the bridge VLAN tag changes 103→199, and ct199 reuses ct115's old `10.74.11.20`.
+- PAN-OS trust keeps its existing subnet `203.0.113.0/24` and IP `203.0.113.1`; only
+  the bridge VLAN tag changes 103→199, and ct199 reuses ct115's old `203.0.113.20`.
 - **untrust side** is the flat LAN over vmbr0. The only UniFi-side changes are two
   LAN reservations (below).
 
@@ -81,7 +81,7 @@ Reachable today on its fxp0 management lease `198.51.100.222` (hostname `vSRX-A`
 
 - `ge-0/0/0.0` untrust = `198.51.100.240/24`, security-zone `untrust`; default
   route `0.0.0.0/0` → `198.51.100.1`.
-- `ge-0/0/1.0` trust = `10.74.12.1/24` (the vNIC mapped to vmbr1 tag 198),
+- `ge-0/0/1.0` trust = `192.0.2.1/24` (the vNIC mapped to vmbr1 tag 198),
   security-zone `trust`; host-inbound DNS/ping as needed for the endpoint.
 - **Source NAT** trust→untrust: interface NAT (translate to `ge-0/0/0`).
 - **Security policies** trust→untrust:
@@ -99,10 +99,10 @@ Reachable today on its fxp0 management lease `198.51.100.222` (hostname `vSRX-A`
 
 ### panosvm (applied via panos-mcp; preview with `pan_config_diff`, commit with `load_and_commit_pan_config`)
 
-- Keep eth1/1 untrust `.210`, eth1/2 trust `10.74.11.1`, existing SNAT and
+- Keep eth1/1 untrust `.210`, eth1/2 trust `203.0.113.1`, existing SNAT and
   log-forwarding profile to `198.51.100.150:515` (pinned to PAN-OS 12.1 shape).
 - Bridge re-tag 103→199 is a Proxmox-side change on the panosvm trust NIC, not a
-  PAN-OS config change (PAN-OS keeps `10.74.11.1`).
+  PAN-OS config change (PAN-OS keeps `203.0.113.1`).
 - Add the **same strict-DNS policy** trust→untrust: permit DNS only to the three
   resolvers, permit web/ICMP, **deny-and-log** the rest; `log-end` (and log-start
   on deny) on the relevant rules so permits and denies both forward to SSDF.
@@ -114,8 +114,8 @@ Reachable today on its fxp0 management lease `198.51.100.222` (hostname `vSRX-A`
 Two Alpine LXCs on pve3 (VMIDs **198**, **199** — not in the protected list).
 
 - One NIC each on **vmbr1** with the matching VLAN tag (198 / 199).
-- Static IP `10.74.12.20/24` (ct198) / `10.74.11.20/24` (ct199); default route to
-  the firewall trust gateway (`10.74.12.1` / `10.74.11.1`); `/etc/resolv.conf`
+- Static IP `192.0.2.20/24` (ct198) / `203.0.113.20/24` (ct199); default route to
+  the firewall trust gateway (`192.0.2.1` / `203.0.113.1`); `/etc/resolv.conf`
   nameserver `198.51.100.1` (an allowed resolver, so normal lookups succeed).
 - `apk add bash curl bind-tools` (bash for `/dev/tcp`; bind-tools for `nslookup`).
 - The traffic daemon runs under OpenRC/busybox `crond` (Alpine has no systemd) —

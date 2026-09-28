@@ -215,17 +215,17 @@ KEY = bytes.fromhex("00112233445566778899aabbccddeeff")
 
 
 def test_surrogate_is_deterministic():
-    assert surrogate(KEY, "host", "10.74.11.20") == surrogate(KEY, "host", "10.74.11.20")
+    assert surrogate(KEY, "host", "203.0.113.20") == surrogate(KEY, "host", "203.0.113.20")
 
 
 def test_surrogate_has_kind_prefix():
-    assert surrogate(KEY, "host", "10.74.11.20").startswith("h_")
+    assert surrogate(KEY, "host", "203.0.113.20").startswith("h_")
     assert surrogate(KEY, "firewall", "panosvm").startswith("fw_")
 
 
 def test_surrogate_changes_with_key():
     other = bytes.fromhex("ffeeddccbbaa99887766554433221100")
-    assert surrogate(KEY, "host", "10.74.11.20") != surrogate(other, "host", "10.74.11.20")
+    assert surrogate(KEY, "host", "203.0.113.20") != surrogate(other, "host", "203.0.113.20")
 
 
 def test_surrogate_unknown_kind_raises():
@@ -235,15 +235,15 @@ def test_surrogate_unknown_kind_raises():
 
 
 def test_mint_reuses_existing_map_entry():
-    existing = {("host", "10.74.11.20"): "h_deadbeef00"}
-    assert mint_surrogate(existing, KEY, "host", "10.74.11.20") == "h_deadbeef00"
+    existing = {("host", "203.0.113.20"): "h_deadbeef00"}
+    assert mint_surrogate(existing, KEY, "host", "203.0.113.20") == "h_deadbeef00"
 
 
 def test_mint_lengthens_on_collision_with_different_value():
     # Force a collision: a DIFFERENT real_value already holds the base-length surrogate.
-    base = surrogate(KEY, "host", "10.74.11.20")
+    base = surrogate(KEY, "host", "203.0.113.20")
     existing = {("host", "1.2.3.4"): base}
-    minted = mint_surrogate(existing, KEY, "host", "10.74.11.20", base_length=len(base) - 2)
+    minted = mint_surrogate(existing, KEY, "host", "203.0.113.20", base_length=len(base) - 2)
     assert minted != base
     assert minted.startswith("h_")
 ```
@@ -712,12 +712,12 @@ def test_reader_aggregate_series_returns_rows():
 
 def test_reader_load_pseudonym_map_keys_by_kind_value():
     fake = _FakeClient({"cols": ["kind", "real_value", "surrogate"],
-                        "rows": [["host", "10.74.11.20", "h_abc"]]})
+                        "rows": [["host", "203.0.113.20", "h_abc"]]})
     reader = EventsReader.__new__(EventsReader)
     reader._client = fake
     reader._tenant = "t_main"
     out = reader.load_pseudonym_map(["host"])
-    assert out == {("host", "10.74.11.20"): "h_abc"}
+    assert out == {("host", "203.0.113.20"): "h_abc"}
 
 
 def test_writer_insert_metric_rows_uses_columns():
@@ -915,8 +915,8 @@ class _FakeReader:
 
     def entity_bucket_series(self, metric, since_iso, bucket_secs):
         return [
-            {"bucket_start": "2026-06-19 00:00:00", "ip": "10.74.11.20", "value": 80.0},
-            {"bucket_start": "2026-06-19 00:00:00", "ip": "10.74.11.21", "value": 20.0},
+            {"bucket_start": "2026-06-19 00:00:00", "ip": "203.0.113.20", "value": 80.0},
+            {"bucket_start": "2026-06-19 00:00:00", "ip": "203.0.113.21", "value": 20.0},
         ]
 
     def deny_counts(self, since_iso):
@@ -943,10 +943,10 @@ def test_plan_writes_aggregate_and_index_and_entity():
     # entity series limited to top_n=1 surrogate, never the raw IP
     assert len(plan.entity_rows) == 1
     assert plan.entity_rows[0]["surrogate"].startswith("h_")
-    assert "10.74.11.20" not in plan.entity_rows[0]["surrogate"]
+    assert "203.0.113.20" not in plan.entity_rows[0]["surrogate"]
     # a pseudonym-map upsert was minted for the surfaced IP
     assert plan.map_rows and plan.map_rows[0]["kind"] == "host"
-    assert plan.map_rows[0]["real_value"] == "10.74.11.20"
+    assert plan.map_rows[0]["real_value"] == "203.0.113.20"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1450,12 +1450,12 @@ def test_top_series_groups_by_surrogate():
 
 
 def test_reidentify_reads_sovereign_map():
-    fake = _FakeClient([{"kind": "host", "real_value": "10.74.11.20"}])
+    fake = _FakeClient([{"kind": "host", "real_value": "203.0.113.20"}])
     store = MetricsStore(fake)
     out = store.reidentify("h_abc")
     sql = fake.calls[0][0]
     assert "ssdf.pseudonym_map" in sql and "FINAL" in sql
-    assert out["entity"]["real_value"] == "10.74.11.20"
+    assert out["entity"]["real_value"] == "203.0.113.20"
 
 
 def test_reidentify_unknown_surrogate_returns_null_entity():

@@ -791,7 +791,7 @@ def test_observed_by_normalizes_and_dedupes_firewalls():
     ent = {
         "entity_id": "A",
         "name": "ep-panos",
-        "identifiers": {"ip": "10.74.11.20", "mac": "aa:bb:cc:dd:ee:ff"},
+        "identifiers": {"ip": "203.0.113.20", "mac": "aa:bb:cc:dd:ee:ff"},
     }
     store = _StoreObservers(
         ent,
@@ -801,10 +801,10 @@ def test_observed_by_normalizes_and_dedupes_firewalls():
             {"observer_hostname": "vSRX-Production"},
         ],
     )
-    out = AccessTools(store, _FakeTopo([], {"found": False})).observed_by("10.74.11.20")
+    out = AccessTools(store, _FakeTopo([], {"found": False})).observed_by("203.0.113.20")
     assert out["entity"]["entity_id"] == "A"
     assert out["firewalls"] == ["panosvm", "vSRX-Production"]
-    assert "10.74.11.20" in store.seen_ips
+    assert "203.0.113.20" in store.seen_ips
     assert "aa:bb:cc:dd:ee:ff" not in store.seen_ips
 
 

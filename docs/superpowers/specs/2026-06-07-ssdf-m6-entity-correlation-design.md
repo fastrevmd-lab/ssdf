@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-07
 - **Status:** Approved design (pre-implementation)
-- **Authors:** mharman + Claude
+- **Authors:** operator + Claude
 - **Milestone:** M6 (entity layer / GraphStore seam) per
   `docs/superpowers/specs/2026-06-06-ssdf-v0-simplified-design.md` §5 and `docs/superpowers/STATUS.md`.
 - **Build scope of this spec:** the **full M6 architecture** is described here; **only M6a is

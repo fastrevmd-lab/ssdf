@@ -158,7 +158,7 @@ auto-excluded from public. Correct: flow provenance is sovereign-only.
   sovereign-only registration; `classification.py` map entries for both new tools.
 - **Corpus lint** stays green (unit-tested in `services/evals`).
 - **Live integration:** `configured_policies("panosvm")` → count 7;
-  `topology_snapshot(role="firewall")` → the live firewall set; `observed_by("10.74.11.20")`
+  `topology_snapshot(role="firewall")` → the live firewall set; `observed_by("203.0.113.20")`
   → surfaces the observing firewall(s).
 - **End-to-end:** re-run the claude sovereign eval after deploy. Expect #3/#6/#5 to flip
   green deterministically; #1/#2 remain probabilistic (description nudge only). Commit the new

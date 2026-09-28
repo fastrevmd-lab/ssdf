@@ -10,7 +10,7 @@
 
 **Design spec:** `docs/superpowers/specs/2026-06-08-m6c-scopeb-provenance-firewall-attribution-design.md`
 
-**Worktree:** `/home/mharman/SSDF-m6c-scopeb` (branch `m6c-scopeb-provenance`, off `origin/main`). All paths below are relative to this worktree.
+**Worktree:** `/home/operator/SSDF-m6c-scopeb` (branch `m6c-scopeb-provenance`, off `origin/main`). All paths below are relative to this worktree.
 
 ---
 
@@ -123,7 +123,7 @@ name = "panos_observer_hostname_from_syslog_host"
 [[tests.inputs]]
 insert_at = "panos_ecs"
 type = "raw"
-value = '<14>Jun 06 23:20:00 panosvm.example.com ,2026/06/06 23:20:00,007054000270810,TRAFFIC,end,,2026/06/06 23:20:00,10.74.11.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40001,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:19:30,30,any,,1001,0x0,10.74.11.0-10.74.11.255,US,,22,18,tcp-fin'
+value = '<14>Jun 06 23:20:00 panosvm.example.com ,2026/06/06 23:20:00,007054000012345,TRAFFIC,end,,2026/06/06 23:20:00,203.0.113.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40001,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:19:30,30,any,,1001,0x0,203.0.113.0-203.0.113.255,US,,22,18,tcp-fin'
 [[tests.outputs]]
 extract_from = "panos_ecs"
 [[tests.outputs.conditions]]

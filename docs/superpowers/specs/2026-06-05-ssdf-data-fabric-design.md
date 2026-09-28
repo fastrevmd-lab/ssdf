@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-05
 - **Status:** Approved design (pre-implementation)
-- **Authors:** mharman + Claude
+- **Authors:** operator + Claude
 - **Scope of this spec:** the minimal v0 backend — ingest, normalize, store, query, correlate, and expose read-only MCP tools.
 
 ---

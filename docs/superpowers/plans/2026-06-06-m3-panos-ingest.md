@@ -12,8 +12,8 @@
 
 ## Ground truth (live device, captured 2026-06-06)
 
-- **Device:** `panosvm` in panos-mcp inventory, mgmt `198.51.100.225`, **PAN-OS 12.1.5**, PA-VM, serial `007054000270810`.
-- **Zones:** `untrust` (eth1/1), `trust` (eth1/2, 10.74.11.1/24), `DMZ`. Data subnets: untrust 198.51.100.0/24, trust 10.74.11.0/24, plus address objects in 10.50.x / 10.80.x.
+- **Device:** `panosvm` in panos-mcp inventory, mgmt `198.51.100.225`, **PAN-OS 12.1.5**, PA-VM, serial `007054000012345`.
+- **Zones:** `untrust` (eth1/1), `trust` (eth1/2, 203.0.113.1/24), `DMZ`. Data subnets: untrust 198.51.100.0/24, trust 203.0.113.0/24, plus address objects in 10.50.x / 10.80.x.
 - **Rules:** 5 security rules, all `log-end yes` → TRAFFIC logs are being generated now.
 - **`hostname-type-in-syslog FQDN`** → forwarded syslog hostname = `panosvm.example.com`. Timezone US/Eastern.
 - **No** existing syslog-server-profile / log-forwarding-profile / device log-settings — onboarding creates them.
@@ -128,9 +128,9 @@ Notes for the implementer:
 
 Example TRAFFIC test input (allow/end) — adjust to your exact field count:
 ```
-<14>Jun 06 23:20:00 panosvm.example.com ,2026/06/06 23:20:00,007054000270810,TRAFFIC,end,,2026/06/06 23:20:00,10.74.11.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40001,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:19:30,30,any,,1001,0x0,10.74.11.0-10.74.11.255,US,,22,18,tcp-fin
+<14>Jun 06 23:20:00 panosvm.example.com ,2026/06/06 23:20:00,007054000012345,TRAFFIC,end,,2026/06/06 23:20:00,203.0.113.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40001,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:19:30,30,any,,1001,0x0,203.0.113.0-203.0.113.255,US,,22,18,tcp-fin
 ```
-Assert: `event_action == "flow_end"`, `event_outcome == "success"`, `event_provider == "paloalto"`, `source_ip == "10.74.11.50"`, `destination_ip == "198.51.100.20"`, `source_port == 52344`, `destination_port == 443`, `network_transport == "tcp"`, `source_bytes == 3000`, `destination_bytes == 5000`, `network_bytes == 8000`, `rule_name == "allow-trust-to-untrust"`, `observer_ingress_zone == "trust"`, `observer_egress_zone == "untrust"`, `ext."panw.panos.session_id" == "40001"`, `ext."panw.panos.session_end_reason" == "tcp-fin"`.
+Assert: `event_action == "flow_end"`, `event_outcome == "success"`, `event_provider == "paloalto"`, `source_ip == "203.0.113.50"`, `destination_ip == "198.51.100.20"`, `source_port == 52344`, `destination_port == 443`, `network_transport == "tcp"`, `source_bytes == 3000`, `destination_bytes == 5000`, `network_bytes == 8000`, `rule_name == "allow-trust-to-untrust"`, `observer_ingress_zone == "trust"`, `observer_egress_zone == "untrust"`, `ext."panw.panos.session_id" == "40001"`, `ext."panw.panos.session_end_reason" == "tcp-fin"`.
 
 - [ ] **Step 5: Run unit tests** — `vector test infra/vector/vector.toml`. Expected: all tests (existing SRX + new PAN-OS) PASS.
 

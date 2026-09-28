@@ -39,13 +39,13 @@ def test_reader_aggregate_series_returns_rows():
 
 def test_reader_load_pseudonym_map_keys_by_kind_value():
     fake = _FakeClient(
-        {"cols": ["kind", "real_value", "surrogate"], "rows": [["host", "10.74.11.20", "h_abc"]]}
+        {"cols": ["kind", "real_value", "surrogate"], "rows": [["host", "203.0.113.20", "h_abc"]]}
     )
     reader = EventsReader.__new__(EventsReader)
     reader._client = fake
     reader._tenant = "t_main"
     out = reader.load_pseudonym_map(["host"])
-    assert out == {("host", "10.74.11.20"): "h_abc"}
+    assert out == {("host", "203.0.113.20"): "h_abc"}
 
 
 def test_writer_insert_metric_rows_uses_columns():

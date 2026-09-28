@@ -775,7 +775,7 @@ git commit -m "docs(m11): backfill real captured Proxmox samples + fixture recon
 
 **Files:**
 - Modify: `docs/superpowers/STATUS.md`, `CLAUDE.md`
-- Modify (memory): `~/.claude/projects/-home-mharman-SSDF/memory/` (project memory + MEMORY.md pointer)
+- Modify (memory): `~/.claude/projects/-home-operator-SSDF/memory/` (project memory + MEMORY.md pointer)
 
 - [ ] **Step 1: Add the M11 as-built row** to the STATUS.md table (after the M9 row) and an
 M11 entry to the forward roadmap "Later sources" line (mark Proxmox ✅ done), and bump
