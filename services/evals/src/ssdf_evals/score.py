@@ -41,7 +41,9 @@ def _connect(config: Config):
     """(query client as ssdf_ro-style user, audit client as ssdf_audit_verify)."""
     query_client = clickhouse_connect.get_client(**client_kwargs(config))
     audit_client = clickhouse_connect.get_client(
-        **client_kwargs(config, username="ssdf_audit_verify", password=config.audit_verify_password)
+        **client_kwargs(
+            config, username="ssdf_audit_verify", password=config.audit_verify_password.get()
+        )
     )
     return query_client, audit_client
 

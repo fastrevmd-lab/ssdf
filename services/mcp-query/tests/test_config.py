@@ -94,7 +94,19 @@ def test_audit_conn_fields(monkeypatch):
     monkeypatch.delenv("MCP_TOKEN_FILE", raising=False)
     cfg = load_config()
     assert cfg.ch_audit_user == "ssdf_audit"
-    assert cfg.ch_audit_password == "apw"
+    assert cfg.ch_audit_password.get() == "apw"
+
+
+def test_audit_passwords_do_not_leak_via_repr(monkeypatch):
+    monkeypatch.setenv("CH_PASSWORD", "pw")
+    monkeypatch.setenv("MCP_AUTH_TOKEN", "inline")
+    monkeypatch.setenv("CH_AUDIT_PASSWORD", "FAKEaudit")
+    monkeypatch.setenv("CH_AUDIT_VERIFY_PASSWORD", "FAKEverify")
+    monkeypatch.delenv("MCP_TOKENS_FILE", raising=False)
+    monkeypatch.delenv("MCP_TOKEN_FILE", raising=False)
+    cfg = load_config()
+    assert "FAKEaudit" not in repr(cfg)
+    assert "FAKEverify" not in repr(cfg)
 
 
 def test_load_config_reads_query_limit_envs(monkeypatch):

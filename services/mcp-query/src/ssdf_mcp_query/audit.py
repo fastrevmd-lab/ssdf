@@ -123,7 +123,7 @@ def _seed_last_hash(config, tier: str) -> str:
         host=config.ch_host,
         port=config.ch_port,
         username="ssdf_audit_verify",
-        password=config.ch_audit_verify_password,
+        password=config.ch_audit_verify_password.get(),
         database=config.ch_database,
         **ch_tls_kwargs(config),
     )
@@ -159,7 +159,7 @@ def make_ch_auditor(config, tier: str = "sovereign") -> Auditor:
         host=config.ch_host,
         port=config.ch_port,
         username=config.ch_audit_user,
-        password=config.ch_audit_password,
+        password=config.ch_audit_password.get(),
         database=config.ch_database,
         **ch_tls_kwargs(config),
     )

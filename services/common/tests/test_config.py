@@ -102,6 +102,26 @@ def test_secret_equality_is_by_value():
     assert Secret("hunter2") != "hunter2"  # not equal to a plain str
 
 
+def test_secret_wraps_bytes():
+    key = bytes.fromhex("00112233")
+    secret = Secret(key)
+    assert secret.get() == key
+    assert "00112233" not in repr(secret)
+    assert Secret(key) == Secret(bytes.fromhex("00112233"))
+    assert Secret(key) != Secret(bytes.fromhex("44556677"))
+
+
+def test_secret_bytes_and_str_of_equal_content_are_not_equal():
+    assert Secret("ab") != Secret(b"ab")
+
+
+def test_secret_bool_reflects_wrapped_value_truthiness():
+    assert not Secret("")
+    assert not Secret(b"")
+    assert Secret("x")
+    assert Secret(b"x")
+
+
 def test_require_tls_or_loopback_allows_loopback_plaintext():
     require_tls_or_loopback("127.0.0.1", secure=False)
     require_tls_or_loopback("localhost", secure=False)

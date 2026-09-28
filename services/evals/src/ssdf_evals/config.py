@@ -24,7 +24,7 @@ class Config:
     ch_database: str
     ch_secure: bool
     ch_ca_file: str
-    audit_verify_password: str
+    audit_verify_password: Secret
     audit_slop_secs: int
 
 
@@ -43,7 +43,7 @@ def load_config() -> Config:
         ch_database=os.environ.get("CH_DATABASE", "ssdf"),
         ch_secure=os.environ.get("CH_SECURE", "0").strip().lower() in ("1", "true"),
         ch_ca_file=os.environ.get("CH_CA_FILE", ""),
-        audit_verify_password=audit_verify_password,
+        audit_verify_password=Secret(audit_verify_password),
         audit_slop_secs=int(os.environ.get("EVAL_AUDIT_SLOP_SECS", "5")),
     )
 
