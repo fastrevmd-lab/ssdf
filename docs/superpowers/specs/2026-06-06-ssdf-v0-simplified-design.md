@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-06
 - **Status:** Approved design (pre-implementation)
-- **Authors:** mharman + Claude
+- **Authors:** operator + Claude
 - **Supersedes (for v0):** `2026-06-05-ssdf-data-fabric-design.md`. That document's long-term
   vision (sovereignty model, read-only boundary, eventual entity graph, service/MCP surface)
   still stands. This document **replaces its v0/v0.1 build** with a smaller, phased footprint

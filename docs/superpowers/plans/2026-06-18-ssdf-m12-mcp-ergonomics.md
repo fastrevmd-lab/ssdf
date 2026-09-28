@@ -43,7 +43,7 @@ def test_build_observers_for_ips_sql():
     from ssdf_mcp_query.entitystore import build_observers_for_ips_sql
 
     sql, params = build_observers_for_ips_sql(
-        ["10.74.11.20", "198.51.100.1"], "2026-06-18T00:00:00.000+00:00", "t_main")
+        ["203.0.113.20", "198.51.100.1"], "2026-06-18T00:00:00.000+00:00", "t_main")
     assert "observer_hostname" in sql
     assert "ssdf.events" in sql
     assert "observer_hostname != ''" in sql
@@ -51,7 +51,7 @@ def test_build_observers_for_ips_sql():
     assert "toString(source_ip) IN {ips:Array(String)}" in sql
     assert "toString(destination_ip) IN {ips:Array(String)}" in sql
     assert "{since:String}" in sql
-    assert params == {"tenant": "t_main", "ips": ["10.74.11.20", "198.51.100.1"],
+    assert params == {"tenant": "t_main", "ips": ["203.0.113.20", "198.51.100.1"],
                       "since": "2026-06-18T00:00:00.000+00:00"}
 ```
 
@@ -120,9 +120,9 @@ def test_observers_for_ips_method_runs_builder_and_returns_rows():
 
     ch = _FakeCH()
     store = ClickHouseEntityStore(ch, tenant="t_main")
-    rows = store.observers_for_ips(["10.74.11.20"], "2026-06-18T00:00:00.000+00:00")
+    rows = store.observers_for_ips(["203.0.113.20"], "2026-06-18T00:00:00.000+00:00")
     assert rows == [{"observer_hostname": "panosvm.example.com"}]
-    assert ch.calls and ch.calls[0][1]["ips"] == ["10.74.11.20"]
+    assert ch.calls and ch.calls[0][1]["ips"] == ["203.0.113.20"]
 
 
 def test_observers_for_ips_empty_ips_short_circuits():
@@ -226,15 +226,15 @@ class _StoreObservers:
 
 def test_observed_by_normalizes_and_dedupes_firewalls():
     ent = {"entity_id": "A", "name": "ep-panos",
-           "identifiers": {"ip": "10.74.11.20", "mac": "aa:bb:cc:dd:ee:ff"}}
+           "identifiers": {"ip": "203.0.113.20", "mac": "aa:bb:cc:dd:ee:ff"}}
     store = _StoreObservers(ent, [{"observer_hostname": "panosvm.example.com"},
                                   {"observer_hostname": "panosvm.example.com"},
                                   {"observer_hostname": "vSRX-Production"}])
-    out = AccessTools(store, _FakeTopo([], {"found": False})).observed_by("10.74.11.20")
+    out = AccessTools(store, _FakeTopo([], {"found": False})).observed_by("203.0.113.20")
     assert out["entity"]["entity_id"] == "A"
     assert out["firewalls"] == ["panosvm", "vSRX-Production"]
     # the lookup arg IP is among the queried IPs; the MAC is excluded
-    assert "10.74.11.20" in store.seen_ips
+    assert "203.0.113.20" in store.seen_ips
     assert "aa:bb:cc:dd:ee:ff" not in store.seen_ips
 
 
@@ -793,7 +793,7 @@ contract (matching `reach-firewall-attribution`'s `splitByChar`). Edit the
     type: reference_sql
     sql: >-
       SELECT DISTINCT splitByChar('.', observer_hostname)[1] FROM ssdf.events
-      WHERE source_ip = toIPv6('10.74.11.20') AND observer_hostname != ''
+      WHERE source_ip = toIPv6('203.0.113.20') AND observer_hostname != ''
     match: set_overlap
     answer_key: firewalls
     params: {min_overlap: 1}
@@ -865,7 +865,7 @@ Expected: `active`. Public ct113 is unchanged (no redeploy — the new tools nev
 Against the live sovereign MCP endpoint (or via `clickhouse-client` to cross-check):
 - `configured_policies("panosvm")` → one firewall bucket with `count == 7`.
 - `topology_snapshot(role="firewall")` → exactly the firewall set recorded in Task 9 Step 1.
-- `observed_by("10.74.11.20")` → `firewalls` includes `panosvm`.
+- `observed_by("203.0.113.20")` → `firewalls` includes `panosvm`.
 
 - [ ] **Step 5: Re-run the claude sovereign eval and commit the scorecard**
 

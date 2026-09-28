@@ -83,8 +83,8 @@ guests* — this table is the authority for anything you actually run.
 | Sovereign MCP | **702** `ssdf-sovereign-mcp` | ct106 | pve2 | 198.51.100.152 |
 | Public MCP | **703** `ssdf-public-mcp` | ct113 | pve2 | 198.51.100.154 |
 | Resolvers (topo/entity/policy/public-metrics/health) | **704** `ssdf-topo` | ct109 | pve2 | 198.51.100.153 |
-| Traffic gen (SRX) | **710** `ssdf-traffic-gen-srx` | ct198 | pve2 | 10.74.12.20 |
-| Traffic gen (PAN-OS) | **711** `ssdf-traffic-gen-panos` | ct199 | pve2 | 10.74.11.20 |
+| Traffic gen (SRX) | **710** `ssdf-traffic-gen-srx` | ct198 | pve2 | 192.0.2.20 |
+| Traffic gen (PAN-OS) | **711** `ssdf-traffic-gen-panos` | ct199 | pve2 | 203.0.113.20 |
 
 Resolve a guest's node before node-local commands — guests migrate:
 `pvesh get /cluster/resources --type vm`. Reach them as
@@ -281,8 +281,8 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 - **Lab transit traffic (Phase 2, 2026-06-15):** TWO Alpine endpoints run the shared
   `scripts/labgen_endpoint.sh` daemon (OpenRC service `labgen`, not cron — it self-loops
   ~30s jittered) so BOTH firewalls can be live-proven as SSDF transit sources on demand:
-  guest 710 `ssdf-traffic-gen-srx` (was ct198 `ssdf-ep-srx`; 10.74.12.20/24, gw 10.74.12.1) behind vsrx-prod trust VLAN 198,
-  and guest 711 `ssdf-traffic-gen-panos` (was ct199 `ssdf-ep-panos`; 10.74.11.20/24, gw 10.74.11.1) behind panosvm trust VLAN 199.
+  guest 710 `ssdf-traffic-gen-srx` (was ct198 `ssdf-ep-srx`; 192.0.2.20/24, gw 192.0.2.1) behind vsrx-prod trust VLAN 198,
+  and guest 711 `ssdf-traffic-gen-panos` (was ct199 `ssdf-ep-panos`; 203.0.113.20/24, gw 203.0.113.1) behind panosvm trust VLAN 199.
   Trust VLANs are Proxmox-only bridge tags on vmbr1 (VLAN id = endpoint CTID, no UniFi net
   object). The generator produces permitted internet egress PLUS a deliberate denied DNS
   attempt (firewalls allow DNS only to approved resolvers 198.51.100.1/1.1.1.2/1.0.0.2;
@@ -315,7 +315,7 @@ Device naming: see docs/naming-standard.md (fleet role-renamed 2026-07-06).
 ### M9 (UniFi Gateway Max Suricata IPS ingest — Vector CEF → ClickHouse)
 - SSDF's first **detection-class** source (prior sources SRX/PAN-OS were flow/traffic). UniFi Gateway Max Suricata IPS/IDS alerts ingest via remote syslog on Vector ct102 UDP **port 516** (SRX=514, PAN-OS=515, each a separate source to avoid collision) → `ssdf.events`. Merged to `main` (merge `818a984`); **end-to-end live-proven 2026-06-14**.
 - Run Vector unit tests (on ct102 where Vector is installed): `ssh root@pve2.example.com "pct exec 700 -- bash -c 'cd /etc/vector && vector test vector.toml'"` — 20/20 incl. the UniFi CEF suite. Validate locally (syntax only): `CH_HOST=127.0.0.1 vector validate --no-environment infra/vector/vector.toml`.
-- **Wire format is CEF (Common Event Format), NOT Suricata EVE-JSON** (the original synthetic baseline was wrong). Lines look like `CEF:0|Ubiquiti|UniFi Network|<ver>|200|Threat Detected|<sev>|<ext>`, carry NO syslog PRI. Sender is the **Cloud Key controller `198.51.100.30`** (host `UCK-G2-Plus-HarmanHoldfast`) forwarding the SIEM export — NOT the Gateway Max `198.51.100.1` (which only emits RFC3164 system-log noise on the same port, dropped by the filter).
+- **Wire format is CEF (Common Event Format), NOT Suricata EVE-JSON** (the original synthetic baseline was wrong). Lines look like `CEF:0|Ubiquiti|UniFi Network|<ver>|200|Threat Detected|<sev>|<ext>`, carry NO syslog PRI. Sender is the **Cloud Key controller `198.51.100.30`** (host `UCK-G2-Plus-site-controller`) forwarding the SIEM export — NOT the Gateway Max `198.51.100.1` (which only emits RFC3164 system-log noise on the same port, dropped by the filter).
 - VRL: `[transforms.unifi_cef_threat]` filter gates on `CEF:0|Ubiquiti` + `|Threat Detected|` before `[transforms.unifi_ips]`, which parses via **`parse_cef`** (NOT regex/key-value — CEF extension values contain spaces and Rust regex has no lookahead). Re-validate the transform on any UniFi Network upgrade that changes the CEF schema. **The controller has since upgraded: DeviceVersion observed on the wire is 10.69.67 (was 10.68.57), and the threat path is UNVERIFIED on that version** — no `|Threat Detected|` event has been ingested in 30 days, and an attempt to trigger one on 2026-08-19 (benign ET POLICY 2013054 pycurl-UA request rather than the runbook's third-party port sweep) produced no detection; `get_flow_risks(min_risk_level=medium)` also returns empty, so the likeliest reading is simply that nothing is being detected. The forwarding path itself is confirmed alive — client-state CEF (`403 Wired Client Connected` / `404 Wired Client Disconnected`) arrives at Vector continuously and is dropped by the `|Threat Detected|` gate, which matches on substrings and is therefore version-agnostic. What cannot be confirmed without a real detection is whether 10.69.67 changed the threat record's extension keys. Those client-state events are also an untapped device-liveness source (see issue #26).
 - **No MAC columns in `ssdf.events`** + `skip_unknown_fields=false` ⇒ MACs/aliases/zones/signature detail go in `ext` (keys `unifi.ips.*`, `unifi.src_mac`, etc.). Detections carry MAC + alias only (no client IPs) → source_ip/destination_ip stay null. Event time from `UNIFIutcTime` (clean ISO-8601 UTC, trailing Z — no clock backfill needed).
 - nftables ct102 ingest allow-list: UDP/516 source must be **198.51.100.30** (the controller). Apply with `./scripts/apply_ct102_nftables.sh` (rule file `infra/firewall/ct102-ingest.nft`).

@@ -13,7 +13,7 @@ net4→ge-0/0/3).
 | vsrx-prod (VMID 905) | zone | address | Proxmox NIC |
 |---|---|---|---|
 | ge-0/0/0.0 | untrust | 198.51.100.240/24 | net1 → vmbr0 (LAN) |
-| ge-0/0/3.0 | trust | 10.74.12.1/24 | net4 → vmbr1 **tag=198** |
+| ge-0/0/3.0 | trust | 192.0.2.1/24 | net4 → vmbr1 **tag=198** |
 | fxp0.0 | (mgmt) | 198.51.100.222/24 | net0 → vmbr0 |
 
 - Syslog source toward Vector is **198.51.100.240** (ge-0/0/0) — inside the guest 700 (was ct102)
@@ -36,14 +36,14 @@ deny-event source. Everything else egresses via `allow_outbound_all`.
 
 ## Traffic source: guest 710 (was ct198) `ssdf-traffic-gen-srx`
 
-Minimal Alpine LXC on pve2 (10.74.12.20/24, gw 10.74.12.1 = the SRX trust interface).
+Minimal Alpine LXC on pve2 (192.0.2.20/24, gw 192.0.2.1 = the SRX trust interface).
 Trust VLAN tag is **198** and is NOT derived from the VMID: the guest was renumbered to 710 on 2026-08-12 while the tag was deliberately left alone, because changing it would mean re-addressing the firewall interface too.
 
 ```bash
 pct create 710 local:vztmpl/alpine-3.22-default_20250617_amd64.tar.xz \
   --hostname ssdf-traffic-gen-srx --unprivileged 1 --cores 1 --memory 128 --swap 0 \
   --rootfs local-lvm:1 \
-  --net0 name=eth0,bridge=vmbr1,tag=198,ip=10.74.12.20/24,gw=10.74.12.1 \
+  --net0 name=eth0,bridge=vmbr1,tag=198,ip=192.0.2.20/24,gw=192.0.2.1 \
   --onboot 1 --start 1
 ```
 
@@ -79,7 +79,7 @@ Self-test the generator without sending anything:
 `LABGEN_DRYRUN=1 LABGEN_ONESHOT=1 /usr/local/bin/labgen_endpoint.sh`
 
 Notes:
-- `ping 10.74.12.1` (the SRX trust interface) DOES reply — `host-inbound-traffic
+- `ping 192.0.2.1` (the SRX trust interface) DOES reply — `host-inbound-traffic
   system-services ping` is set on the trust zone. (PAN-OS differs; see panos runbook.)
 - The generator needs `bash curl bind-tools`; Alpine's default shell is busybox ash.
 - The shared generator defaults already target the approved resolver (198.51.100.1) for

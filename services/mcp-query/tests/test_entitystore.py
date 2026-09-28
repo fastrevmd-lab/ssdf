@@ -196,7 +196,7 @@ def test_build_observers_for_ips_sql():
     from ssdf_mcp_query.entitystore import build_observers_for_ips_sql
 
     sql, params = build_observers_for_ips_sql(
-        ["10.74.11.20", "198.51.100.1"], "2026-06-18T00:00:00.000+00:00", "t_main"
+        ["203.0.113.20", "198.51.100.1"], "2026-06-18T00:00:00.000+00:00", "t_main"
     )
     assert "observer_hostname" in sql
     assert "ssdf.events" in sql
@@ -208,7 +208,7 @@ def test_build_observers_for_ips_sql():
     assert "timestamp >= parseDateTimeBestEffort({since:String})" in sql
     assert params == {
         "tenant": "t_main",
-        "ips": ["10.74.11.20", "198.51.100.1"],
+        "ips": ["203.0.113.20", "198.51.100.1"],
         "since": "2026-06-18T00:00:00.000+00:00",
     }
 
@@ -226,9 +226,9 @@ def test_observers_for_ips_method_runs_builder_and_returns_rows():
 
     ch = _FakeCH()
     store = ClickHouseEntityStore(ch, tenant="t_main")
-    rows = store.observers_for_ips(["10.74.11.20"], "2026-06-18T00:00:00.000+00:00")
+    rows = store.observers_for_ips(["203.0.113.20"], "2026-06-18T00:00:00.000+00:00")
     assert rows == [{"observer_hostname": "panosvm.example.com"}]
-    assert ch.calls and ch.calls[0][1]["ips"] == ["10.74.11.20"]
+    assert ch.calls and ch.calls[0][1]["ips"] == ["203.0.113.20"]
 
 
 def test_observers_for_ips_empty_ips_short_circuits():

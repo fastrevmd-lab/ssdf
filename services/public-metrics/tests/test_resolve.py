@@ -10,8 +10,8 @@ class _FakeReader:
 
     def entity_bucket_series(self, metric, since_iso, bucket_secs):
         return [
-            {"bucket_start": "2026-06-19 00:00:00", "ip": "10.74.11.20", "value": 80.0},
-            {"bucket_start": "2026-06-19 00:00:00", "ip": "10.74.11.21", "value": 20.0},
+            {"bucket_start": "2026-06-19 00:00:00", "ip": "203.0.113.20", "value": 80.0},
+            {"bucket_start": "2026-06-19 00:00:00", "ip": "203.0.113.21", "value": 20.0},
         ]
 
     def deny_counts(self, since_iso):
@@ -44,7 +44,7 @@ def test_plan_writes_aggregate_and_index_and_entity():
     # entity series limited to top_n=1 surrogate, never the raw IP
     assert len(plan.entity_rows) == 1
     assert plan.entity_rows[0]["surrogate"].startswith("h_")
-    assert "10.74.11.20" not in plan.entity_rows[0]["surrogate"]
+    assert "203.0.113.20" not in plan.entity_rows[0]["surrogate"]
     # a pseudonym-map upsert was minted for the surfaced IP
     assert plan.map_rows and plan.map_rows[0]["kind"] == "host"
-    assert plan.map_rows[0]["real_value"] == "10.74.11.20"
+    assert plan.map_rows[0]["real_value"] == "203.0.113.20"

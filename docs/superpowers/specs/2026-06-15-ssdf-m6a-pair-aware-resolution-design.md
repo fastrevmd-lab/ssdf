@@ -159,11 +159,11 @@ Update the two existing fake `EntityStore`s in the test files to implement the t
 Protocol methods.
 
 **Live proof (post-deploy, ct106):**
-- `explain_access("10.74.12.20", "8.8.8.8")` → `firewall_basis:provenance`,
+- `explain_access("192.0.2.20", "8.8.8.8")` → `firewall_basis:provenance`,
   `firewalls:["vSRX-Production"]`, `sessions>0`, deny edge present.
-- `explain_access("10.74.12.20", "198.51.100.1")` → `firewall_basis:provenance`,
+- `explain_access("192.0.2.20", "198.51.100.1")` → `firewall_basis:provenance`,
   `firewalls:["vSRX-Production"]`, `sessions>0`.
-- Regression: `explain_access("10.74.11.20", "198.51.100.1")` (panosvm) still
+- Regression: `explain_access("203.0.113.20", "198.51.100.1")` (panosvm) still
   `firewall_basis:provenance`, `firewalls:["panosvm"]`, `coverage.configured:7`.
 
 ## Files

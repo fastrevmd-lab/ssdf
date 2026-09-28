@@ -277,7 +277,7 @@ This is the primary mapper module. All PAN-OS knowledge is isolated here.
 The following is a real PAN-OS 10.1 TRAFFIC log syslog message body (the part after the syslog header that arrives as `message` in Vector):
 
 ```
-,2026/06/05 14:09:40,015351000012345,TRAFFIC,end,2309,2026/06/05 14:09:40,10.74.1.42,10.74.9.8,0.0.0.0,0.0.0.0,allow-internal,jsmith,,,web-browsing,vsys1,trust,untrust,ethernet1/1,ethernet1/2,default,2026/06/05 14:09:35,12345,1,51234,80,0,0,0x19,tcp,allow,15360,8192,7168,22,2026/06/05 14:09:10,30,any,0,123456789,0x8000000000000000,United States,United States,0,10,12,tcp-fin,1,2,3,4,vsys1,PA-VM,from-policy
+,2026/06/05 14:09:40,015351000012345,TRAFFIC,end,2309,2026/06/05 14:09:40,192.0.2.42,203.0.113.8,0.0.0.0,0.0.0.0,allow-internal,jsmith,,,web-browsing,vsys1,trust,untrust,ethernet1/1,ethernet1/2,default,2026/06/05 14:09:35,12345,1,51234,80,0,0,0x19,tcp,allow,15360,8192,7168,22,2026/06/05 14:09:10,30,any,0,123456789,0x8000000000000000,United States,United States,0,10,12,tcp-fin,1,2,3,4,vsys1,PA-VM,from-policy
 ```
 
 ### Expected canonical FlowEvent JSON
@@ -291,9 +291,9 @@ The following is a real PAN-OS 10.1 TRAFFIC log syslog message body (the part af
   "source_instance": "015351000012345",
   "severity": "info",
   "event_type": "flow_event",
-  "src_ip": "10.74.1.42",
+  "src_ip": "192.0.2.42",
   "src_port": 51234,
-  "dst_ip": "10.74.9.8",
+  "dst_ip": "203.0.113.8",
   "dst_port": 80,
   "proto": "tcp",
   "app": "web-browsing",
@@ -430,9 +430,9 @@ mod tests {
     /// syslog message body starts after the syslog priority+header which Vector
     /// strips; what arrives in `raw_line` is the PAN-OS payload beginning with
     /// the first comma, i.e. field 0 is empty string).
-    const TRAFFIC_SAMPLE: &str = ",2026/06/05 14:09:40,015351000012345,TRAFFIC,end,2309,2026/06/05 14:09:40,10.74.1.42,10.74.9.8,0.0.0.0,0.0.0.0,allow-internal,jsmith,,,web-browsing,vsys1,trust,untrust,ethernet1/1,ethernet1/2,default,2026/06/05 14:09:35,12345,1,51234,80,0,0,0x19,tcp,allow,15360,8192,7168,22,2026/06/05 14:09:10,30,any,0,123456789,0x8000000000000000,United States,United States,0,10,12,tcp-fin,1,2,3,4,vsys1,PA-VM,from-policy";
+    const TRAFFIC_SAMPLE: &str = ",2026/06/05 14:09:40,015351000012345,TRAFFIC,end,2309,2026/06/05 14:09:40,192.0.2.42,203.0.113.8,0.0.0.0,0.0.0.0,allow-internal,jsmith,,,web-browsing,vsys1,trust,untrust,ethernet1/1,ethernet1/2,default,2026/06/05 14:09:35,12345,1,51234,80,0,0,0x19,tcp,allow,15360,8192,7168,22,2026/06/05 14:09:10,30,any,0,123456789,0x8000000000000000,United States,United States,0,10,12,tcp-fin,1,2,3,4,vsys1,PA-VM,from-policy";
 
-    const THREAT_SAMPLE: &str = ",2026/06/05 15:22:11,015351000012345,THREAT,vulnerability,2309,2026/06/05 15:22:11,10.74.1.99,10.74.9.20,0.0.0.0,0.0.0.0,block-threats,,,,,vsys1,trust,untrust,ethernet1/1,ethernet1/2,default,2026/06/05 15:22:10,77777,1,54321,443,0,0,0x80004000,tcp,reset-both,0,0,0,1,2026/06/05 15:22:10,0,any,0,987654321,0x2000000000000000,United States,United States,0,0,0,,,,,,,CVE-2021-44228 Apache Log4j Remote Code Execution Vulnerability,exploit/vulnerability,critical,client-to-server,0,33566,http://malicious.example.com/payload,0,,,,0,,,vsys1,PA-VM";
+    const THREAT_SAMPLE: &str = ",2026/06/05 15:22:11,015351000012345,THREAT,vulnerability,2309,2026/06/05 15:22:11,192.0.2.99,203.0.113.20,0.0.0.0,0.0.0.0,block-threats,,,,,vsys1,trust,untrust,ethernet1/1,ethernet1/2,default,2026/06/05 15:22:10,77777,1,54321,443,0,0,0x80004000,tcp,reset-both,0,0,0,1,2026/06/05 15:22:10,0,any,0,987654321,0x2000000000000000,United States,United States,0,0,0,,,,,,,CVE-2021-44228 Apache Log4j Remote Code Execution Vulnerability,exploit/vulnerability,critical,client-to-server,0,33566,http://malicious.example.com/payload,0,,,,0,,,vsys1,PA-VM";
 
     const CONFIG_SAMPLE: &str = ",2026/06/05 16:45:00,015351000012345,CONFIG,,0,2026/06/05 16:45:00,198.51.100.10,vsys1,set,admin,Web,Succeeded,/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='vsys1']/rulebase/security/rules/entry[@name='block-threats'],<before/>,<after action=\"drop\"/>  ,0,0x8000000000000000,1,2,vsys1,PA-VM";
 
@@ -467,9 +467,9 @@ mod tests {
 
         match &ev.payload {
             EventPayload::FlowEvent(flow) => {
-                assert_eq!(flow.src_ip, "10.74.1.42");
+                assert_eq!(flow.src_ip, "192.0.2.42");
                 assert_eq!(flow.src_port, 51234);
-                assert_eq!(flow.dst_ip, "10.74.9.8");
+                assert_eq!(flow.dst_ip, "203.0.113.8");
                 assert_eq!(flow.dst_port, 80);
                 assert_eq!(flow.proto, "tcp");
                 assert_eq!(flow.app, "web-browsing");
@@ -855,7 +855,7 @@ The THREAT mapper is already stubbed in `panos.rs`; this task validates it with 
 ### Real PAN-OS THREAT sample line
 
 ```
-,2026/06/05 15:22:11,015351000012345,THREAT,vulnerability,2309,2026/06/05 15:22:11,10.74.1.99,10.74.9.20,0.0.0.0,0.0.0.0,block-threats,,,,,vsys1,trust,untrust,ethernet1/1,ethernet1/2,default,2026/06/05 15:22:10,77777,1,54321,443,0,0,0x80004000,tcp,reset-both,0,0,0,1,2026/06/05 15:22:10,0,any,0,987654321,0x2000000000000000,United States,United States,0,0,0,,,,,,,CVE-2021-44228 Apache Log4j Remote Code Execution Vulnerability,exploit/vulnerability,critical,client-to-server,0,33566,http://malicious.example.com/payload,0,,,,0,,,vsys1,PA-VM
+,2026/06/05 15:22:11,015351000012345,THREAT,vulnerability,2309,2026/06/05 15:22:11,192.0.2.99,203.0.113.20,0.0.0.0,0.0.0.0,block-threats,,,,,vsys1,trust,untrust,ethernet1/1,ethernet1/2,default,2026/06/05 15:22:10,77777,1,54321,443,0,0,0x80004000,tcp,reset-both,0,0,0,1,2026/06/05 15:22:10,0,any,0,987654321,0x2000000000000000,United States,United States,0,0,0,,,,,,,CVE-2021-44228 Apache Log4j Remote Code Execution Vulnerability,exploit/vulnerability,critical,client-to-server,0,33566,http://malicious.example.com/payload,0,,,,0,,,vsys1,PA-VM
 ```
 
 ### Expected canonical AlertEvent JSON
@@ -872,10 +872,10 @@ The THREAT mapper is already stubbed in `panos.rs`; this task validates it with 
   "rule_id": "33566",
   "title": "CVE-2021-44228 Apache Log4j Remote Code Execution Vulnerability",
   "category": "exploit/vulnerability",
-  "affected_ip": "10.74.1.99",
+  "affected_ip": "192.0.2.99",
   "ext": {
     "panos": {
-      "dst_ip": "10.74.9.20",
+      "dst_ip": "203.0.113.20",
       "rule_name": "block-threats",
       "app": "vsys1",
       "src_port": "54321",
@@ -906,7 +906,7 @@ The THREAT mapper is already stubbed in `panos.rs`; this task validates it with 
                 assert_eq!(alert.rule_id, "33566");
                 assert_eq!(alert.title, "CVE-2021-44228 Apache Log4j Remote Code Execution Vulnerability");
                 assert_eq!(alert.category, "exploit/vulnerability");
-                assert_eq!(alert.affected_ip.as_deref(), Some("10.74.1.99"));
+                assert_eq!(alert.affected_ip.as_deref(), Some("192.0.2.99"));
             }
             other => panic!("expected AlertEvent, got {:?}", other),
         }
@@ -1397,7 +1397,7 @@ mod panos_e2e {
     use rdkafka::producer::{FutureProducer, FutureRecord};
     use std::time::Duration;
 
-    const TRAFFIC_SAMPLE: &str = ",2026/06/05 14:09:40,015351000012345,TRAFFIC,end,2309,2026/06/05 14:09:40,10.74.1.42,10.74.9.8,0.0.0.0,0.0.0.0,allow-internal,jsmith,,,web-browsing,vsys1,trust,untrust,ethernet1/1,ethernet1/2,default,2026/06/05 14:09:35,12345,1,51234,80,0,0,0x19,tcp,allow,15360,8192,7168,22,2026/06/05 14:09:10,30,any,0,123456789,0x8000000000000000,United States,United States,0,10,12,tcp-fin,1,2,3,4,vsys1,PA-VM,from-policy";
+    const TRAFFIC_SAMPLE: &str = ",2026/06/05 14:09:40,015351000012345,TRAFFIC,end,2309,2026/06/05 14:09:40,192.0.2.42,203.0.113.8,0.0.0.0,0.0.0.0,allow-internal,jsmith,,,web-browsing,vsys1,trust,untrust,ethernet1/1,ethernet1/2,default,2026/06/05 14:09:35,12345,1,51234,80,0,0,0x19,tcp,allow,15360,8192,7168,22,2026/06/05 14:09:10,30,any,0,123456789,0x8000000000000000,United States,United States,0,10,12,tcp-fin,1,2,3,4,vsys1,PA-VM,from-policy";
 
     #[tokio::test]
     async fn panos_traffic_appears_in_clickhouse() {

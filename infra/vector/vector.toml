@@ -1337,7 +1337,7 @@ name = "panos_observer_hostname_from_syslog_host"
 [[tests.inputs]]
 insert_at = "panos_ecs"
 type = "raw"
-value = '<14>Jun 06 23:20:00 panosvm.example.com ,2026/06/06 23:20:00,007054000270810,TRAFFIC,end,,2026/06/06 23:20:00,10.74.11.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40001,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:19:30,30,any,,1001,0x0,10.74.11.0-10.74.11.255,US,,22,18,tcp-fin'
+value = '<14>Jun 06 23:20:00 panosvm.example.com ,2026/06/06 23:20:00,007054000012345,TRAFFIC,end,,2026/06/06 23:20:00,203.0.113.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40001,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:19:30,30,any,,1001,0x0,203.0.113.0-203.0.113.255,US,,22,18,tcp-fin'
 [[tests.outputs]]
 extract_from = "panos_ecs"
 [[tests.outputs.conditions]]
@@ -1451,7 +1451,7 @@ name = "panos_observer_hostname_unknown_is_blanked"
 [[tests.inputs]]
 insert_at = "panos_ecs"
 type = "raw"
-value = '<14>Jun 06 23:20:00 attacker.example.com ,2026/06/06 23:20:00,007054000270810,TRAFFIC,end,,2026/06/06 23:20:00,10.74.11.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40001,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:19:30,30,any,,1001,0x0,10.74.11.0-10.74.11.255,US,,22,18,tcp-fin'
+value = '<14>Jun 06 23:20:00 attacker.example.com ,2026/06/06 23:20:00,007054000012345,TRAFFIC,end,,2026/06/06 23:20:00,203.0.113.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40001,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:19:30,30,any,,1001,0x0,203.0.113.0-203.0.113.255,US,,22,18,tcp-fin'
 [[tests.outputs]]
 extract_from = "panos_ecs"
 [[tests.outputs.conditions]]
@@ -1468,7 +1468,7 @@ name = "panos_traffic_end_allow_maps_to_ecs"
 [[tests.inputs]]
 insert_at = "panos_ecs"
 type = "raw"
-value = '<14>Jun 06 23:20:00 panosvm.example.com ,2026/06/06 23:20:00,007054000270810,TRAFFIC,end,,2026/06/06 23:20:00,10.74.11.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40001,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:19:30,30,any,,1001,0x0,10.74.11.0-10.74.11.255,US,,22,18,tcp-fin'
+value = '<14>Jun 06 23:20:00 panosvm.example.com ,2026/06/06 23:20:00,007054000012345,TRAFFIC,end,,2026/06/06 23:20:00,203.0.113.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40001,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:19:30,30,any,,1001,0x0,203.0.113.0-203.0.113.255,US,,22,18,tcp-fin'
 [[tests.outputs]]
 extract_from = "panos_ecs"
 [[tests.outputs.conditions]]
@@ -1480,7 +1480,7 @@ assert_eq!(.event_category, ["network"])
 assert_eq!(.event_outcome, "success")
 assert_eq!(.event_provider, "paloalto")
 assert_eq!(.tenant_id, "t_main")
-assert_eq!(.source_ip, "10.74.11.50")
+assert_eq!(.source_ip, "203.0.113.50")
 assert_eq!(.destination_ip, "198.51.100.20")
 assert_eq!(.source_port, 52344)
 assert_eq!(.destination_port, 443)
@@ -1502,7 +1502,7 @@ name = "panos_traffic_deny_maps_to_ecs"
 [[tests.inputs]]
 insert_at = "panos_ecs"
 type = "raw"
-value = '<14>Jun 06 23:21:00 panosvm.example.com ,2026/06/06 23:21:00,007054000270810,TRAFFIC,deny,,2026/06/06 23:21:00,198.51.100.99,10.74.11.5,0.0.0.0,0.0.0.0,default-deny,,,incomplete,vsys1,untrust,trust,ethernet1/1,ethernet1/2,,,40002,1,51000,3389,0,0,0x0,tcp,deny,200,200,0,2,2026/06/06 23:20:30,0,any,,1002,0x0,198.51.100.0-198.51.100.255,US,,2,0,policy-deny'
+value = '<14>Jun 06 23:21:00 panosvm.example.com ,2026/06/06 23:21:00,007054000012345,TRAFFIC,deny,,2026/06/06 23:21:00,198.51.100.99,203.0.113.5,0.0.0.0,0.0.0.0,default-deny,,,incomplete,vsys1,untrust,trust,ethernet1/1,ethernet1/2,,,40002,1,51000,3389,0,0,0x0,tcp,deny,200,200,0,2,2026/06/06 23:20:30,0,any,,1002,0x0,198.51.100.0-198.51.100.255,US,,2,0,policy-deny'
 [[tests.outputs]]
 extract_from = "panos_ecs"
 [[tests.outputs.conditions]]
@@ -1511,7 +1511,7 @@ source = '''
 assert_eq!(.event_action, "flow_deny")
 assert_eq!(.event_outcome, "failure")
 assert_eq!(.source_ip, "198.51.100.99")
-assert_eq!(.destination_ip, "10.74.11.5")
+assert_eq!(.destination_ip, "203.0.113.5")
 assert_eq!(.destination_port, 3389)
 assert_eq!(.rule_name, "default-deny")
 assert_eq!(.network_transport, "tcp")
@@ -1523,7 +1523,7 @@ name = "panos_threat_vulnerability_maps_to_ecs"
 [[tests.inputs]]
 insert_at = "panos_ecs"
 type = "raw"
-value = '<14>Jun 06 23:22:00 panosvm.example.com ,2026/06/06 23:22:00,007054000270810,THREAT,vulnerability,,2026/06/06 23:22:00,198.51.100.77,10.74.11.8,0.0.0.0,0.0.0.0,allow-untrust-to-trust,,,web-browsing,vsys1,untrust,trust,ethernet1/1,ethernet1/2,,,40003,1,44012,80,0,0,0x0,tcp,reset-both,exploit.example/path,30001,code-execution,critical,client-to-server,1003,0x0,US,US'
+value = '<14>Jun 06 23:22:00 panosvm.example.com ,2026/06/06 23:22:00,007054000012345,THREAT,vulnerability,,2026/06/06 23:22:00,198.51.100.77,203.0.113.8,0.0.0.0,0.0.0.0,allow-untrust-to-trust,,,web-browsing,vsys1,untrust,trust,ethernet1/1,ethernet1/2,,,40003,1,44012,80,0,0,0x0,tcp,reset-both,exploit.example/path,30001,code-execution,critical,client-to-server,1003,0x0,US,US'
 [[tests.outputs]]
 extract_from = "panos_ecs"
 [[tests.outputs.conditions]]
@@ -1533,7 +1533,7 @@ assert_eq!(.event_action, "threat_vulnerability")
 assert_eq!(.event_category, ["network", "intrusion_detection"])
 assert_eq!(.event_outcome, "failure")
 assert_eq!(.source_ip, "198.51.100.77")
-assert_eq!(.destination_ip, "10.74.11.8")
+assert_eq!(.destination_ip, "203.0.113.8")
 assert_eq!(.destination_port, 80)
 assert_eq!(.ext."panw.panos.severity", "critical")
 assert_eq!(.ext."panw.panos.threat_id", "30001")
@@ -1547,7 +1547,7 @@ name = "panos_system_maps_to_ecs"
 [[tests.inputs]]
 insert_at = "panos_ecs"
 type = "raw"
-value = '<14>Jun 06 23:23:00 panosvm.example.com ,2026/06/06 23:23:00,007054000270810,SYSTEM,general,,2026/06/06 23:23:00,vsys1,general,,,,general,informational,System started successfully'
+value = '<14>Jun 06 23:23:00 panosvm.example.com ,2026/06/06 23:23:00,007054000012345,SYSTEM,general,,2026/06/06 23:23:00,vsys1,general,,,,general,informational,System started successfully'
 [[tests.outputs]]
 extract_from = "panos_ecs"
 [[tests.outputs.conditions]]
@@ -1566,7 +1566,7 @@ name = "panos_traffic_ipv6_source_left_null"
 [[tests.inputs]]
 insert_at = "panos_ecs"
 type = "raw"
-value = '<14>Jun 06 23:24:00 panosvm.example.com ,2026/06/06 23:24:00,007054000270810,TRAFFIC,end,,2026/06/06 23:24:00,2001:db8::1,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40004,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:23:30,30,any,,1004,0x0,::-::,US,,22,18,tcp-fin'
+value = '<14>Jun 06 23:24:00 panosvm.example.com ,2026/06/06 23:24:00,007054000012345,TRAFFIC,end,,2026/06/06 23:24:00,2001:db8::1,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,ssl,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40004,1,52344,443,0,0,0x0,tcp,allow,8000,3000,5000,40,2026/06/06 23:23:30,30,any,,1004,0x0,::-::,US,,22,18,tcp-fin'
 [[tests.outputs]]
 extract_from = "panos_ecs"
 [[tests.outputs.conditions]]
@@ -1603,7 +1603,7 @@ name = "unifi_cef_ssh_scan_maps_to_ecs"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus HarmanHoldfast proto=TCP spt=38738 dpt=22 act=allowed app=SSH UNIFIrisk=medium UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing deviceOutboundInterface=Internet 1 UNIFIdeviceMac=02:00:01:27:fb:2b UNIFIdeviceName=Gateway Max UNIFIdeviceModel=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIdeviceVersion=5.0.16 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcClientModel=Windows PC UNIFIsrcZone=Internal UNIFIdstClientAlias=02:00:01:27:fb:2c UNIFIdstClientMac=02:00:01:27:fb:2c UNIFIdstRegion=US UNIFIdstZone=External UNIFItotalBytes=74 UNIFItotalPackets=1 UNIFIpacketsReceived=0 UNIFIpacketsSent=1 UNIFIbytesReceived=0 UNIFIbytesSent=74 UNIFIflowCount=1 UNIFIflowId=null UNIFIflowStartTime=Jun 14, 2026 at 7:48:50.822 PM UNIFIipsSessionId=1190371755462149 UNIFIipsSignature=ET SCAN Potential SSH Scan OUTBOUND UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z msg=A network intrusion attempt from ssdf-vector to 02:00:01:27:fb:2c has been detected.'
+value = 'Jun 14 19:49:59 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus site-controller proto=TCP spt=38738 dpt=22 act=allowed app=SSH UNIFIrisk=medium UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing deviceOutboundInterface=Internet 1 UNIFIdeviceMac=02:00:01:27:fb:2b UNIFIdeviceName=Gateway Max UNIFIdeviceModel=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIdeviceVersion=5.0.16 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcClientModel=Windows PC UNIFIsrcZone=Internal UNIFIdstClientAlias=02:00:01:27:fb:2c UNIFIdstClientMac=02:00:01:27:fb:2c UNIFIdstRegion=US UNIFIdstZone=External UNIFItotalBytes=74 UNIFItotalPackets=1 UNIFIpacketsReceived=0 UNIFIpacketsSent=1 UNIFIbytesReceived=0 UNIFIbytesSent=74 UNIFIflowCount=1 UNIFIflowId=null UNIFIflowStartTime=Jun 14, 2026 at 7:48:50.822 PM UNIFIipsSessionId=1190371755462149 UNIFIipsSignature=ET SCAN Potential SSH Scan OUTBOUND UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z msg=A network intrusion attempt from ssdf-vector to 02:00:01:27:fb:2c has been detected.'
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
@@ -1652,7 +1652,7 @@ name = "unifi_cef_scan_with_dst_maps_destination_ip"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus HarmanHoldfast proto=TCP spt=38738 dpt=22 act=allowed app=SSH UNIFIrisk=medium UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing deviceOutboundInterface=Internet 1 UNIFIdeviceMac=02:00:01:27:fb:2b UNIFIdeviceName=Gateway Max UNIFIdeviceModel=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIdeviceVersion=5.0.16 dst=192.0.2.1 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcClientModel=Windows PC UNIFIsrcZone=Internal UNIFIdstClientAlias=02:00:01:27:fb:2c UNIFIdstClientMac=02:00:01:27:fb:2c UNIFIdstRegion=US UNIFIdstZone=External UNIFItotalBytes=74 UNIFItotalPackets=1 UNIFIpacketsReceived=0 UNIFIpacketsSent=1 UNIFIbytesReceived=0 UNIFIbytesSent=74 UNIFIflowCount=1 UNIFIflowId=null UNIFIflowStartTime=Jun 14, 2026 at 7:48:50.822 PM UNIFIipsSessionId=1190371755462149 UNIFIipsSignature=ET SCAN Potential SSH Scan OUTBOUND UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z msg=A network intrusion attempt from ssdf-vector to 02:00:01:27:fb:2c has been detected.'
+value = 'Jun 14 19:49:59 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus site-controller proto=TCP spt=38738 dpt=22 act=allowed app=SSH UNIFIrisk=medium UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing deviceOutboundInterface=Internet 1 UNIFIdeviceMac=02:00:01:27:fb:2b UNIFIdeviceName=Gateway Max UNIFIdeviceModel=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIdeviceVersion=5.0.16 dst=192.0.2.1 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcClientModel=Windows PC UNIFIsrcZone=Internal UNIFIdstClientAlias=02:00:01:27:fb:2c UNIFIdstClientMac=02:00:01:27:fb:2c UNIFIdstRegion=US UNIFIdstZone=External UNIFItotalBytes=74 UNIFItotalPackets=1 UNIFIpacketsReceived=0 UNIFIpacketsSent=1 UNIFIbytesReceived=0 UNIFIbytesSent=74 UNIFIflowCount=1 UNIFIflowId=null UNIFIflowStartTime=Jun 14, 2026 at 7:48:50.822 PM UNIFIipsSessionId=1190371755462149 UNIFIipsSignature=ET SCAN Potential SSH Scan OUTBOUND UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z msg=A network intrusion attempt from ssdf-vector to 02:00:01:27:fb:2c has been detected.'
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
@@ -1670,7 +1670,7 @@ name = "panos_config_maps_admin_and_command"
 [[tests.inputs]]
 insert_at = "panos_ecs"
 type = "raw"
-value = '<14>Jun 06 23:26:00 panosvm.example.com ,2026/06/06 23:26:00,007054000270810,CONFIG,set,,2026/06/06 23:26:00,198.51.100.225,vsys1,set,admin,198.51.100.199,Succeeded,vsys vsys1 rulebase security'
+value = '<14>Jun 06 23:26:00 panosvm.example.com ,2026/06/06 23:26:00,007054000012345,CONFIG,set,,2026/06/06 23:26:00,198.51.100.225,vsys1,set,admin,198.51.100.199,Succeeded,vsys vsys1 rulebase security'
 [[tests.outputs]]
 extract_from = "panos_ecs"
 [[tests.outputs.conditions]]
@@ -1693,7 +1693,7 @@ name = "unifi_cef_terminal_server_scan_maps_to_ecs"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|3|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus HarmanHoldfast proto=TCP spt=51002 dpt=3389 act=allowed app=Other UNIFIrisk=low UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing UNIFIdeviceName=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcZone=Internal UNIFIdstZone=External UNIFItotalBytes=120 UNIFIbytesReceived=0 UNIFIbytesSent=120 UNIFIipsSessionId=1190371755462200 UNIFIipsSignature=ET SCAN Behavioral Unusually fast Terminal Server Traffic Potential Scan or Infection (Outbound) UNIFIipsSignatureId=2013479 UNIFIutcTime=2026-06-14T19:49:59.884Z msg=A network intrusion attempt has been detected.'
+value = 'Jun 14 19:49:59 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|3|UNIFIcategory=Security UNIFIsite=Default UNIFIhost=UCK G2 Plus site-controller proto=TCP spt=51002 dpt=3389 act=allowed app=Other UNIFIrisk=low UNIFIpolicyName=Scanning Activity UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing UNIFIdeviceName=Gateway Max UNIFIdeviceIp=198.51.100.1 UNIFIsrcClientAlias=ssdf-vector UNIFIsrcClientMac=02:01:01:02:a1:46 UNIFIsrcZone=Internal UNIFIdstZone=External UNIFItotalBytes=120 UNIFIbytesReceived=0 UNIFIbytesSent=120 UNIFIipsSessionId=1190371755462200 UNIFIipsSignature=ET SCAN Behavioral Unusually fast Terminal Server Traffic Potential Scan or Infection (Outbound) UNIFIipsSignatureId=2013479 UNIFIutcTime=2026-06-14T19:49:59.884Z msg=A network intrusion attempt has been detected.'
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
@@ -1722,7 +1722,7 @@ name = "unifi_cef_trailing_newline_still_parses"
 insert_at = "unifi_ips"
 type = "raw"
 value = '''
-Jun 14 20:10:02 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security proto=TCP spt=52102 dpt=80 act=allowed app=HTTP UNIFIrisk=medium UNIFIpolicyName=Malicious User Agents UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing UNIFIdeviceName=Gateway Max UNIFIsrcClientAlias=panosvm ee:2c UNIFIsrcClientHostname=panosvm UNIFIipsSignature=ET USER_AGENTS PyCurl Suspicious User Agent Outbound UNIFIipsSignatureId=2013054 UNIFIutcTime=2026-06-14T20:10:02.442Z msg=A network intrusion attempt has been detected.
+Jun 14 20:10:02 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security proto=TCP spt=52102 dpt=80 act=allowed app=HTTP UNIFIrisk=medium UNIFIpolicyName=Malicious User Agents UNIFIpolicyType=IDS/IPS UNIFIdirection=outgoing UNIFIdeviceName=Gateway Max UNIFIsrcClientAlias=panosvm ee:2c UNIFIsrcClientHostname=panosvm UNIFIipsSignature=ET USER_AGENTS PyCurl Suspicious User Agent Outbound UNIFIipsSignatureId=2013054 UNIFIutcTime=2026-06-14T20:10:02.442Z msg=A network intrusion attempt has been detected.
 '''
 [[tests.outputs]]
 extract_from = "unifi_ips"
@@ -1743,7 +1743,7 @@ name = "unifi_cef_garbage_is_parse_error"
 [[tests.inputs]]
 insert_at = "unifi_ips"
 type = "raw"
-value = 'Jun 14 19:50:00 UCK-G2-Plus-HarmanHoldfast not-a-cef-line at all'
+value = 'Jun 14 19:50:00 UCK-G2-Plus-site-controller not-a-cef-line at all'
 [[tests.outputs]]
 extract_from = "unifi_ips"
 [[tests.outputs.conditions]]
@@ -1761,7 +1761,7 @@ name = "unifi_cef_threat_filter_keeps_detection"
 [[tests.inputs]]
 insert_at = "unifi_cef_threat"
 type = "raw"
-value = 'Jun 14 19:49:59 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security proto=TCP spt=38738 dpt=22 act=allowed UNIFIpolicyName=Scanning Activity UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z'
+value = 'Jun 14 19:49:59 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|200|Threat Detected|7|UNIFIcategory=Security proto=TCP spt=38738 dpt=22 act=allowed UNIFIpolicyName=Scanning Activity UNIFIipsSignatureId=2003068 UNIFIutcTime=2026-06-14T19:49:59.858Z'
 [[tests.outputs]]
 extract_from = "unifi_cef_threat"
 [[tests.outputs.conditions]]
@@ -1776,7 +1776,7 @@ no_outputs_from = ["unifi_cef_threat"]
 [[tests.inputs]]
 insert_at = "unifi_cef_threat"
 type = "raw"
-value = 'Jun 14 19:49:51 UCK-G2-Plus-HarmanHoldfast CEF:0|Ubiquiti|UniFi Network|10.68.57|402|WiFi Client Roamed|1|UNIFIcategory=Client Devices UNIFIhost=UCK G2 Plus HarmanHoldfast'
+value = 'Jun 14 19:49:51 UCK-G2-Plus-site-controller CEF:0|Ubiquiti|UniFi Network|10.68.57|402|WiFi Client Roamed|1|UNIFIcategory=Client Devices UNIFIhost=UCK G2 Plus site-controller'
 
 # ---------------- Proxmox (M11) unit tests ----------------
 
@@ -2280,7 +2280,7 @@ name = "panos_url_fallback_typed"
 [[tests.inputs]]
 insert_at = "panos_ecs"
 type = "raw"
-value = '<14>Jun 06 23:27:00 panosvm.example.com ,2026/06/06 23:27:00,007054000270810,URL,url,,2026/06/06 23:27:00,10.74.11.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,web-browsing,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40005,1,52345,80,0,0,0x0,tcp,allow'
+value = '<14>Jun 06 23:27:00 panosvm.example.com ,2026/06/06 23:27:00,007054000012345,URL,url,,2026/06/06 23:27:00,203.0.113.50,198.51.100.20,0.0.0.0,0.0.0.0,allow-trust-to-untrust,,,web-browsing,vsys1,trust,untrust,ethernet1/2,ethernet1/1,,,40005,1,52345,80,0,0,0x0,tcp,allow'
 [[tests.outputs]]
 extract_from = "panos_ecs"
 [[tests.outputs.conditions]]
@@ -2342,7 +2342,7 @@ name = "junos_sys_types_audit_events_arriving_on_514"
 [[tests.inputs]]
 insert_at = "junos_sys_sec"
 type = "raw"
-value = "<190>1 2026-08-19T22:10:00.000Z vsrx-prod mgd 1234 UI_COMMIT [junos@2636.1.1.1.2.129 username=\"mharman\" command=\"commit\"] User 'mharman' requested 'commit' operation"
+value = "<190>1 2026-08-19T22:10:00.000Z vsrx-prod mgd 1234 UI_COMMIT [junos@2636.1.1.1.2.129 username=\"netconf\" command=\"commit\"] User 'netconf' requested 'commit' operation"
 [[tests.outputs]]
 extract_from = "junos_sys_ecs"
 [[tests.outputs.conditions]]

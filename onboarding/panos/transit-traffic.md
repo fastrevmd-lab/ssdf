@@ -12,7 +12,7 @@ provenance bridge (`panosvm.example.com` → `panosvm`) stay continuously live-p
 | panosvm (Proxmox guest 908 `3rdparty-fw`) | zone | address | Proxmox NIC |
 |---|---|---|---|
 | ethernet1/1 | untrust | 198.51.100.210/24 ("Comcast Internet") | net1 → vmbr0 (LAN) |
-| ethernet1/2 | trust | 10.74.11.1/24 ("to tester") | net2 → vmbr1 **tag=199** |
+| ethernet1/2 | trust | 203.0.113.1/24 ("to tester") | net2 → vmbr1 **tag=199** |
 
 - Default route 0.0.0.0/0 → 198.51.100.1 via ethernet1/1; NAT `toInternet`/
   `trust-egress-nat`: trust→untrust dynamic SNAT to ethernet1/1.
@@ -44,14 +44,14 @@ drifttest1          any/any                                                   �
 
 ## Traffic source: guest 711 (was ct199) `ssdf-traffic-gen-panos`
 
-Minimal Alpine LXC on pve2 (10.74.11.20/24, gw 10.74.11.1 = the panosvm trust interface).
+Minimal Alpine LXC on pve2 (203.0.113.20/24, gw 203.0.113.1 = the panosvm trust interface).
 Trust VLAN tag is **199** and is NOT derived from the VMID: the guest was renumbered to 711 on 2026-08-12 while the tag was deliberately left alone, because changing it would mean re-addressing the firewall interface too.
 
 ```bash
 pct create 711 local:vztmpl/alpine-3.22-default_20250617_amd64.tar.xz \
   --hostname ssdf-traffic-gen-panos --unprivileged 1 --cores 1 --memory 128 --swap 0 \
   --rootfs local-lvm:1 \
-  --net0 name=eth0,bridge=vmbr1,tag=199,ip=10.74.11.20/24,gw=10.74.11.1 \
+  --net0 name=eth0,bridge=vmbr1,tag=199,ip=203.0.113.20/24,gw=203.0.113.1 \
   --onboot 1 --start 1
 ```
 
@@ -66,7 +66,7 @@ pct exec 711 -- sh -c 'rc-update add labgen default && rc-service labgen start'
 ```
 
 Notes:
-- `ping 10.74.11.1` (the trust interface itself) does NOT reply — PAN-OS answers ICMP
+- `ping 203.0.113.1` (the trust interface itself) does NOT reply — PAN-OS answers ICMP
   only with an interface-mgmt profile. Test transit with an internet dest instead
   (`ping 1.1.1.2` answers, 0% loss = transit through panosvm works).
 - guest 711 (was ct199)'s apk/DNS egress itself transits panosvm — also logged, also useful.

@@ -548,14 +548,14 @@ Expected: `active`
 - [ ] **Step 3: Live-prove SRX provenance now surfaces (the fix)**
 
 Call the live `explain_access` MCP tool (sovereign tier) for the SRX endpoint → 8.8.8.8 and → 198.51.100.1:
-- `explain_access("10.74.12.20", "8.8.8.8")`
-- `explain_access("10.74.12.20", "198.51.100.1")`
+- `explain_access("192.0.2.20", "8.8.8.8")`
+- `explain_access("192.0.2.20", "198.51.100.1")`
 
 Expected for both: `firewall_basis: "provenance"`, `firewalls: ["vSRX-Production"]`, `observed_flows.sessions > 0`.
 
 - [ ] **Step 4: Live regression — panosvm path unchanged**
 
-- `explain_access("10.74.11.20", "198.51.100.1")`
+- `explain_access("203.0.113.20", "198.51.100.1")`
 
 Expected: `firewall_basis: "provenance"`, `firewalls: ["panosvm"]`, `sessions > 0` (matching pre-change behavior).
 

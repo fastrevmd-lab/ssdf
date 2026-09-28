@@ -105,7 +105,7 @@ Corpus constraints (enforced by a lint test):
     { "id": "flows-top-talkers-24h",
       "started": "2026-06-12T18:00:01Z",
       "finished": "2026-06-12T18:00:14Z",
-      "answer": { "talkers": [ {"ip": "10.74.11.20", "bytes": 12345} ] },
+      "answer": { "talkers": [ {"ip": "203.0.113.20", "bytes": 12345} ] },
       "error": null }
   ]
 }

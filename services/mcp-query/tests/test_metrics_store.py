@@ -36,12 +36,12 @@ def test_top_series_groups_by_surrogate():
 
 
 def test_reidentify_reads_sovereign_map():
-    fake = _FakeClient([{"kind": "host", "real_value": "10.74.11.20"}])
+    fake = _FakeClient([{"kind": "host", "real_value": "203.0.113.20"}])
     store = MetricsStore(fake)
     out = store.reidentify("h_abc")
     sql = fake.calls[0][0]
     assert "ssdf.pseudonym_map" in sql and "FINAL" in sql
-    assert out["entity"]["real_value"] == "10.74.11.20"
+    assert out["entity"]["real_value"] == "203.0.113.20"
 
 
 def test_reidentify_unknown_surrogate_returns_null_entity():

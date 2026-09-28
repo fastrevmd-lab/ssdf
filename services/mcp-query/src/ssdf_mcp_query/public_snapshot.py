@@ -15,8 +15,16 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+import json
+import os
 import secrets
 from dataclasses import dataclass
+
+# Points at an operator-local, uncommitted JSON file mapping a committed placeholder
+# selector (e.g. "ap-1") to the real graph node name on this deployment. Lets an
+# operator whose devices are named after rooms, people, or anything else identifying
+# publish without ever committing that name to a public repo.
+_OVERRIDE_ENV_VAR = "SSDF_PUBLIC_SNAPSHOT_NAME_OVERRIDES"
 
 SCHEMA_VERSION = 1
 
@@ -42,7 +50,13 @@ class DisplayDevice:
 
 # Adding a device here makes it publicly visible. That is the entire point of the
 # list being explicit and in code: it gets a diff and a reviewer.
-ALLOWLIST: tuple[DisplayDevice, ...] = (
+#
+# Names here are committed and therefore public — keep them generic (role-based,
+# not room- or person-based). An operator whose actual graph nodes are named
+# differently (e.g. after a room) points SSDF_PUBLIC_SNAPSHOT_NAME_OVERRIDES at an
+# uncommitted local file to remap a placeholder selector to the real node name; see
+# _resolve_allowlist below.
+_ALLOWLIST_DEFAULTS: tuple[DisplayDevice, ...] = (
     DisplayDevice("vsrx-prod", "primary"),
     DisplayDevice("vsrx-ci", "primary"),
     DisplayDevice("panosvm", "primary"),
@@ -54,11 +68,32 @@ ALLOWLIST: tuple[DisplayDevice, ...] = (
     DisplayDevice("USW Pro XG 8 PoE", "primary"),
     DisplayDevice("USW Flex 2.5G 8", "primary"),
     DisplayDevice("USP RPS", "primary"),
-    DisplayDevice("U7 Pro", "primary"),
-    DisplayDevice("AC IW Pro Basement", "primary"),
-    DisplayDevice("AC IW Pro GuestBed", "primary"),
-    DisplayDevice("AC IW Pro MasterBed", "primary"),
+    DisplayDevice("ap-1", "primary"),
+    DisplayDevice("ap-2", "primary"),
+    DisplayDevice("ap-3", "primary"),
+    DisplayDevice("ap-4", "primary"),
 )
+
+
+def _resolve_allowlist(
+    defaults: tuple[DisplayDevice, ...] = _ALLOWLIST_DEFAULTS,
+) -> tuple[DisplayDevice, ...]:
+    """Rename allowlist selectors to match this deployment's real graph node names.
+
+    The override file (JSON object of placeholder -> real name) is read from disk
+    at import time, never committed, and entirely optional: with no env var set,
+    the committed generic placeholders are used as-is and match nothing on a real
+    graph until an operator opts in.
+    """
+    override_path = os.environ.get(_OVERRIDE_ENV_VAR)
+    if not override_path:
+        return defaults
+    with open(override_path, encoding="utf-8") as f:
+        overrides: dict[str, str] = json.load(f)
+    return tuple(DisplayDevice(overrides.get(d.name, d.name), d.site, d.ollama) for d in defaults)
+
+
+ALLOWLIST: tuple[DisplayDevice, ...] = _resolve_allowlist()
 
 _BY_NAME = {d.name: d for d in ALLOWLIST}
 
