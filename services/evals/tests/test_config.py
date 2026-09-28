@@ -48,7 +48,7 @@ def test_defaults(monkeypatch):
         ch_database="ssdf",
         ch_secure=False,
         ch_ca_file="",
-        audit_verify_password="av-pw",
+        audit_verify_password=Secret("av-pw"),
         audit_slop_secs=5,
     )
 
@@ -82,6 +82,13 @@ def test_client_kwargs_identity_override(monkeypatch):
     kwargs = client_kwargs(load_config(), username="ssdf_audit_verify", password="av-pw2")
     assert kwargs["username"] == "ssdf_audit_verify"
     assert kwargs["password"] == "av-pw2"
+
+
+def test_audit_verify_password_does_not_leak_via_repr(monkeypatch):
+    monkeypatch.setenv("CH_PASSWORD", "ro-pw")
+    monkeypatch.setenv("CH_AUDIT_VERIFY_PASSWORD", "FAKEverify")
+    config = load_config()
+    assert "FAKEverify" not in repr(config)
 
 
 def test_client_kwargs_rejects_plaintext_to_non_loopback_host(monkeypatch):

@@ -125,7 +125,7 @@ def run() -> int:
     plan = plan_writes(
         reader,
         pmap,
-        key=config.pseudonym_key,
+        key=config.pseudonym_key.get(),
         since_iso=since_iso,
         baseline_since_iso=baseline_since_iso,
         bucket_secs=config.bucket_secs,

@@ -85,8 +85,8 @@ def test_make_ch_auditor_secure(monkeypatch):
         _config(
             ch_secure=True,
             ch_ca_file="/ca.crt",
-            ch_audit_password="apw",
-            ch_audit_verify_password="vpw",
+            ch_audit_password=Secret("apw"),
+            ch_audit_verify_password=Secret("vpw"),
         ),
         tier="sovereign",
     )
@@ -99,7 +99,7 @@ def test_make_ch_auditor_secure(monkeypatch):
 
 def test_make_ch_auditor_insecure(monkeypatch):
     captured = _capture_get_client(monkeypatch)
-    make_ch_auditor(_config(ch_audit_password="apw"), tier="sovereign")
+    make_ch_auditor(_config(ch_audit_password=Secret("apw")), tier="sovereign")
     assert len(captured) == 1
     assert "interface" not in captured[0]
     assert "ca_cert" not in captured[0]
@@ -107,12 +107,14 @@ def test_make_ch_auditor_insecure(monkeypatch):
 
 def test_verify_audit_fetch_rows_secure(monkeypatch):
     captured = _capture_get_client(monkeypatch)
-    _fetch_rows(_config(ch_secure=True, ch_ca_file="/ca.crt", ch_audit_verify_password="vpw"))
+    _fetch_rows(
+        _config(ch_secure=True, ch_ca_file="/ca.crt", ch_audit_verify_password=Secret("vpw"))
+    )
     assert captured[0]["interface"] == "https"
     assert captured[0]["ca_cert"] == "/ca.crt"
 
 
 def test_verify_audit_fetch_rows_insecure(monkeypatch):
     captured = _capture_get_client(monkeypatch)
-    _fetch_rows(_config(ch_audit_verify_password="vpw"))
+    _fetch_rows(_config(ch_audit_verify_password=Secret("vpw")))
     assert "interface" not in captured[0]

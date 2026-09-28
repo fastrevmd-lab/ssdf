@@ -20,7 +20,7 @@ class Config:
     ch_password: Secret
     ch_database: str
     tenant_id: str
-    pseudonym_key: bytes
+    pseudonym_key: Secret
     key_version: int
     bucket_secs: int
     lookback_hours: int
@@ -52,7 +52,7 @@ def load_config() -> Config:
         ch_password=Secret(password),
         ch_database=os.environ.get("CH_DATABASE", "ssdf"),
         tenant_id=os.environ.get("PUBMETRICS_TENANT_ID", "t_main"),
-        pseudonym_key=key,
+        pseudonym_key=Secret(key),
         key_version=int(os.environ.get("PUBMETRICS_KEY_VERSION", "1")),
         bucket_secs=int(os.environ.get("PUBMETRICS_BUCKET_SECS", "300")),
         lookback_hours=int(os.environ.get("PUBMETRICS_LOOKBACK_HOURS", "1")),

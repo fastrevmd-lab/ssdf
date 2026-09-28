@@ -43,8 +43,8 @@ class Config:
     mcp_port: int
     tokens: dict[str, "TokenPrincipal"]
     ch_audit_user: str = "ssdf_audit"
-    ch_audit_password: str | None = None
-    ch_audit_verify_password: str | None = None
+    ch_audit_password: Secret | None = None
+    ch_audit_verify_password: Secret | None = None
     # M16f: default False preserves the existing (best-effort) deploy; set
     # MCP_AUDIT_REQUIRED=1 to refuse startup rather than silently run with
     # audit disabled when CH_AUDIT_PASSWORD is unset.
@@ -166,6 +166,8 @@ def load_config() -> Config:
     password = os.environ.get("CH_PASSWORD")
     if password is None:
         raise ConfigError("CH_PASSWORD is required")
+    audit_password = os.environ.get("CH_AUDIT_PASSWORD")
+    audit_verify_password = os.environ.get("CH_AUDIT_VERIFY_PASSWORD")
     return Config(
         ch_host=os.environ.get("CH_HOST", "127.0.0.1"),
         ch_port=int(os.environ.get("CH_PORT", "8123")),
@@ -176,8 +178,8 @@ def load_config() -> Config:
         mcp_port=int(os.environ.get("MCP_PORT", "30032")),
         tokens=load_token_map(),
         ch_audit_user=os.environ.get("CH_AUDIT_USER", "ssdf_audit"),
-        ch_audit_password=os.environ.get("CH_AUDIT_PASSWORD"),
-        ch_audit_verify_password=os.environ.get("CH_AUDIT_VERIFY_PASSWORD"),
+        ch_audit_password=Secret(audit_password) if audit_password else None,
+        ch_audit_verify_password=Secret(audit_verify_password) if audit_verify_password else None,
         audit_required=os.environ.get("MCP_AUDIT_REQUIRED", "").strip().lower() in ("1", "true"),
         max_execution_time=int(os.environ.get("MCP_MAX_EXEC_SECS", "10")),
         max_result_rows=int(os.environ.get("MCP_MAX_RESULT_ROWS", "100000")),

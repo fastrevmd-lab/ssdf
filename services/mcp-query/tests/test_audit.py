@@ -14,7 +14,7 @@ from ssdf_mcp_query.audit import (
     AUDIT_ATTRIBUTION_COLUMNS,
 )
 from ssdf_mcp_query.audit_chain import compute_row_hash
-from ssdf_common.config import ConfigError
+from ssdf_common.config import ConfigError, Secret
 
 
 def test_build_audit_row_shapes_all_columns():
@@ -191,9 +191,9 @@ def test_record_concurrent_calls_form_valid_chain():
 class _FakeConfig:
     """The handful of Config fields make_ch_auditor actually reads."""
 
-    ch_audit_password: str | None
+    ch_audit_password: Secret | None
     audit_required: bool = False
-    ch_audit_verify_password: str | None = None
+    ch_audit_verify_password: Secret | None = None
     ch_host: str = "127.0.0.1"
     ch_port: int = 8123
     ch_audit_user: str = "ssdf_audit"

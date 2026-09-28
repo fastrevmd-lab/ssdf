@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import os
 from dataclasses import dataclass
 
@@ -19,19 +20,20 @@ class McpEndpoint:
 
 
 class Secret:
-    """Wraps a sensitive string so it can't leak through repr/str/logging by accident.
+    """Wraps a sensitive string or byte string so it can't leak through repr/str/logging by accident.
 
-    Config dataclasses hold their password fields as ``Secret`` instead of
-    ``str`` so a traceback or debug ``repr(config)`` never prints the value.
-    Call ``.get()`` to unwrap it at the point of use (building connection kwargs).
+    Config dataclasses hold their password (and key material) fields as
+    ``Secret`` instead of ``str``/``bytes`` so a traceback or debug
+    ``repr(config)`` never prints the value. Call ``.get()`` to unwrap it at
+    the point of use (building connection kwargs, keying an HMAC).
     """
 
     __slots__ = ("_value",)
 
-    def __init__(self, value: str) -> None:
+    def __init__(self, value: str | bytes) -> None:
         self._value = value
 
-    def get(self) -> str:
+    def get(self) -> str | bytes:
         return self._value
 
     def __repr__(self) -> str:
@@ -40,10 +42,18 @@ class Secret:
     def __str__(self) -> str:
         return "***"
 
+    def __bool__(self) -> bool:
+        return bool(self._value)
+
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, Secret):
-            return self._value == other._value
-        return NotImplemented
+        if not isinstance(other, Secret):
+            return NotImplemented
+        a, b = self._value, other._value
+        if type(a) is not type(b):
+            return False
+        if isinstance(a, str):
+            a, b = a.encode("utf-8"), b.encode("utf-8")
+        return hmac.compare_digest(a, b)
 
     def __hash__(self) -> int:
         return hash(self._value)
