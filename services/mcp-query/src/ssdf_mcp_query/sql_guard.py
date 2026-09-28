@@ -11,6 +11,29 @@ from sqlglot import exp
 
 ALLOWED_DB = "ssdf"
 _DIALECT = "clickhouse"
+
+# Tables ssdf_ro can SELECT for other, narrowly-scoped tools (reidentify,
+# fabric_status, audit chain seeding) but that run_sql must never reach
+# directly: a generic ad hoc query is not the access-controlled path those
+# tools provide, and DB grants alone are one drift away from a direct
+# pseudonym reversal or audit-trail read (see infra/clickhouse/018_ssdf_ro_grants.sql).
+_BLOCKED_TABLES = {
+    "audit",
+    "pseudonym_map",
+    "topo_observations",
+}
+# ClickHouse's IN-family functions accept a bare table name as the set
+# (`globalNotIn(x, ssdf.t)`); sqlglot leaves them as Anonymous calls.
+_IN_FUNCTIONS = {
+    "in",
+    "notin",
+    "globalin",
+    "globalnotin",
+    "nullin",
+    "notnullin",
+    "globalnullin",
+    "globalnotnullin",
+}
 _TABLE_FUNCTIONS = {
     "url",
     "file",
@@ -60,6 +83,20 @@ def guard_sql(query: str, max_limit: int = 1000) -> str:
         if name in _TABLE_FUNCTIONS:
             raise GuardError(f"table function not allowed: {name}")
 
+    # ClickHouse reads `x IN ssdf.t` / `x IN (ssdf.t)` / `x IN t` as
+    # `x IN (SELECT * FROM ssdf.t)`, but sqlglot parses the right-hand operand
+    # as a Column, so the Table walk below never sees it. The right side of IN
+    # must be a subquery or a list of non-column values.
+    for node in stmt.find_all(exp.In):
+        # find(), not isinstance(): `x IN ((ssdf.t))` wraps the Column in Paren.
+        if node.args.get("field") is not None or any(
+            e.find(exp.Column) is not None for e in node.expressions
+        ):
+            raise GuardError("IN must take a subquery or a literal list, not a table name")
+    for func in stmt.find_all(exp.Anonymous):
+        if (func.name or "").lower() in _IN_FUNCTIONS:
+            raise GuardError(f"function not allowed: {func.name}")
+
     tables = list(stmt.find_all(exp.Table))
     if not tables:
         raise GuardError("query must read from an ssdf table")
@@ -73,6 +110,9 @@ def guard_sql(query: str, max_limit: int = 1000) -> str:
             raise GuardError(
                 f"only the '{ALLOWED_DB}' database is allowed (got {table.db or 'unqualified'}.{table.name})"
             )
+        name = (table.name or "").lower()
+        if name in _BLOCKED_TABLES:
+            raise GuardError(f"table '{ALLOWED_DB}.{table.name}' is not queryable via run_sql")
 
     limit = stmt.args.get("limit")
     if limit is None:

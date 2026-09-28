@@ -1,5 +1,8 @@
 from datetime import datetime, timezone
 
+import pytest
+
+from ssdf_common.config import ConfigError, Secret
 from ssdf_health.config import Config
 from ssdf_health.chwriter import client_kwargs, health_rows, HEALTH_COLUMNS
 from ssdf_health.gauge import Gauge
@@ -7,10 +10,10 @@ from ssdf_health.gauge import Gauge
 
 def _config(**over):
     base = dict(
-        ch_host="h",
+        ch_host="127.0.0.1",
         ch_port=8443,
         ch_user="ssdf_health",
-        ch_password="p",
+        ch_password=Secret("p"),
         ch_database="ssdf",
         tenant_id="t_main",
         enabled_collectors=("proxmox",),
@@ -32,6 +35,12 @@ def test_client_kwargs_adds_tls_when_secure():
 def test_client_kwargs_plain_when_not_secure():
     kwargs = client_kwargs(_config())
     assert "interface" not in kwargs
+    assert kwargs["password"] == "p"
+
+
+def test_client_kwargs_rejects_plaintext_to_non_loopback_host():
+    with pytest.raises(ConfigError):
+        client_kwargs(_config(ch_host="10.64.0.151"))
 
 
 def test_health_rows_maps_gauge_fields_in_column_order():

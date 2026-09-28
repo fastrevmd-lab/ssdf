@@ -16,6 +16,16 @@ _VM_HEADER_RE = re.compile(r"^\[vm\]\s+(.+?)\s+\(ID:\s*(\d+)\)")
 _NODE_RE = re.compile(r"-\s*Node:\s*(\S+)")
 _STATUS_RE = re.compile(r"-\s*Status:\s*(\S+)")
 
+# `vm` may carry a `config` key -- the full Proxmox VM config, which can
+# include `sshkeys`, `cicustom` (cloud-init: arbitrary user-data/scripts) and a
+# free-text `description`. None of that belongs in a stored observation, so the
+# `raw` column gets only this allowlist rather than the vm dict wholesale.
+_VM_RAW_FIELDS = ("vmid", "name", "node", "status")
+
+
+def _vm_summary(vm: dict) -> dict:
+    return {field: vm[field] for field in _VM_RAW_FIELDS if field in vm}
+
 
 def parse_vm_nic(nic: str) -> dict:
     """Parse a Proxmox netN string and return mac, bridge, and vlan (tag) as strings."""
@@ -59,7 +69,7 @@ def parse_vms(vms: list[dict], now: str) -> list[Observation]:
                 obj_kind="host",
                 obj_id=host_id,
                 attrs={"vmid": vmid, "name": name},
-                raw=json.dumps(vm, default=str),
+                raw=json.dumps(_vm_summary(vm), default=str),
             )
         )
 

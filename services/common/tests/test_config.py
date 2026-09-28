@@ -2,7 +2,14 @@
 
 import pytest
 
-from ssdf_common.config import ConfigError, McpEndpoint, env_bool, load_mcp_endpoint
+from ssdf_common.config import (
+    ConfigError,
+    McpEndpoint,
+    Secret,
+    env_bool,
+    load_mcp_endpoint,
+    require_tls_or_loopback,
+)
 
 
 def test_config_error():
@@ -77,3 +84,55 @@ def test_load_mcp_endpoint_token_defaults():
     ep = load_mcp_endpoint("unifi", env=env)
     assert ep.url == "http://unifi.local"
     assert ep.token == ""
+
+
+def test_secret_get_returns_the_wrapped_value():
+    assert Secret("hunter2").get() == "hunter2"
+
+
+def test_secret_repr_and_str_never_show_the_value():
+    secret = Secret("hunter2")
+    assert "hunter2" not in repr(secret)
+    assert "hunter2" not in str(secret)
+
+
+def test_secret_equality_is_by_value():
+    assert Secret("hunter2") == Secret("hunter2")
+    assert Secret("hunter2") != Secret("other")
+    assert Secret("hunter2") != "hunter2"  # not equal to a plain str
+
+
+def test_secret_wraps_bytes():
+    key = bytes.fromhex("00112233")
+    secret = Secret(key)
+    assert secret.get() == key
+    assert "00112233" not in repr(secret)
+    assert Secret(key) == Secret(bytes.fromhex("00112233"))
+    assert Secret(key) != Secret(bytes.fromhex("44556677"))
+
+
+def test_secret_bytes_and_str_of_equal_content_are_not_equal():
+    assert Secret("ab") != Secret(b"ab")
+
+
+def test_secret_bool_reflects_wrapped_value_truthiness():
+    assert not Secret("")
+    assert not Secret(b"")
+    assert Secret("x")
+    assert Secret(b"x")
+
+
+def test_require_tls_or_loopback_allows_loopback_plaintext():
+    require_tls_or_loopback("127.0.0.1", secure=False)
+    require_tls_or_loopback("localhost", secure=False)
+    require_tls_or_loopback("::1", secure=False)
+
+
+def test_require_tls_or_loopback_allows_any_host_when_secure():
+    require_tls_or_loopback("198.51.100.152", secure=True)
+    require_tls_or_loopback("ct104.example.net", secure=True)
+
+
+def test_require_tls_or_loopback_rejects_plaintext_to_remote_host():
+    with pytest.raises(ConfigError, match="198.51.100.152"):
+        require_tls_or_loopback("198.51.100.152", secure=False)

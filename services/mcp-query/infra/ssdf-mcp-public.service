@@ -18,6 +18,7 @@ Environment=CH_HOST=198.51.100.151
 Environment=CH_PORT=8123
 Environment=CH_USER=ssdf_public
 Environment=CH_DATABASE=ssdf_public
+Environment=MCP_AUDIT_REQUIRED=1
 Environment=MCP_BIND=0.0.0.0
 Environment=MCP_PORT=30033
 # DynamicUser cannot read root-owned 600 files; LoadCredential exposes them

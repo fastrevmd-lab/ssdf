@@ -35,7 +35,7 @@ def test_load_config_defaults(monkeypatch):
     assert cfg.baseline_days == 30
     assert cfg.top_n == 20
     assert cfg.key_version == 1
-    assert cfg.pseudonym_key == bytes.fromhex("00112233445566778899aabbccddeeff")
+    assert cfg.pseudonym_key.get() == bytes.fromhex("00112233445566778899aabbccddeeff")
 
 
 def test_load_config_reads_key_from_file(tmp_path, monkeypatch):
@@ -47,4 +47,11 @@ def test_load_config_reads_key_from_file(tmp_path, monkeypatch):
     from ssdf_pubmetrics.config import load_config
 
     config = load_config()
-    assert config.pseudonym_key == bytes.fromhex("00112233445566778899aabbccddeeff")
+    assert config.pseudonym_key.get() == bytes.fromhex("00112233445566778899aabbccddeeff")
+
+
+def test_pseudonym_key_does_not_leak_via_repr(monkeypatch):
+    monkeypatch.setenv("CH_PASSWORD", "pw")
+    monkeypatch.setenv("PUBLIC_PSEUDONYM_KEY", "46414b45464f4f")  # hex("FAKEFOO")
+    config = load_config()
+    assert "FAKEFOO" not in repr(config)

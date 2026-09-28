@@ -1,6 +1,7 @@
 # tests/test_collector_proxmox.py
 """Tests for the Proxmox topology collector (VM text listing + NIC config parsers)."""
 
+import json
 import pathlib
 
 from ssdf_topo.collectors.proxmox import _vms_from_text, parse_vm_nic, parse_vms
@@ -39,6 +40,33 @@ def test_parse_vms_emits_hosts_and_vm_nic():
     assert nic.subj_id == "mac:aa:bb:cc:dd:ee:ff"
     assert nic.attrs["bridge"] == "vmbr0"
     assert nic.attrs["vlan"] == "10"
+
+
+def test_vm_host_raw_drops_sshkeys_and_cicustom_from_config():
+    """The full vm dict (config included) must never reach `raw` wholesale: it
+    can carry cloud-init secrets (`sshkeys`, `cicustom`) and free-text
+    `description`. Only the allowlisted vm_host summary belongs there."""
+    vms = [
+        {
+            "vmid": "210",
+            "name": "vSRX-test10",
+            "node": "pve3",
+            "status": "running",
+            "config": {
+                "sshkeys": "ssh-ed25519%20FAKEKEYDATA%0A",
+                "cicustom": "user=local:snippets/FAKE-cloud-init.yaml",
+                "description": "root password is FAKE-Sup3rSecret",
+                "net0": "virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,tag=10",
+            },
+        }
+    ]
+    obs = parse_vms(vms, NOW)
+    host_obs = [o for o in obs if o.observation_type == "vm_host"][0]
+    raw = json.loads(host_obs.raw)
+    assert raw == {"vmid": "210", "name": "vSRX-test10", "node": "pve3", "status": "running"}
+    assert "sshkeys" not in host_obs.raw
+    assert "cicustom" not in host_obs.raw
+    assert "Sup3rSecret" not in host_obs.raw
 
 
 def test_vms_from_text_parses_listing():

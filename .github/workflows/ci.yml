@@ -115,4 +115,40 @@ jobs:
           CH_CONTRACT_PORT: "8123"
           CH_PASSWORD: unused-by-contract-suite
           MCP_AUTH_TOKEN: unused-by-contract-suite
-        run: uv run pytest tests/test_sql_contract.py -m contract -q
+        run: uv run pytest tests/test_sql_contract.py tests/test_public_views_migration.py -m contract -q
+
+  vector-test:
+    # MEC-219 N3: infra/vector/vector.toml carries the F1/F4/F5/MEC-186/
+    # MEC-219 telemetry-redaction regression tests as `vector test` cases,
+    # but nothing ran them in CI -- a redaction regression could merge
+    # green. TZ=UTC because two UniFi CEF tests assert on a local-time
+    # rendering of the event timestamp and fail outside UTC.
+    name: vector test (VRL unit tests)
+    runs-on: ubuntu-latest
+    env:
+      VECTOR_VERSION: "0.56.0"
+      # sha256 of vector-0.56.0-x86_64-unknown-linux-musl.tar.gz, from the
+      # upstream vector-0.56.0-SHA256SUMS release asset.
+      VECTOR_SHA256: "8c114c5e9fd9646516f014d5d837690447cf0d4f43ba4a3746713bc0612b039b"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Vector (checksum-verified)
+        run: |
+          curl -sSL -o vector.tar.gz "https://github.com/vectordotdev/vector/releases/download/v${VECTOR_VERSION}/vector-${VECTOR_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          echo "${VECTOR_SHA256}  vector.tar.gz" | sha256sum -c -
+          tar xzf vector.tar.gz
+          echo "$PWD/vector-x86_64-unknown-linux-musl/bin" >> "$GITHUB_PATH"
+      - name: vector test
+        env:
+          TZ: UTC
+          CH_HOST: unused
+          USERNAME_HASH_KEY: throwaway-ci-key
+        run: vector test infra/vector/vector.toml
+      - name: vector validate fails closed without USERNAME_HASH_KEY (F4)
+        env:
+          CH_HOST: unused
+        run: |
+          if vector validate --no-environment infra/vector/vector.toml; then
+            echo "expected 'vector validate' to fail with USERNAME_HASH_KEY unset (F4 fail-closed)" >&2
+            exit 1
+          fi
