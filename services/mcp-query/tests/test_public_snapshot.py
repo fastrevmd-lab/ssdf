@@ -3,11 +3,14 @@ mostly adversarial: they assert what must NOT appear."""
 
 import datetime as _dt
 import json
+import os
 
 from ssdf_mcp_query.public_snapshot import (
     ALLOWLIST,
     MAX_NODES,
     SCHEMA_VERSION,
+    DisplayDevice,
+    _resolve_allowlist,
     build_snapshot,
 )
 
@@ -174,6 +177,31 @@ def test_remote_membership_is_exposed_only_as_an_enum():
     nodes = [_node("nid-a", "vsrx-prod", FRESH)]
     snap = build_snapshot(nodes, [], now=NOW, salt=SALT)
     assert snap["nodes"][0]["site"] in {"primary", "remote"}
+
+
+def test_allowlist_overrides_rename_selectors_without_touching_committed_names(tmp_path):
+    """The committed defaults must stay generic; a real device name only ever
+    comes from an uncommitted, operator-local override file."""
+    defaults = (DisplayDevice("ap-1", "primary"), DisplayDevice("vsrx-prod", "primary"))
+    override_file = tmp_path / "overrides.json"
+    override_file.write_text(json.dumps({"ap-1": "office-ap"}))
+
+    resolved = _resolve_allowlist(defaults)
+    assert resolved == defaults, "with no env var set, the generic defaults must be used as-is"
+
+    old = os.environ.get("SSDF_PUBLIC_SNAPSHOT_NAME_OVERRIDES")
+    os.environ["SSDF_PUBLIC_SNAPSHOT_NAME_OVERRIDES"] = str(override_file)
+    try:
+        resolved = _resolve_allowlist(defaults)
+    finally:
+        if old is None:
+            del os.environ["SSDF_PUBLIC_SNAPSHOT_NAME_OVERRIDES"]
+        else:
+            os.environ["SSDF_PUBLIC_SNAPSHOT_NAME_OVERRIDES"] = old
+
+    assert resolved[0].name == "office-ap"
+    assert resolved[0].site == "primary"
+    assert resolved[1].name == "vsrx-prod", "an entry with no override entry is left unchanged"
 
 
 def test_duplicate_graph_rows_for_one_device_collapse_to_one_node():
