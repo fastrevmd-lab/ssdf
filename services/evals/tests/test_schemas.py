@@ -14,6 +14,7 @@ def make_manifest(**overrides):
         "tier": "sovereign",
         "principal": "eval-test",
         "corpus_version": "deadbeef",
+        "local": True,
         "questions": [
             {
                 "id": "flows-top-talkers-24h",
@@ -59,6 +60,22 @@ def test_question_missing_times_rejected():
 def test_extra_top_level_key_rejected():
     with pytest.raises(SchemaError):
         validate_manifest(make_manifest(extra_field="nope"))
+
+
+def test_missing_local_rejected():
+    manifest = make_manifest()
+    del manifest["local"]
+    with pytest.raises(SchemaError):
+        validate_manifest(manifest)
+
+
+def test_local_wrong_type_rejected():
+    with pytest.raises(SchemaError):
+        validate_manifest(make_manifest(local="true"))
+
+
+def test_public_tier_manifest_may_declare_non_local():
+    validate_manifest(make_manifest(tier="public", local=False))  # must not raise
 
 
 def test_valid_scorecard_passes():

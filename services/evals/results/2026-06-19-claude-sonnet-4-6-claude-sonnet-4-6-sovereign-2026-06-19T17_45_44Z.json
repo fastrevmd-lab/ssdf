@@ -14,10 +14,10 @@
       "reasons": [],
       "predicate_detail": {
         "agent": [
-          "allow-approved-dns"
+          "REDACTED-LAB-RULE-NAME"
         ],
         "reference": [
-          "allow-approved-dns"
+          "REDACTED-LAB-RULE-NAME"
         ]
       },
       "tools_observed": [
@@ -62,10 +62,10 @@
       "reasons": [],
       "predicate_detail": {
         "agent": [
-          "203.0.113.20->198.51.100.1"
+          "REDACTED-LAB-IP"
         ],
         "reference": [
-          "203.0.113.20->198.51.100.1"
+          "REDACTED-LAB-IP"
         ]
       },
       "tools_observed": [
@@ -80,13 +80,13 @@
       "reasons": [],
       "predicate_detail": {
         "agent": [
-          "203.0.113.20",
-          "192.0.2.20",
+          "REDACTED-LAB-IP",
+          "REDACTED-LAB-IP",
           "198.51.100.100"
         ],
         "reference": [
-          "203.0.113.20",
-          "192.0.2.20",
+          "REDACTED-LAB-IP",
+          "REDACTED-LAB-IP",
           "198.51.100.100"
         ],
         "overlap": 3
@@ -309,10 +309,10 @@
       "reasons": [],
       "predicate_detail": {
         "agent": [
-          "baseline-permit"
+          "REDACTED-LAB-RULE-NAME"
         ],
         "reference": [
-          "baseline-permit"
+          "REDACTED-LAB-RULE-NAME"
         ]
       },
       "tools_observed": [

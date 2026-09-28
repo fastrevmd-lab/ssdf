@@ -26,13 +26,18 @@ from .tokenstore import digest_for, mint_token
 
 
 def build_entry(
-    principal: str, allowed_tools: list[str] | None, days: int | None
+    principal: str,
+    allowed_tools: list[str] | None,
+    days: int | None,
+    local_only: bool = False,
 ) -> tuple[str, dict]:
     """Return ``(token, {digest: entry})`` for a freshly minted token."""
     token = mint_token()
     entry: dict = {"principal": principal}
     if allowed_tools:
         entry["allowed_tools"] = allowed_tools
+    if local_only:
+        entry["local_only"] = True
     if days is not None:
         expiry = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(days=days)
         # Whole seconds: not_after is parsed with fromisoformat and compared,
@@ -55,10 +60,18 @@ def main(argv: list[str] | None = None) -> int:
         default=90,
         help="days until not_after (default 90); pass 0 for no expiry",
     )
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="attest this token drives a model on operator-controlled infrastructure "
+        "(M16e); required for a token to authenticate against a sovereign-tier build",
+    )
     args = parser.parse_args(argv)
 
     tools = [t.strip() for t in args.allowed_tools.split(",") if t.strip()] or None
-    token, entry = build_entry(args.principal, tools, None if args.days == 0 else args.days)
+    token, entry = build_entry(
+        args.principal, tools, None if args.days == 0 else args.days, args.local_only
+    )
 
     print(token)
     print(

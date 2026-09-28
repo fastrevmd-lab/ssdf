@@ -157,6 +157,41 @@ def test_token_map_non_string_not_after_raises(monkeypatch, tmp_path):
         load_token_map()
 
 
+def test_token_map_local_only_defaults_false(monkeypatch, tmp_path):
+    f = _write_tokens(tmp_path, {digest_for("tok"): {"principal": "p"}})
+    monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
+    tokens = load_token_map()
+    assert tokens[digest_for("tok")].local_only is False
+
+
+def test_token_map_local_only_true(monkeypatch, tmp_path):
+    f = _write_tokens(tmp_path, {digest_for("tok"): {"principal": "p", "local_only": True}})
+    monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
+    tokens = load_token_map()
+    assert tokens[digest_for("tok")].local_only is True
+
+
+def test_token_map_local_only_wrong_type_raises(monkeypatch, tmp_path):
+    f = tmp_path / "tokens.json"
+    f.write_text(json.dumps({"tok": {"principal": "p", "local_only": "yes"}}))
+    monkeypatch.setenv("MCP_TOKENS_FILE", str(f))
+    with pytest.raises(ConfigError):
+        load_token_map()
+
+
+def test_single_token_fallback_local_only_env(monkeypatch, tmp_path):
+    token_file = tmp_path / "token"
+    token_file.write_text("secret-token\n")
+    monkeypatch.setenv("CH_PASSWORD", "pw")
+    monkeypatch.setenv("MCP_TOKEN_FILE", str(token_file))
+    monkeypatch.delenv("MCP_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("MCP_TOKENS_FILE", raising=False)
+    monkeypatch.delenv("MCP_AUTH_TOKEN_LOCAL_ONLY", raising=False)
+    assert load_config().tokens[digest_for("secret-token")].local_only is False
+    monkeypatch.setenv("MCP_AUTH_TOKEN_LOCAL_ONLY", "true")
+    assert load_config().tokens[digest_for("secret-token")].local_only is True
+
+
 def test_ch_secure_env_parsing(monkeypatch):
     monkeypatch.setenv("CH_PASSWORD", "x")
     monkeypatch.setenv("MCP_AUTH_TOKEN", "t")

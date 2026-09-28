@@ -2,9 +2,12 @@
 
 import json
 
+import pytest
+
 from ssdf_evals.corpus import Question
 from ssdf_evals.schemas import validate_scorecard
 from ssdf_evals.score import main, score_run
+from ssdf_evals.sovereignty import SovereigntyError
 
 
 class FakeCH:
@@ -53,6 +56,7 @@ def make_manifest():
         "tier": "sovereign",
         "principal": "eval-test",
         "corpus_version": "v1",
+        "local": True,
         "questions": [
             {
                 "id": "q-sql",
@@ -162,6 +166,38 @@ def test_score_run_empty_string_error_fails_closed():
     by_id = {q["id"]: q for q in scorecard["questions"]}
     assert by_id["q-sql"]["pass"] is False
     assert any("runner error" in r for r in by_id["q-sql"]["reasons"])
+
+
+def test_score_run_refuses_non_local_sovereign_model():
+    manifest = make_manifest()
+    manifest["local"] = False
+    with pytest.raises(SovereigntyError, match="sovereign tier requires a local model"):
+        score_run(manifest, CORPUS, *clients(), slop_secs=5)
+
+
+def test_score_run_allows_local_sovereign_model():
+    scorecard = score_run(
+        make_manifest(), CORPUS, *clients(), slop_secs=5
+    )  # local=True, must not raise
+    validate_scorecard(scorecard)
+
+
+def test_main_exit_2_and_no_scorecard_for_non_local_sovereign_manifest(tmp_path, monkeypatch):
+    manifest = make_manifest()
+    manifest["local"] = False
+    manifest_path = tmp_path / "m.json"
+    manifest_path.write_text(json.dumps(manifest))
+
+    import ssdf_evals.score as score_mod
+
+    monkeypatch.setattr(score_mod, "_connect", lambda config: clients())
+    monkeypatch.setattr(score_mod, "_load_questions", lambda path: CORPUS)
+    monkeypatch.setenv("CH_PASSWORD", "x")
+    monkeypatch.setenv("CH_AUDIT_VERIFY_PASSWORD", "y")
+
+    result = main([str(manifest_path), "--results-dir", str(tmp_path)])
+    assert result == 2
+    assert list(tmp_path.glob("????-??-??-*.json")) == []
 
 
 def test_main_writes_scorecard(tmp_path, monkeypatch):

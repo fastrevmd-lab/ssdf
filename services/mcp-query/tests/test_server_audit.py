@@ -109,8 +109,9 @@ def test_not_after_lands_in_verifier_claims(monkeypatch, tmp_path):
             digest_for("tok-exp"): {
                 "principal": "expiring",
                 "not_after": "2026-09-09T12:00:00+00:00",
+                "local_only": True,
             },
-            digest_for("tok-forever"): {"principal": "forever"},
+            digest_for("tok-forever"): {"principal": "forever", "local_only": True},
         },
     )
     monkeypatch.setenv("MCP_TOKENS_FILE", str(f))

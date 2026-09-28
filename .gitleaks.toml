@@ -1,4 +1,21 @@
-title = "ssdf gitleaks config"
+# Gitleaks allowlist for ssdf
+# External repositories cloned under .paperclip-repositories are out of scope
 
-[extend]
-path = ".gitleaks-vendor.toml"
+# Exclude directories from scanning
+[exclude]
+paths = [
+    "\\.paperclip-repositories",
+]
+
+# Allowlist fixture strings that contain secret-shaped patterns but are safe test data
+[allowlist]
+descriptions = [
+    "Test fixture: public pseudonym key (test data)",
+    "Test fixture: sanitized keys (test data)",
+    "Test fixture: private key placeholders (test data)",
+]
+regexes = [
+    '00112233445566778899aabbccddeeff',
+    'SANITIZED_KEY_[0-9a-z]',
+    '(ASA|OPENSSH|EC|PKCS8)-PRIVATE-BLOCK-ORIGINAL',
+]

@@ -23,6 +23,7 @@ from .config import Config, client_kwargs, load_config
 from .corpus import Question, load_corpus, questions_for_tier
 from .predicates import evaluate
 from .schemas import validate_manifest, validate_scorecard
+from .sovereignty import require_local_for_sovereign
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CORPUS = PACKAGE_ROOT / "golden" / "core.yaml"
@@ -65,6 +66,7 @@ def score_run(
     manifest: dict, questions: list[Question], query_client, audit_client, slop_secs: int
 ) -> dict:
     """Pure scoring core: corpus tier-subset vs manifest, fail-closed."""
+    require_local_for_sovereign(manifest)
     tier = manifest["tier"]
     subset = questions_for_tier(questions, tier)
     by_id = {entry["id"]: entry for entry in manifest["questions"]}

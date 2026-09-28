@@ -168,7 +168,7 @@
         "agent": {
           "name": "find_path",
           "arguments": {
-            "src": "203.0.113.20",
+            "src": "REDACTED-LAB-IP",
             "dst": "198.51.100.1"
           }
         }

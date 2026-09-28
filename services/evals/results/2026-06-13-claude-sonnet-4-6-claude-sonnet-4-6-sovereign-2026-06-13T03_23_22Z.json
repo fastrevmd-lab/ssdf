@@ -16,10 +16,10 @@
       ],
       "predicate_detail": {
         "agent": [
-          "drifttest1"
+          "REDACTED-LAB-RULE-NAME"
         ],
         "reference": [
-          "drifttest1"
+          "REDACTED-LAB-RULE-NAME"
         ]
       },
       "tools_observed": [
@@ -70,10 +70,10 @@
       "reasons": [],
       "predicate_detail": {
         "agent": [
-          "203.0.113.20->198.51.100.1"
+          "REDACTED-LAB-IP"
         ],
         "reference": [
-          "203.0.113.20->198.51.100.1"
+          "REDACTED-LAB-IP"
         ]
       },
       "tools_observed": [
@@ -92,10 +92,10 @@
       ],
       "predicate_detail": {
         "agent": [
-          "203.0.113.20"
+          "REDACTED-LAB-IP"
         ],
         "reference": [
-          "203.0.113.20"
+          "REDACTED-LAB-IP"
         ],
         "overlap": 1
       },
@@ -308,10 +308,10 @@
       "reasons": [],
       "predicate_detail": {
         "agent": [
-          "baseline-permit"
+          "REDACTED-LAB-RULE-NAME"
         ],
         "reference": [
-          "baseline-permit"
+          "REDACTED-LAB-RULE-NAME"
         ]
       },
       "tools_observed": [
