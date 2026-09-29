@@ -1,7 +1,7 @@
 # Contributing to SSDF
 
 Thanks for considering a contribution. SSDF (Sovereign Security Data Fabric) is
-an AI-native security data platform — part of the [mechub](https://github.com/fastrevmd-lab)
+an AI-native security data platform — part of the [mechub](https://github.com/mechubsec)
 family of open-source, self-hosted network-security tooling. See
 [README.md](README.md) for the architecture and the two principles that shape
 every design decision here: **AI-native, not AI-bolted-on**, and **sovereign**
