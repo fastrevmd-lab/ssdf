@@ -1,5 +1,5 @@
 from pathlib import Path
-from ssdf_policy.collectors.junos import parse_security_policies
+from ssdf_policy.collectors.junos import parse_security_policies, parse_hit_counts
 
 GLOBAL_FIXTURE = Path(__file__).parent / "fixtures" / "junos_security_set_global.txt"
 ZONEPAIR_FIXTURE = Path(__file__).parent / "fixtures" / "junos_security_set_zonepair.txt"
@@ -119,3 +119,83 @@ def test_collect_skips_unreachable_device_and_keeps_the_rest():
 
     assert {r["device_name"] for r in rules} == {"vsrx-up"}
     assert {r["rule_name"] for r in rules} == {"ALLOW-WEB", "DENY-ALL"}
+
+
+# Real `show security policies hit-count` output, captured live from vsrx-ci
+# (MEC-566, 2026-09-28).
+HITCOUNT_OUTPUT = """
+Logical system: root-logical-system
+Index   From zone        To zone           Name           Policy count  Action
+1       all-zone         all-zone          default-policy 0             Deny
+2       all-zone         all-zone          default-http-mux 0           Permit
+3       junos-global     junos-global      vsrx-ci-1      0             Permit
+
+Number of policy: 3
+""".strip()
+
+
+def test_parse_hit_counts_reads_live_device_output():
+    counts = parse_hit_counts(HITCOUNT_OUTPUT)
+    assert counts == {"default-policy": 0, "default-http-mux": 0, "vsrx-ci-1": 0}
+
+
+def test_parse_hit_counts_ignores_headers_and_banners():
+    counts = parse_hit_counts(HITCOUNT_OUTPUT)
+    assert "Logical" not in counts
+    assert "Index" not in counts
+    assert "Number" not in counts
+    assert counts["default-policy"] == 0
+    assert counts["vsrx-ci-1"] == 0
+
+
+def test_parse_hit_counts_reads_nonzero_counts():
+    text = (
+        "Index   From zone        To zone           Name           Policy count  Action\n"
+        "1       trust            untrust           allow-web      1234          Permit\n"
+        "Number of policy: 1"
+    )
+    assert parse_hit_counts(text) == {"allow-web": 1234}
+
+
+def test_parse_hit_counts_empty_text_returns_empty_dict():
+    assert parse_hit_counts("") == {}
+    assert parse_hit_counts("Number of policy: 0") == {}
+
+
+def test_collect_merges_hit_counts_into_vendor_extras():
+    from ssdf_policy.collectors.junos import JunosPolicyCollector
+
+    hitcount_text = (
+        "Index   From zone        To zone           Name           Policy count  Action\n"
+        "1       trust            untrust           ALLOW-WEB      7             Permit\n"
+        "Number of policy: 1"
+    )
+
+    class _FakeClient:
+        def call_tool(self, name, args=None):
+            command = (args or {}).get("command", "")
+            if "hit-count" in command:
+                return hitcount_text
+            return SAMPLE
+
+    rules = JunosPolicyCollector(["vSRX-test10"]).collect(_FakeClient(), "2026-09-28T00:00:00Z")
+    by_name = {r["rule_name"]: r for r in rules}
+    assert by_name["ALLOW-WEB"]["vendor_extras"]["hit_count"] == "7"
+    assert by_name["ALLOW-WEB"]["vendor_extras"]["hit_count_collected_at"] == "2026-09-28T00:00:00Z"
+    # DENY-ALL has no matching hit-count row: left unset, never fabricated as 0.
+    assert "hit_count" not in by_name["DENY-ALL"]["vendor_extras"]
+
+
+def test_collect_survives_hit_count_failure_and_keeps_configured_rules():
+    from ssdf_policy.collectors.junos import JunosPolicyCollector
+
+    class _FakeClient:
+        def call_tool(self, name, args=None):
+            command = (args or {}).get("command", "")
+            if "hit-count" in command:
+                raise RuntimeError("device rejected hit-count command")
+            return SAMPLE
+
+    rules = JunosPolicyCollector(["vSRX-test10"]).collect(_FakeClient(), "2026-09-28T00:00:00Z")
+    assert {r["rule_name"] for r in rules} == {"ALLOW-WEB", "DENY-ALL"}
+    assert all("hit_count" not in r["vendor_extras"] for r in rules)

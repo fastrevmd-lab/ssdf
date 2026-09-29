@@ -1,5 +1,5 @@
 from pathlib import Path
-from ssdf_policy.collectors.panos import _root, parse_security_rules
+from ssdf_policy.collectors.panos import _root, parse_security_rules, parse_rule_hit_counts
 
 FIXTURE = Path(__file__).parent / "fixtures" / "panos_running_config.xml"
 
@@ -92,11 +92,14 @@ def test_collect_uses_current_panos_mcp_tool_contract():
 
     PanosPolicyCollector("panosvm").collect(_RecordingClient(), "2026-08-19T00:00:00Z")
 
-    assert [c[0] for c in calls] == ["get_panos_config"]
+    # MEC-566: collect() also enriches with a read-only hit-count op-command call.
+    assert [c[0] for c in calls] == ["get_panos_config", "execute_panos_op"]
     assert calls[0][1]["device"] == "panosvm"
     # Scoped to the rulebase: the full running config is ~5x larger and rises
     # toward the tool's 512 KiB default output cap.
     assert calls[0][1]["xpath"].endswith("/rulebase/security")
+    assert calls[1][1]["device"] == "panosvm"
+    assert "rule-hit-count" in calls[1][1]["command"]
 
 
 def test_root_unwraps_panos_mcp_output_content_envelope():
@@ -174,3 +177,58 @@ def test_collect_refuses_a_truncated_config_rather_than_under_reporting():
 
     with pytest.raises(RuntimeError, match="truncated"):
         PanosPolicyCollector("panosvm").collect(_TruncatingClient(), "2026-08-19T00:00:00Z")
+
+
+# Documented PAN-OS XML API response shape for `show rule-hit-count` (MEC-566).
+# NOT live-verified -- no PAN-OS lab device was available for this change.
+HITCOUNT_XML = (
+    "<response status='success'><result><rule-hit-count><vsys>"
+    "<entry name='vsys1'><rule-base><entry name='security'><rules>"
+    "<entry name='allow-web'><hit-count>42</hit-count></entry>"
+    "<entry name='deny-all'><hit-count>0</hit-count></entry>"
+    "</rules></entry></rule-base></entry>"
+    "</vsys></rule-hit-count></result></response>"
+)
+
+
+def test_parse_rule_hit_counts_reads_documented_response_shape():
+    assert parse_rule_hit_counts(HITCOUNT_XML) == {"allow-web": 42, "deny-all": 0}
+
+
+def test_parse_rule_hit_counts_ignores_entries_without_hit_count():
+    xml = "<rules><entry name='allow-web'><action>allow</action></entry></rules>"
+    assert parse_rule_hit_counts(xml) == {}
+
+
+def test_parse_rule_hit_counts_unparseable_text_returns_empty_dict():
+    assert parse_rule_hit_counts("not xml") == {}
+
+
+def test_collect_merges_hit_counts_into_vendor_extras():
+    from ssdf_policy.collectors.panos import PanosPolicyCollector
+
+    class _RecordingClient:
+        def call_tool(self, name, args=None):
+            if name == "execute_panos_op":
+                return HITCOUNT_XML
+            return "<rules><entry name='allow-web'><action>allow</action></entry></rules>"
+
+    rules = PanosPolicyCollector("panosvm").collect(_RecordingClient(), "2026-09-28T00:00:00Z")
+    assert rules[0]["vendor_extras"]["hit_count"] == "42"
+    assert rules[0]["vendor_extras"]["hit_count_collected_at"] == "2026-09-28T00:00:00Z"
+
+
+def test_collect_survives_hit_count_failure_and_keeps_configured_rules():
+    from ssdf_policy.collectors.panos import PanosPolicyCollector
+
+    class _FailingHitCountClient:
+        def call_tool(self, name, args=None):
+            if name == "execute_panos_op":
+                raise RuntimeError("op command rejected")
+            return "<rules><entry name='allow-web'><action>allow</action></entry></rules>"
+
+    rules = PanosPolicyCollector("panosvm").collect(
+        _FailingHitCountClient(), "2026-09-28T00:00:00Z"
+    )
+    assert [r["rule_name"] for r in rules] == ["allow-web"]
+    assert "hit_count" not in rules[0]["vendor_extras"]

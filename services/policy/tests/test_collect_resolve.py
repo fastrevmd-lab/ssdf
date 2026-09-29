@@ -73,3 +73,56 @@ def test_run_once_skips_failing_collector():
         now="2026-06-08T00:00:00",
     )
     assert n_ent == 2  # only junos's firewall+policy survived
+
+
+def test_run_once_calls_version_writer_with_policy_entities_only():
+    class _VersionWriter:
+        def __init__(self):
+            self.seen = None
+
+        def append_policy_versions(self, policies):
+            self.seen = policies
+            return len(policies)
+
+    version_writer = _VersionWriter()
+    run_once(
+        enabled=["panos"],
+        collector_factory=lambda name: _FakeCollector([_rule("panosvm", "allow-web")]),
+        client_factory=lambda name: object(),
+        writer=_FakeWriter(),
+        tenant="t_main",
+        now="2026-06-08T00:00:00",
+        version_writer=version_writer,
+    )
+    assert version_writer.seen is not None
+    assert {e["kind"] for e in version_writer.seen} == {"policy"}  # firewall excluded
+
+
+def test_run_once_without_version_writer_is_unaffected():
+    # Backward-compatible default: existing callers that never pass version_writer.
+    n_ent, n_edge = run_once(
+        enabled=["panos"],
+        collector_factory=lambda name: _FakeCollector([_rule("panosvm", "allow-web")]),
+        client_factory=lambda name: object(),
+        writer=_FakeWriter(),
+        tenant="t_main",
+        now="2026-06-08T00:00:00",
+    )
+    assert n_ent == 2 and n_edge == 1
+
+
+def test_run_once_survives_version_writer_failure():
+    class _BoomVersionWriter:
+        def append_policy_versions(self, policies):
+            raise RuntimeError("clickhouse down")
+
+    n_ent, n_edge = run_once(
+        enabled=["panos"],
+        collector_factory=lambda name: _FakeCollector([_rule("panosvm", "allow-web")]),
+        client_factory=lambda name: object(),
+        writer=_FakeWriter(),
+        tenant="t_main",
+        now="2026-06-08T00:00:00",
+        version_writer=_BoomVersionWriter(),
+    )
+    assert n_ent == 2 and n_edge == 1  # primary write path unaffected
