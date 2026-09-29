@@ -89,6 +89,57 @@ def parse_security_rules(text: str, device_name: str, now: str) -> list[dict]:
     return rules
 
 
+def parse_rule_hit_counts(text: str) -> dict[str, int]:
+    """Parse a `show rule-hit-count` XML response into {rule_name: count}.
+
+    Schema per the PAN-OS XML API operational-command docs (`<rule-hit-count>` ->
+    `<vsys>` -> `<rule-base>` -> `<rules>` -> `<entry name="...">` ->
+    `<hit-count>N</hit-count>`). NOT live-verified: no PAN-OS lab device was
+    available for this change (unlike the Junos hit-count parser in junos.py,
+    which WAS verified live against vsrx-ci). Walks all `<entry>` elements
+    rather than the exact nested path so an envelope/depth difference between
+    PAN-OS versions degrades to "no counters found", not a parse error --
+    which also means a name can legitimately repeat (multiple vsys, multiple
+    rulebases/lsys, cluster peers echoing the same op command). Keeping the
+    last-seen row for a repeated name would attribute one rulebase's counter
+    to every rule sharing that name; since a false "unused" verdict can get a
+    live rule deleted (see rule_tools.py), an ambiguous name is dropped
+    entirely so the caller leaves hit_count unset and unused_rules reports
+    "unknown" for it instead of guessing.
+    """
+    root = _root(text)
+    if root is None:
+        return {}
+    counts: dict[str, int] = {}
+    ambiguous: set[str] = set()
+    for entry in root.iter("entry"):
+        hit_count_el = entry.find("hit-count")
+        if hit_count_el is None or hit_count_el.text is None:
+            continue
+        name = entry.get("name", "").strip()
+        if not name:
+            continue
+        try:
+            count = int(hit_count_el.text.strip())
+        except ValueError:
+            continue
+        if name in counts or name in ambiguous:
+            ambiguous.add(name)
+            counts.pop(name, None)
+            continue
+        counts[name] = count
+    return counts
+
+
+# Read-only op command: all security rules, all vsys (M6b's collector already
+# scopes to vsys1 for config; hit-count is requested the same way).
+_HITCOUNT_OP_COMMAND = (
+    "<show><rule-hit-count><vsys><entry name='vsys1'><rule-base>"
+    "<entry name='security'><rules><all/></rules></entry>"
+    "</rule-base></entry></vsys></rule-hit-count></show>"
+)
+
+
 @register("panos")
 class PanosPolicyCollector:
     """Collects the configured security rulebase from one PAN-OS firewall."""
@@ -113,4 +164,26 @@ class PanosPolicyCollector:
                 f"panos {self.device}: get_panos_config returned a truncated "
                 "rulebase; refusing to emit a partial policy set"
             )
-        return parse_security_rules(text, self.device, now)
+        rules = parse_security_rules(text, self.device, now)
+        # MEC-566: read-only hit-count enrichment via execute_panos_op (same
+        # read-only op-command surface, no new device write path). A failure here
+        # must not drop the device's configured rules, only leave hit_count unset
+        # (downstream tools treat a missing hit_count as "unknown", never "unused").
+        try:
+            hc_text = client.call_tool(
+                "execute_panos_op",
+                {"device": self.device, "command": _HITCOUNT_OP_COMMAND},
+            )
+            hit_counts = parse_rule_hit_counts(hc_text)
+            for rule in rules:
+                count = hit_counts.get(rule["rule_name"])
+                if count is not None:
+                    rule["vendor_extras"]["hit_count"] = str(count)
+                    rule["vendor_extras"]["hit_count_collected_at"] = now
+        except Exception:
+            logger.warning(
+                "panos %r: hit-count collection failed; continuing without counters",
+                self.device,
+                exc_info=True,
+            )
+        return rules

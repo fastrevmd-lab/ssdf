@@ -8,6 +8,7 @@ import clickhouse_connect
 
 from ssdf_common.clickhouse import client_kwargs as _client_kwargs
 from .config import Config
+from .policy_versions import diff_new_versions, version_key
 
 # Byte-identical to services/entity/src/ssdf_entity/chwriter.py column orders.
 ENTITY_COLUMNS = [
@@ -76,3 +77,55 @@ class ClickHouseEntityWriter:
             return 0
         self._client.insert("entity_edges", edge_rows(edges), column_names=ENTITY_EDGE_COLUMNS)
         return len(edges)
+
+    def append_policy_versions(self, policy_entities: list[dict]) -> int:
+        """Append one ssdf.policy_versions row per policy whose content actually
+        changed since its last known version (MEC-566). Read (last hash per rule)
+        + diff (pure, policy_versions.diff_new_versions) + INSERT -- never UPDATE
+        or DELETE, matching the append-only pattern in 007_audit.sql."""
+        if not policy_entities:
+            return 0
+        keys = [version_key(p) for p in policy_entities]
+        last_hash_by_key = self._fetch_latest_hashes(keys)
+        versions = diff_new_versions(policy_entities, last_hash_by_key)
+        if not versions:
+            return 0
+        self._client.insert(
+            "policy_versions",
+            [[v[c] for c in POLICY_VERSION_COLUMNS] for v in versions],
+            column_names=POLICY_VERSION_COLUMNS,
+        )
+        return len(versions)
+
+    def _fetch_latest_hashes(self, keys: list[tuple[str, str, str]]) -> dict:
+        if not keys:
+            return {}
+        providers = sorted({k[0] for k in keys})
+        devices = sorted({k[1] for k in keys})
+        rules = sorted({k[2] for k in keys})
+        result = self._client.query(
+            "SELECT provider, device_name, rule_name, "
+            "argMax(content_hash, valid_from) AS content_hash "
+            "FROM policy_versions "
+            "WHERE provider IN {providers:Array(String)} "
+            "AND device_name IN {devices:Array(String)} "
+            "AND rule_name IN {rules:Array(String)} "
+            "GROUP BY provider, device_name, rule_name",
+            parameters={"providers": providers, "devices": devices, "rules": rules},
+        )
+        return {(row[0], row[1], row[2]): row[3] for row in result.result_rows}
+
+
+POLICY_VERSION_COLUMNS = [
+    "tenant_id",
+    "provider",
+    "device_name",
+    "rule_name",
+    "valid_from",
+    "content_hash",
+    "action",
+    "from_zone",
+    "to_zone",
+    "enabled",
+    "position",
+]

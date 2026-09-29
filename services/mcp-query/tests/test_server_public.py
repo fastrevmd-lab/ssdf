@@ -27,6 +27,10 @@ SOVEREIGN_TOOLS = {
     "top_series",
     "entity_metric_timeseries",
     "reidentify",
+    "rule_history",
+    "rule_usage",
+    "unused_rules",
+    "explain_rule",
 }
 
 

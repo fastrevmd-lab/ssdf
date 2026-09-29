@@ -35,6 +35,7 @@ from .public_snapshot import PublicSnapshotTools
 from .metrics_store import MetricsStore
 from .metric_tools import MetricTools
 from .alerts import AlertTools
+from .rule_tools import RuleTools
 
 
 def build_app(tier: str = "sovereign") -> FastMCP:
@@ -51,12 +52,14 @@ def build_app(tier: str = "sovereign") -> FastMCP:
     # reads, never exposed publicly) — don't even construct them on public.
     access = None
     liveness = None
+    rule_tools = None
     if tier != "public":
         entity_store = ClickHouseEntityStore(client, tenant="t_main")
         access = AccessTools(entity_store, topo)
         liveness = LivenessTools(graph_store, entity_store)
         fabric = FabricTools(entity_store._ch, liveness=liveness)
         public_snapshot = PublicSnapshotTools(graph_store)
+        rule_tools = RuleTools(client, entity_store)
 
     metrics_store = MetricsStore(client, tenant="t_main")
     metrics = MetricTools(metrics_store)
@@ -268,6 +271,39 @@ def build_app(tier: str = "sovereign") -> FastMCP:
             since=since, min_severity=min_severity, providers=providers, limit=limit
         )
 
+    def rule_history(device_name: str, rule_name: str, limit: int = 50) -> dict:
+        """Append-only change history for one configured rule (ssdf.policy_versions):
+        one row per content change (action/zones/enabled/position), newest first.
+        Use for "what changed on this rule and when"."""
+        return rule_tools.rule_history(device_name, rule_name, limit=limit)
+
+    def rule_usage(
+        device_name: str, rule_name: str, since: str | None = None, until: str | None = None
+    ) -> dict:
+        """Hourly traffic-log usage for one configured rule (ssdf.rule_usage_hourly,
+        rolled up from ssdf.events.rule_name) plus the device's own cumulative
+        hit-count counter if collected. Times accept ISO-8601 or relative
+        ("now-24h"); default window 24h."""
+        return rule_tools.rule_usage(device_name, rule_name, since=since, until=until)
+
+    def unused_rules(device_name: str, since: str | None = None, until: str | None = None) -> dict:
+        """Cross-checks EVERY configured rule on a firewall against two independent
+        signals: the ssdf.events-derived usage rollup and the device's own hit-count
+        counter. Returns {rules:[{rule_name, status, reason, evidence}]} where status
+        is "used" | "unused" | "unknown" -- "unknown" (never a guessed "unused")
+        whenever the two signals disagree or either one's coverage is uncertain.
+        Default window 7 days; times accept ISO-8601 or relative ("now-7d")."""
+        return rule_tools.unused_rules(device_name, since=since, until=until)
+
+    def explain_rule(
+        device_name: str, rule_name: str, since: str | None = None, until: str | None = None
+    ) -> dict:
+        """End-to-end deterministic view of one rule: current config, recent version
+        history, traffic-log + hit-counter usage, and the same used/unused/unknown
+        verdict unused_rules would give it. `summary` is assembled by string
+        formatting the cited fields only -- no model-generated safety judgment."""
+        return rule_tools.explain_rule(device_name, rule_name, since=since, until=until)
+
     raw_tools = {
         "query_flows": query_flows,
         "describe_schema": describe_schema,
@@ -290,6 +326,10 @@ def build_app(tier: str = "sovereign") -> FastMCP:
         raw_tools["reidentify"] = reidentify
         raw_tools["recent_alerts"] = recent_alerts
         raw_tools["lab_topology_snapshot"] = lab_topology_snapshot
+        raw_tools["rule_history"] = rule_history
+        raw_tools["rule_usage"] = rule_usage
+        raw_tools["unused_rules"] = unused_rules
+        raw_tools["explain_rule"] = explain_rule
     if liveness is not None:  # sovereign-only: ingest liveness
         raw_tools["ingest_status"] = ingest_status
         raw_tools["fabric_status"] = fabric_status

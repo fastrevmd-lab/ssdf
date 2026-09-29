@@ -32,6 +32,10 @@ EXPECTED = {
     "top_series": {"metrics"},
     "entity_metric_timeseries": {"metrics"},
     "reidentify": {"identity"},
+    "rule_history": {"firewall_config"},
+    "rule_usage": {"security_log", "firewall_config"},
+    "unused_rules": {"security_log", "firewall_config"},
+    "explain_rule": {"security_log", "firewall_config"},
 }
 
 

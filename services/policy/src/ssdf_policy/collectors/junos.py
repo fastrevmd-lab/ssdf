@@ -19,6 +19,13 @@ _ACTION_MAP = {"permit": "allow", "deny": "deny", "reject": "reject"}
 _ZONE_RE = re.compile(r"security policies from-zone (\S+) to-zone (\S+) policy (\S+) (.*)$")
 _GLOBAL_RE = re.compile(r"security policies global policy (\S+) (.*)$")
 
+# `show security policies hit-count` (verified live against vsrx-ci, 2026-09-28):
+#   Index   From zone        To zone           Name           Policy count  Action
+#   1       all-zone         all-zone          default-policy 0             Deny
+# Header/banner lines ("Logical system: ...", "Number of policy: N") never start
+# with a digit, so they fail this match harmlessly.
+_HITCOUNT_RE = re.compile(r"^\s*\d+\s+(\S+)\s+(\S+)\s+(\S+)\s+(\d+)\s+\S+\s*$")
+
 
 def _new_rule(name, device_name, from_zone, to_zone, now, order):
     return {
@@ -100,6 +107,37 @@ def parse_security_policies(text: str, device_name: str, now: str) -> list[dict]
     return list(rules.values())
 
 
+def parse_hit_counts(text: str) -> dict[str, int]:
+    """Parse `show security policies hit-count` into {rule_name: count}.
+
+    Matched by policy name only: Junos policy names are unique across a device's
+    zone-pair + global policy set in the overwhelming common case, but the
+    hit-count table (unlike `| display set`) carries no from-zone/to-zone
+    linkage back to a rule's own match clauses to key on instead. A name reused
+    across two distinct zone-pairs (or across chassis-cluster node sections) is
+    therefore ambiguous -- silently keeping the last-seen row would attribute
+    one zone-pair's counter to both rules. Since a false "unused" verdict can
+    get a live rule deleted (see rule_tools.py), an ambiguous name is dropped
+    entirely so the caller leaves hit_count unset and unused_rules reports
+    "unknown" for it, never a guessed count. Session/byte usage is unaffected:
+    it still tracks correctly via ssdf.rule_usage_hourly, which does not share
+    this ambiguity.
+    """
+    counts: dict[str, int] = {}
+    ambiguous: set[str] = set()
+    for line in text.splitlines():
+        match = _HITCOUNT_RE.match(line)
+        if not match:
+            continue
+        _from_zone, _to_zone, name, count = match.groups()
+        if name in counts or name in ambiguous:
+            ambiguous.add(name)
+            counts.pop(name, None)
+            continue
+        counts[name] = int(count)
+    return counts
+
+
 @register("junos")
 class JunosPolicyCollector:
     """Collects configured security policies from one or more vSRX devices."""
@@ -129,7 +167,30 @@ class JunosPolicyCollector:
                 logger.warning("junos device %r unreachable; skipping", dev, exc_info=True)
                 continue
             try:
-                rules.extend(parse_security_policies(text, dev, now))
+                dev_rules = parse_security_policies(text, dev, now)
             except Exception:
                 logger.warning("junos %r: policy parse failed; continuing", dev, exc_info=True)
+                continue
+            # MEC-566: read-only hit-count enrichment via the same execute_junos_command
+            # tool/token already used above -- no new device write path. A failure here
+            # must not drop the device's configured rules, only leave hit_count unset
+            # (downstream tools treat a missing hit_count as "unknown", never "unused").
+            try:
+                hc_text = client.call_tool(
+                    "execute_junos_command",
+                    {"router_name": dev, "command": "show security policies hit-count"},
+                )
+                hit_counts = parse_hit_counts(hc_text)
+                for rule in dev_rules:
+                    count = hit_counts.get(rule["rule_name"])
+                    if count is not None:
+                        rule["vendor_extras"]["hit_count"] = str(count)
+                        rule["vendor_extras"]["hit_count_collected_at"] = now
+            except Exception:
+                logger.warning(
+                    "junos %r: hit-count collection failed; continuing without counters",
+                    dev,
+                    exc_info=True,
+                )
+            rules.extend(dev_rules)
         return rules

@@ -47,6 +47,10 @@ SOVEREIGN_TOOLS = PUBLIC_TOOLS | frozenset(
         "fabric_status",
         "lab_topology_snapshot",
         "recent_alerts",
+        "rule_history",
+        "rule_usage",
+        "unused_rules",
+        "explain_rule",
     }
 )
 

@@ -11,6 +11,7 @@ from .chwriter import ClickHouseEntityWriter
 from .collectors.base import REGISTRY
 from .config import Config, load_config
 from .mcp_client import McpToolClient
+from .models import POLICY
 from .resolve_policies import resolve_policies
 
 log = logging.getLogger("ssdf_policy.collect_resolve")
@@ -31,9 +32,20 @@ def _build_collector(name: str):
 
 
 def run_once(
-    enabled, collector_factory, client_factory, writer, tenant: str, now: str
+    enabled,
+    collector_factory,
+    client_factory,
+    writer,
+    tenant: str,
+    now: str,
+    version_writer=None,
 ) -> tuple[int, int]:
-    """Collect rules from each enabled firewall (skipping failures), resolve, write."""
+    """Collect rules from each enabled firewall (skipping failures), resolve, write.
+
+    ``version_writer``, when given, appends ssdf.policy_versions rows for any
+    configured-policy entity whose content changed since its last known version
+    (MEC-566). Optional and additive: existing callers that omit it are unchanged.
+    """
     all_rules: list[dict] = []
     for name in enabled:
         try:
@@ -45,6 +57,17 @@ def run_once(
     entities, edges = resolve_policies(all_rules, tenant)
     n_ent = writer.replace_entities(entities)
     n_edge = writer.replace_edges(edges)
+    if version_writer is not None:
+        policies = [e for e in entities if e["kind"] == POLICY]
+        try:
+            n_ver = version_writer.append_policy_versions(policies)
+            log.info("policy resolver: %d policy_versions rows appended", n_ver)
+        except Exception:
+            # Versioning is additive history, not the primary write path: a
+            # failure here must not be mistaken for "the configured policy
+            # itself failed to resolve/write" (n_ent/n_edge above already
+            # succeeded and are returned regardless).
+            log.warning("policy_versions append failed; continuing", exc_info=True)
     log.info("policy resolver: %d entities, %d edges upserted", n_ent, n_edge)
     return n_ent, n_edge
 
@@ -60,6 +83,7 @@ def main() -> None:
         writer=writer,
         tenant=config.tenant_id,
         now=_now(),
+        version_writer=writer,  # ClickHouseEntityWriter also implements append_policy_versions
     )
 
 
