@@ -111,20 +111,29 @@ def parse_hit_counts(text: str) -> dict[str, int]:
     """Parse `show security policies hit-count` into {rule_name: count}.
 
     Matched by policy name only: Junos policy names are unique across a device's
-    zone-pair + global policy set in the overwhelming common case, and the hit-count
-    table (unlike `| display set`) carries no from-zone/to-zone linkage back to a
-    rule's own match clauses to key on instead. A name reused across two distinct
-    zone-pairs collapses to whichever row is seen last -- a known limitation for a
-    first version (MEC-566), not a data-loss bug: session/byte usage still tracks
-    correctly via ssdf.rule_usage_hourly, which is keyed by rule_name and does not
-    share this ambiguity.
+    zone-pair + global policy set in the overwhelming common case, but the
+    hit-count table (unlike `| display set`) carries no from-zone/to-zone
+    linkage back to a rule's own match clauses to key on instead. A name reused
+    across two distinct zone-pairs (or across chassis-cluster node sections) is
+    therefore ambiguous -- silently keeping the last-seen row would attribute
+    one zone-pair's counter to both rules. Since a false "unused" verdict can
+    get a live rule deleted (see rule_tools.py), an ambiguous name is dropped
+    entirely so the caller leaves hit_count unset and unused_rules reports
+    "unknown" for it, never a guessed count. Session/byte usage is unaffected:
+    it still tracks correctly via ssdf.rule_usage_hourly, which does not share
+    this ambiguity.
     """
     counts: dict[str, int] = {}
+    ambiguous: set[str] = set()
     for line in text.splitlines():
         match = _HITCOUNT_RE.match(line)
         if not match:
             continue
         _from_zone, _to_zone, name, count = match.groups()
+        if name in counts or name in ambiguous:
+            ambiguous.add(name)
+            counts.pop(name, None)
+            continue
         counts[name] = int(count)
     return counts
 

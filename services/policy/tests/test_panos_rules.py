@@ -204,6 +204,25 @@ def test_parse_rule_hit_counts_unparseable_text_returns_empty_dict():
     assert parse_rule_hit_counts("not xml") == {}
 
 
+def test_parse_rule_hit_counts_drops_repeated_names_instead_of_keeping_last():
+    """MEC-724 (F2): a name reused across vsys/rulebases (or echoed by both
+    cluster peers) must not silently collapse to whichever <entry> is walked
+    last -- that attributes one rulebase's counter to every rule sharing the
+    name. Repro (973284d): `allow-web` 91822 then 0 used to give
+    {'allow-web': 0}, reading as a fresh "unused" counter for a rule that
+    actually has 91822 hits in the other rulebase."""
+    xml = (
+        "<rules>"
+        "<entry name='allow-web'><hit-count>91822</hit-count></entry>"
+        "<entry name='allow-web'><hit-count>0</hit-count></entry>"
+        "<entry name='deny-all'><hit-count>5</hit-count></entry>"
+        "</rules>"
+    )
+    counts = parse_rule_hit_counts(xml)
+    assert "allow-web" not in counts
+    assert counts == {"deny-all": 5}
+
+
 def test_collect_merges_hit_counts_into_vendor_extras():
     from ssdf_policy.collectors.panos import PanosPolicyCollector
 

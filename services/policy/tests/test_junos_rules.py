@@ -162,6 +162,24 @@ def test_parse_hit_counts_empty_text_returns_empty_dict():
     assert parse_hit_counts("Number of policy: 0") == {}
 
 
+def test_parse_hit_counts_drops_repeated_names_instead_of_keeping_last():
+    """MEC-724 (F2): a name reused across zone-pairs (or cluster node sections)
+    must not silently collapse to whichever row is seen last -- that attributes
+    one zone-pair's counter to both rules. Repro (973284d): `allow-web` 91822
+    then 0 used to give {'allow-web': 0}, which would read as a fresh "unused"
+    counter for a rule that actually has 91822 hits on the other zone-pair."""
+    text = (
+        "Index   From zone        To zone           Name           Policy count  Action\n"
+        "1       trust            untrust           allow-web      91822         Permit\n"
+        "2       dmz              untrust           allow-web      0             Permit\n"
+        "3       trust            untrust           deny-all       5             Deny\n"
+        "Number of policy: 3"
+    )
+    counts = parse_hit_counts(text)
+    assert "allow-web" not in counts
+    assert counts == {"deny-all": 5}
+
+
 def test_collect_merges_hit_counts_into_vendor_extras():
     from ssdf_policy.collectors.junos import JunosPolicyCollector
 

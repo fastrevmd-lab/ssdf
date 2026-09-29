@@ -27,6 +27,16 @@ def test_build_device_log_coverage_sql_scopes_to_device_only():
     assert params["device"] == "vsrx-ci"
 
 
+def test_build_device_log_coverage_sql_reads_the_rollup_not_raw_events():
+    # MEC-724 (F1): coverage must reflect the rollup's own progress, not raw
+    # ssdf.events -- a device can be logging while the hourly rollup is stalled.
+    sql, _ = build_device_log_coverage_sql("vsrx-ci", "now-24h", "now")
+    assert "ssdf.rule_usage_hourly FINAL" in sql
+    assert "ssdf.events" not in sql
+    assert "min(bucket_start)" in sql
+    assert "max(bucket_start)" in sql
+
+
 def test_build_rule_history_sql_clamps_limit():
     sql, params = build_rule_history_sql("vsrx-ci", "ALLOW-WEB", limit=999999)
     assert "LIMIT 500" in sql

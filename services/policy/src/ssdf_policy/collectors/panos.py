@@ -98,12 +98,20 @@ def parse_rule_hit_counts(text: str) -> dict[str, int]:
     available for this change (unlike the Junos hit-count parser in junos.py,
     which WAS verified live against vsrx-ci). Walks all `<entry>` elements
     rather than the exact nested path so an envelope/depth difference between
-    PAN-OS versions degrades to "no counters found", not a parse error.
+    PAN-OS versions degrades to "no counters found", not a parse error --
+    which also means a name can legitimately repeat (multiple vsys, multiple
+    rulebases/lsys, cluster peers echoing the same op command). Keeping the
+    last-seen row for a repeated name would attribute one rulebase's counter
+    to every rule sharing that name; since a false "unused" verdict can get a
+    live rule deleted (see rule_tools.py), an ambiguous name is dropped
+    entirely so the caller leaves hit_count unset and unused_rules reports
+    "unknown" for it instead of guessing.
     """
     root = _root(text)
     if root is None:
         return {}
     counts: dict[str, int] = {}
+    ambiguous: set[str] = set()
     for entry in root.iter("entry"):
         hit_count_el = entry.find("hit-count")
         if hit_count_el is None or hit_count_el.text is None:
@@ -112,9 +120,14 @@ def parse_rule_hit_counts(text: str) -> dict[str, int]:
         if not name:
             continue
         try:
-            counts[name] = int(hit_count_el.text.strip())
+            count = int(hit_count_el.text.strip())
         except ValueError:
             continue
+        if name in counts or name in ambiguous:
+            ambiguous.add(name)
+            counts.pop(name, None)
+            continue
+        counts[name] = count
     return counts
 
 

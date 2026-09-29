@@ -10,10 +10,11 @@ deterministic signals for "has this rule matched traffic" --
     entity's attrs
 
 When the two signals disagree, or either one's coverage is itself uncertain
-(no log ingest observed for the device, or the counter was never collected),
-the verdict is "unknown" -- NEVER "unused". A SOC engineer acting on a false
-"unused" verdict could delete a rule that is genuinely live. See
-tests/test_rule_tools.py for the disagreement case.
+(the rollup does not cover the window, the counter was never collected, or the
+counter is older than COUNTER_MAX_AGE_HOURS), the verdict is "unknown" --
+NEVER "unused". A SOC engineer acting on a false "unused" verdict could delete
+a rule that is genuinely live. See tests/test_rule_tools.py for the
+disagreement, stale-counter, and empty-rollup cases.
 
 Every call here reaches ssdf.audit through server.py's `audited_tool` wrapper
 like any other tool (tier="sovereign", data_classes from classification.py) --
@@ -26,6 +27,8 @@ already chains on.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from .rule_builders import (
     build_device_log_coverage_sql,
     build_rule_history_sql,
@@ -35,14 +38,28 @@ from .timeparse import parse_time
 
 DEFAULT_UNUSED_WINDOW_HOURS = 24 * 7
 
+# How old a device hit-counter is allowed to be before it can no longer back a
+# verdict. ssdf-policy.timer collects it hourly; 24h is a generous multiple of
+# that interval so a couple of missed runs don't flip every rule to "unknown",
+# while a counter from days ago (device unreachable, collector broken) can no
+# longer be trusted to reflect the current window.
+COUNTER_MAX_AGE_HOURS = 24
+
 
 def _verdict(
-    log_coverage_ok: bool, log_used: bool, counter_known: bool, counter_used: bool
+    log_coverage_ok: bool,
+    log_used: bool,
+    hit_count_present: bool,
+    counter_collected_at,
+    counter_stale: bool,
+    counter_used: bool,
 ) -> tuple[str, str]:
     if not log_coverage_ok:
-        return "unknown", "no log ingest observed for this device in the window"
-    if not counter_known:
+        return "unknown", "usage rollup does not cover the window"
+    if not hit_count_present or counter_collected_at is None:
         return "unknown", "device hit-counter was not collected for this rule"
+    if counter_stale:
+        return "unknown", f"device hit-counter is stale (collected {counter_collected_at})"
     if log_used != counter_used:
         return "unknown", "log rollup and device hit-counter disagree"
     return ("used" if log_used else "unused"), "log rollup and device hit-counter agree"
@@ -92,10 +109,27 @@ class RuleTools:
             "device_hit_count": hit_count,
         }
 
-    def _log_coverage(self, device_name: str, since, until) -> bool:
-        sql, params = build_device_log_coverage_sql(device_name, since, until)
+    def _log_coverage(self, device_name: str, since_dt, until_dt) -> bool:
+        """Whether the rule-usage rollup covers the window for this device.
+
+        Requires a bucket within 1h of the window start and one within 2h of
+        the window end -- a rollup that ran once, weeks ago, or that is
+        currently stalled, must not read as "device is unused" just because
+        `count() > 0`. See rule_builders.build_device_log_coverage_sql.
+        """
+        sql, params = build_device_log_coverage_sql(
+            device_name, since_dt.isoformat(), until_dt.isoformat()
+        )
         rows = self._ch.run(sql, params)["rows"]
-        return bool(rows) and int(rows[0]["c"]) > 0
+        if not rows or not int(rows[0]["c"]):
+            return False
+        min_bucket = parse_time(rows[0]["min_bucket"])
+        max_bucket = parse_time(rows[0]["max_bucket"])
+        if min_bucket > since_dt + timedelta(hours=1):
+            return False
+        if max_bucket < until_dt - timedelta(hours=2):
+            return False
+        return True
 
     def unused_rules(self, device_name: str, since=None, until=None) -> dict:
         since_dt = parse_time(since) if since else parse_time(f"now-{DEFAULT_UNUSED_WINDOW_HOURS}h")
@@ -105,7 +139,7 @@ class RuleTools:
         policies = [
             item["policy"] for item in self._store.configured_policies_for_firewalls([device_name])
         ]
-        log_coverage_ok = self._log_coverage(device_name, since_iso, until_iso)
+        log_coverage_ok = self._log_coverage(device_name, since_dt, until_dt)
 
         results = []
         for policy in policies:
@@ -116,11 +150,27 @@ class RuleTools:
             usage_rows = self._ch.run(usage_sql, usage_params)["rows"]
             log_used = any(int(row["sessions"]) > 0 for row in usage_rows)
 
-            raw_hit = policy.get("attrs", {}).get("hit_count")
-            counter_known = raw_hit not in (None, "")
+            attrs = policy.get("attrs", {})
+            raw_hit = attrs.get("hit_count")
+            raw_collected = attrs.get("hit_count_collected_at")
+            hit_count_present = raw_hit not in (None, "")
+            collected_at_dt = parse_time(raw_collected) if raw_collected not in (None, "") else None
+            counter_stale = (
+                hit_count_present
+                and collected_at_dt is not None
+                and collected_at_dt < until_dt - timedelta(hours=COUNTER_MAX_AGE_HOURS)
+            )
+            counter_known = hit_count_present and collected_at_dt is not None and not counter_stale
             counter_used = counter_known and int(raw_hit) > 0
 
-            status, reason = _verdict(log_coverage_ok, log_used, counter_known, counter_used)
+            status, reason = _verdict(
+                log_coverage_ok,
+                log_used,
+                hit_count_present,
+                collected_at_dt,
+                counter_stale,
+                counter_used,
+            )
             results.append(
                 {
                     "rule_name": rule_name,
@@ -129,7 +179,10 @@ class RuleTools:
                     "evidence": {
                         "log_coverage": log_coverage_ok,
                         "log_used": log_used,
-                        "device_hit_count": int(raw_hit) if counter_known else None,
+                        "device_hit_count": int(raw_hit) if hit_count_present else None,
+                        "hit_count_collected_at": raw_collected
+                        if raw_collected not in (None, "")
+                        else None,
                     },
                 }
             )
