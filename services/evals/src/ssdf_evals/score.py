@@ -64,8 +64,14 @@ def _rollup(results: list[tuple[Question, bool]], key_fn) -> dict:
 
 def score_run(
     manifest: dict, questions: list[Question], query_client, audit_client, slop_secs: int
-) -> dict:
-    """Pure scoring core: corpus tier-subset vs manifest, fail-closed."""
+) -> tuple[dict, dict]:
+    """Pure scoring core: corpus tier-subset vs manifest, fail-closed.
+
+    Returns (scorecard, raw_details). `raw_details` maps question id to the
+    unredacted predicate detail for any question whose scorecard detail was
+    redacted (sovereign-tier reference_sql) -- never write it next to a
+    committed scorecard, it exists only for a gitignored debug sidecar.
+    """
     require_local_for_sovereign(manifest)
     tier = manifest["tier"]
     subset = questions_for_tier(questions, tier)
@@ -79,6 +85,7 @@ def score_run(
 
     scored: list[dict] = []
     outcomes: list[tuple[Question, bool]] = []
+    raw_details: dict[str, dict] = {}
     for question in subset:
         entry = by_id.get(question.id)
         reasons: list[str] = []
@@ -99,8 +106,10 @@ def score_run(
                 slop_secs,
             )
             tool_result = check_tools(question, tools_observed, tier)
-            predicate_result = evaluate(question, entry["answer"], query_client)
+            predicate_result = evaluate(question, entry["answer"], query_client, tier)
             predicate_detail = predicate_result.detail
+            if predicate_result.raw_detail is not None:
+                raw_details[question.id] = predicate_result.raw_detail
             passed = tool_result.passed and predicate_result.passed
             if not predicate_result.passed:
                 reasons.append(f"predicate: {predicate_result.reason}")
@@ -136,7 +145,7 @@ def score_run(
         },
     }
     validate_scorecard(scorecard)
-    return scorecard
+    return scorecard, raw_details
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -161,16 +170,19 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        scorecard = score_run(
+        scorecard, raw_details = score_run(
             manifest, questions, query_client, audit_client, config.audit_slop_secs
         )
         date = scorecard["scored_at"][:10]
-        out_path = (
-            args.results_dir / f"{date}-{_sanitize(manifest['model'])}-"
-            f"{_sanitize(manifest['run_id'])}.json"
-        )
+        stem = f"{date}-{_sanitize(manifest['model'])}-{_sanitize(manifest['run_id'])}"
+        out_path = args.results_dir / f"{stem}.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(scorecard, indent=2) + "\n")
+        if raw_details:
+            # Gitignored: never commit alongside the scorecard it was redacted from.
+            detail_path = args.results_dir / ".detail" / f"{stem}.json"
+            detail_path.parent.mkdir(parents=True, exist_ok=True)
+            detail_path.write_text(json.dumps(raw_details, indent=2) + "\n")
         rollups = scorecard["rollups"]
         print(f"scored {rollups['passed']}/{rollups['total']} -> {out_path}")
         return 0

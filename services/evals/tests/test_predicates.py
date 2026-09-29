@@ -1,5 +1,7 @@
 """Deterministic predicate engine: refusal / expected_json / reference_sql."""
 
+import hashlib
+
 from ssdf_evals.corpus import Question
 from ssdf_evals.predicates import PredicateResult, evaluate
 
@@ -37,24 +39,24 @@ def make_question(predicate, qid="q") -> Question:
 
 def test_refusal_pass():
     q = make_question({"type": "refusal"})
-    assert evaluate(q, {"refusal": True, "reason": "no okta data"}, FakeCH()).passed
+    assert evaluate(q, {"refusal": True, "reason": "no okta data"}, FakeCH(), "public").passed
 
 
 def test_refusal_fail_on_fabricated_answer():
     q = make_question({"type": "refusal"})
-    result = evaluate(q, {"refusal": False, "count": 42}, FakeCH())
+    result = evaluate(q, {"refusal": False, "count": 42}, FakeCH(), "public")
     assert not result.passed
 
 
 def test_refusal_fail_on_none_answer():
     q = make_question({"type": "refusal"})
-    assert not evaluate(q, None, FakeCH()).passed
+    assert not evaluate(q, None, FakeCH(), "public").passed
 
 
 def test_expected_json_exact():
     q = make_question({"type": "expected_json", "expected": {"kind": "device", "role": "firewall"}})
-    assert evaluate(q, {"kind": "device", "role": "firewall"}, FakeCH()).passed
-    assert not evaluate(q, {"kind": "device", "role": "router"}, FakeCH()).passed
+    assert evaluate(q, {"kind": "device", "role": "firewall"}, FakeCH(), "public").passed
+    assert not evaluate(q, {"kind": "device", "role": "router"}, FakeCH(), "public").passed
 
 
 def test_reference_sql_exact_set():
@@ -62,8 +64,8 @@ def test_reference_sql_exact_set():
         {"type": "reference_sql", "sql": "SELECT 1", "match": "exact", "answer_key": "providers"}
     )
     ch = FakeCH(rows=[("juniper",), ("paloalto",)])
-    assert evaluate(q, {"providers": ["paloalto", "juniper"]}, ch).passed
-    assert not evaluate(q, {"providers": ["paloalto"]}, ch).passed
+    assert evaluate(q, {"providers": ["paloalto", "juniper"]}, ch, "public").passed
+    assert not evaluate(q, {"providers": ["paloalto"]}, ch, "public").passed
 
 
 def test_reference_sql_exact_scalar():
@@ -71,7 +73,7 @@ def test_reference_sql_exact_scalar():
         {"type": "reference_sql", "sql": "SELECT 1", "match": "exact", "answer_key": "rule"}
     )
     ch = FakeCH(rows=[("drifttest1",)])
-    assert evaluate(q, {"rule": "drifttest1"}, ch).passed
+    assert evaluate(q, {"rule": "drifttest1"}, ch, "public").passed
 
 
 def test_reference_sql_set_overlap_with_item_key():
@@ -93,8 +95,8 @@ def test_reference_sql_set_overlap_with_item_key():
             {"ip": "10.73.9.9", "bytes": 3},
         ]
     }
-    assert evaluate(q, answer, ch).passed
-    assert not evaluate(q, {"talkers": [{"ip": "10.73.9.9", "bytes": 1}]}, ch).passed
+    assert evaluate(q, answer, ch, "public").passed
+    assert not evaluate(q, {"talkers": [{"ip": "10.73.9.9", "bytes": 1}]}, ch, "public").passed
 
 
 def test_reference_sql_numeric_tolerance_abs():
@@ -107,8 +109,8 @@ def test_reference_sql_numeric_tolerance_abs():
             "params": {"tolerance": 0},
         }
     )
-    assert evaluate(q, {"count": 6}, FakeCH(rows=[(6,)])).passed
-    assert not evaluate(q, {"count": 7}, FakeCH(rows=[(6,)])).passed
+    assert evaluate(q, {"count": 6}, FakeCH(rows=[(6,)]), "public").passed
+    assert not evaluate(q, {"count": 7}, FakeCH(rows=[(6,)]), "public").passed
 
 
 def test_reference_sql_numeric_tolerance_pct():
@@ -121,15 +123,15 @@ def test_reference_sql_numeric_tolerance_pct():
             "params": {"tolerance_pct": 10},
         }
     )
-    assert evaluate(q, {"count": 95}, FakeCH(rows=[(100,)])).passed
-    assert not evaluate(q, {"count": 80}, FakeCH(rows=[(100,)])).passed
+    assert evaluate(q, {"count": 95}, FakeCH(rows=[(100,)]), "public").passed
+    assert not evaluate(q, {"count": 80}, FakeCH(rows=[(100,)]), "public").passed
 
 
 def test_sql_error_fails_closed_without_raising():
     q = make_question(
         {"type": "reference_sql", "sql": "SELECT 1", "match": "exact", "answer_key": "x"}
     )
-    result = evaluate(q, {"x": "a"}, FakeCH(error=RuntimeError("CH down")))
+    result = evaluate(q, {"x": "a"}, FakeCH(error=RuntimeError("CH down")), "public")
     assert isinstance(result, PredicateResult)
     assert not result.passed
     assert "CH down" in result.reason
@@ -139,7 +141,7 @@ def test_missing_answer_key_fails_closed():
     q = make_question(
         {"type": "reference_sql", "sql": "SELECT 1", "match": "exact", "answer_key": "missing"}
     )
-    assert not evaluate(q, {"other": 1}, FakeCH(rows=[("a",)])).passed
+    assert not evaluate(q, {"other": 1}, FakeCH(rows=[("a",)]), "public").passed
 
 
 def test_expected_json_list_order_insensitive():
@@ -147,7 +149,7 @@ def test_expected_json_list_order_insensitive():
     q = make_question(
         {"type": "expected_json", "expected": {"firewalls": ["panosvm", "vSRX-test10"]}}
     )
-    assert evaluate(q, {"firewalls": ["vSRX-test10", "panosvm"]}, FakeCH()).passed
+    assert evaluate(q, {"firewalls": ["vSRX-test10", "panosvm"]}, FakeCH(), "public").passed
 
 
 def test_expected_json_nested_dict_with_scalar_list():
@@ -159,21 +161,100 @@ def test_expected_json_nested_dict_with_scalar_list():
         }
     )
     assert evaluate(
-        q, {"result": {"providers": ["paloalto", "juniper"], "count": 2}}, FakeCH()
+        q, {"result": {"providers": ["paloalto", "juniper"], "count": 2}}, FakeCH(), "public"
     ).passed
 
 
 def test_expected_json_scalar_value_unchanged():
     """Scalar values and plain dicts without lists compare unchanged."""
     q = make_question({"type": "expected_json", "expected": {"kind": "device", "role": "firewall"}})
-    assert evaluate(q, {"kind": "device", "role": "firewall"}, FakeCH()).passed
-    assert not evaluate(q, {"kind": "device", "role": "router"}, FakeCH()).passed
+    assert evaluate(q, {"kind": "device", "role": "firewall"}, FakeCH(), "public").passed
+    assert not evaluate(q, {"kind": "device", "role": "router"}, FakeCH(), "public").passed
 
 
 def test_expected_json_list_with_dicts_order_preserved():
     """Lists containing dicts are NOT sorted (order may be meaningful)."""
     q = make_question({"type": "expected_json", "expected": [{"a": 1}, {"b": 2}]})
     # same order passes
-    assert evaluate(q, [{"a": 1}, {"b": 2}], FakeCH()).passed
+    assert evaluate(q, [{"a": 1}, {"b": 2}], FakeCH(), "public").passed
     # reversed order fails (dicts in list = order preserved)
-    assert not evaluate(q, [{"b": 2}, {"a": 1}], FakeCH()).passed
+    assert not evaluate(q, [{"b": 2}, {"a": 1}], FakeCH(), "public").passed
+
+
+# --- sovereign-tier redaction (MEC-811) ---
+#
+# A sovereign-tier manifest's reference_sql predicate reads live lab
+# ClickHouse data (real IPs, rule names). Scorecards are committed to git, so
+# `evaluate(..., tier="sovereign")` must never put those raw values in
+# `detail` -- only counts and a hash. Non-sovereign tiers are unaffected.
+
+
+def test_sovereign_exact_set_detail_has_no_raw_values():
+    q = make_question(
+        {"type": "reference_sql", "sql": "SELECT 1", "match": "exact", "answer_key": "providers"}
+    )
+    ch = FakeCH(rows=[("10.0.0.1",), ("real-lab-rule",)])
+    result = evaluate(q, {"providers": ["10.0.0.1", "real-lab-rule"]}, ch, "sovereign")
+    assert result.passed
+    assert "10.0.0.1" not in str(result.detail)
+    assert "real-lab-rule" not in str(result.detail)
+    assert result.detail == {
+        "agent_count": 2,
+        "reference_count": 2,
+        "overlap": 2,
+        "reference_sha256": hashlib.sha256(
+            "\n".join(sorted(["10.0.0.1", "real-lab-rule"])).encode()
+        ).hexdigest(),
+    }
+    # the raw values are preserved off to the side, for a gitignored sidecar only
+    assert result.raw_detail == {
+        "agent": ["10.0.0.1", "real-lab-rule"],
+        "reference": sorted(["10.0.0.1", "real-lab-rule"]),
+    }
+
+
+def test_sovereign_set_overlap_reason_has_no_raw_values():
+    q = make_question(
+        {
+            "type": "reference_sql",
+            "sql": "SELECT 1",
+            "match": "set_overlap",
+            "answer_key": "talkers",
+            "params": {"min_overlap": 2},
+        }
+    )
+    ch = FakeCH(rows=[("10.0.0.1",), ("10.0.0.2",), ("10.0.0.3",)])
+    result = evaluate(q, {"talkers": ["10.0.0.9"]}, ch, "sovereign")
+    assert not result.passed
+    assert "10.0.0" not in result.reason
+    assert "10.0.0" not in str(result.detail)
+    assert result.detail["overlap"] == 0
+    assert result.detail["reference_count"] == 3
+
+
+def test_sovereign_numeric_tolerance_detail_and_reason_have_no_raw_values():
+    q = make_question(
+        {
+            "type": "reference_sql",
+            "sql": "SELECT 1",
+            "match": "numeric_tolerance",
+            "answer_key": "count",
+            "params": {"tolerance": 0},
+        }
+    )
+    result = evaluate(q, {"count": 7}, FakeCH(rows=[(6,)]), "sovereign")
+    assert not result.passed
+    assert "7" not in result.reason
+    assert "6" not in result.reason
+    assert result.detail == {"within_tolerance": False}
+    assert result.raw_detail == {"agent": 7.0, "reference": 6.0, "allowed": 0.0}
+
+
+def test_public_tier_reference_sql_keeps_raw_detail_and_no_raw_detail_side_channel():
+    q = make_question(
+        {"type": "reference_sql", "sql": "SELECT 1", "match": "exact", "answer_key": "providers"}
+    )
+    ch = FakeCH(rows=[("juniper",)])
+    result = evaluate(q, {"providers": ["juniper"]}, ch, "public")
+    assert result.detail == {"agent": ["juniper"], "reference": ["juniper"]}
+    assert result.raw_detail is None
