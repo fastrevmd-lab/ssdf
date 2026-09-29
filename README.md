@@ -62,9 +62,9 @@ are written directly into `ssdf.audit` as hash-chained rows, per
 That is deliberate. A syslog path was proposed and rejected: it is cheaper, but
 syslog records are unchained, and the value of this trail is that tampering is
 detectable. The producing side ships in
-[mecmcp](https://github.com/fastrevmd-lab/mecmcp) as `mecmcp-audit`, which
+[mecmcp](https://github.com/mechubsec/mecmcp) as `mecmcp-audit`, which
 writes hash-chained segments straight into `ssdf.audit` over HTTP with a durable
-outbox and retry ([mecmcp#292](https://github.com/fastrevmd-lab/mecmcp/issues/292),
+outbox and retry ([mecmcp#292](https://github.com/mechubsec/mecmcp/issues/292),
 closed 2026-08-24).
 
 SSDF owns the schema; mecmcp produces against it. That split is why this repo
