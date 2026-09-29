@@ -1,0 +1,16 @@
+name: security
+
+# Secret scan via the shared mechubsec/.github workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Secret scan: the shared mechubsec workflow (pinned gitleaks binary; no
+  # license needed, unlike gitleaks-action on org repos).
+  secrets:
+    uses: mechubsec/.github/.github/workflows/gitleaks.yml@fb1a159c596bf2c57b9f6f1ff99f546463a6a84a
