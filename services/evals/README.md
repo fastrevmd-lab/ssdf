@@ -64,6 +64,14 @@ M8 section for the full env list.
 A question passes only if its predicate **and** its audit tool-check pass.
 Fail-closed: missing question = fail, runner error = fail, SQL error = fail.
 
+**Sovereign-tier redaction:** a `reference_sql` predicate reads live lab
+ClickHouse data. For a `tier: sovereign` manifest the scorecard's
+`predicate_detail` never carries those raw rows — only counts, an overlap
+count, and a sha256 of the sorted reference set (or a bare pass/fail bool for
+`numeric_tolerance`). The unredacted values are written to a gitignored
+`results/.detail/<scorecard-name>.json` sidecar for local debugging; never
+commit that file.
+
 ## Regression gate
 
     uv run python -m ssdf_evals.regress results/<new-scorecard>.json
