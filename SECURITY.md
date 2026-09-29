@@ -6,7 +6,7 @@ Please **do not** open a public GitHub issue for a security vulnerability.
 
 Instead, use GitHub's private vulnerability reporting for this repository:
 
-https://github.com/fastrevmd-lab/ssdf/security/advisories/new
+https://github.com/mechubsec/ssdf/security/advisories/new
 
 (Security tab → "Report a vulnerability".) Do not email a vulnerability report
 or send it through any third-party service — private GitHub Security
