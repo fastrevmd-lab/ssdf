@@ -90,7 +90,7 @@ def clients():
 
 
 def test_score_run_passes_and_fails_correctly():
-    scorecard = score_run(make_manifest(), CORPUS, *clients(), slop_secs=5)
+    scorecard, _ = score_run(make_manifest(), CORPUS, *clients(), slop_secs=5)
     validate_scorecard(scorecard)
     by_id = {q["id"]: q for q in scorecard["questions"]}
     assert set(by_id) == {"q-sql", "q-refuse", "q-missing"}  # q-unknown ignored
@@ -107,7 +107,7 @@ def test_score_run_passes_and_fails_correctly():
 def test_score_run_fails_question_with_runner_error():
     manifest = make_manifest()
     manifest["questions"][0]["error"] = "timeout talking to MCP"
-    scorecard = score_run(manifest, CORPUS, *clients(), slop_secs=5)
+    scorecard, _ = score_run(manifest, CORPUS, *clients(), slop_secs=5)
     by_id = {q["id"]: q for q in scorecard["questions"]}
     assert by_id["q-sql"]["pass"] is False
     assert "timeout" in by_id["q-sql"]["reasons"][0]
@@ -116,7 +116,7 @@ def test_score_run_fails_question_with_runner_error():
 def test_score_run_requires_both_predicate_and_tools():
     query_client = FakeCH({"MARKER_TALKERS": [("10.64.0.1",)]})
     audit_client = FakeCH({"ssdf.audit": []})  # no tools observed
-    scorecard = score_run(make_manifest(), CORPUS, query_client, audit_client, slop_secs=5)
+    scorecard, _ = score_run(make_manifest(), CORPUS, query_client, audit_client, slop_secs=5)
     by_id = {q["id"]: q for q in scorecard["questions"]}
     assert by_id["q-sql"]["pass"] is False  # predicate ok, tool check failed
 
@@ -162,7 +162,7 @@ def test_main_returns_2_when_score_run_raises(tmp_path, monkeypatch, capsys):
 def test_score_run_empty_string_error_fails_closed():
     manifest = make_manifest()
     manifest["questions"][0]["error"] = ""
-    scorecard = score_run(manifest, CORPUS, *clients(), slop_secs=5)
+    scorecard, _ = score_run(manifest, CORPUS, *clients(), slop_secs=5)
     by_id = {q["id"]: q for q in scorecard["questions"]}
     assert by_id["q-sql"]["pass"] is False
     assert any("runner error" in r for r in by_id["q-sql"]["reasons"])
@@ -176,7 +176,7 @@ def test_score_run_refuses_non_local_sovereign_model():
 
 
 def test_score_run_allows_local_sovereign_model():
-    scorecard = score_run(
+    scorecard, _ = score_run(
         make_manifest(), CORPUS, *clients(), slop_secs=5
     )  # local=True, must not raise
     validate_scorecard(scorecard)
@@ -215,3 +215,34 @@ def test_main_writes_scorecard(tmp_path, monkeypatch):
     written = list(tmp_path.glob("*-test-model-r1.json"))
     assert len(written) == 1
     validate_scorecard(json.loads(written[0].read_text()))
+
+
+def test_main_redacts_sovereign_reference_sql_from_committed_scorecard_and_writes_sidecar(
+    tmp_path, monkeypatch
+):
+    """MEC-811: the live reference_sql row (a lab IP here) must never reach the
+    committed scorecard for a sovereign-tier run -- only the gitignored sidecar
+    may hold it. Fails against pre-fix score.py, which put the raw row straight
+    into predicate_detail."""
+    manifest_path = tmp_path / "m.json"
+    manifest_path.write_text(json.dumps(make_manifest()))
+
+    import ssdf_evals.score as score_mod
+
+    query_client = FakeCH({"MARKER_TALKERS": [("10.0.0.1",)]})
+    audit_client = FakeCH({"ssdf.audit": [("top_talkers",)]})
+    monkeypatch.setattr(score_mod, "_connect", lambda config: (query_client, audit_client))
+    monkeypatch.setattr(score_mod, "_load_questions", lambda path: CORPUS)
+    monkeypatch.setenv("CH_PASSWORD", "x")
+    monkeypatch.setenv("CH_AUDIT_VERIFY_PASSWORD", "y")
+
+    assert main([str(manifest_path), "--results-dir", str(tmp_path)]) == 0
+
+    scorecard_files = list(tmp_path.glob("*-test-model-r1.json"))
+    assert len(scorecard_files) == 1
+    scorecard_text = scorecard_files[0].read_text()
+    assert "10.0.0.1" not in scorecard_text
+
+    sidecar = tmp_path / ".detail" / scorecard_files[0].name
+    assert sidecar.exists()
+    assert "10.0.0.1" in sidecar.read_text()

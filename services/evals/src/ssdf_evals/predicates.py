@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
 from .corpus import Question
+
+# Sovereign-tier reference_sql results come from live lab ClickHouse data (real
+# IPs, rule names, ...). Scorecards for this tier are committed to git, so the
+# predicate engine must never put those raw values in `detail` -- only counts
+# and a hash a reviewer can compare against the raw sidecar, not reverse.
+SOVEREIGN_TIER = "sovereign"
 
 
 @dataclass
@@ -13,6 +20,10 @@ class PredicateResult:
     passed: bool
     reason: str
     detail: dict = field(default_factory=dict)
+    # Populated only when `detail` was redacted for the sovereign tier; the
+    # caller may write this to a gitignored sidecar for local debugging. Never
+    # goes into a scorecard.
+    raw_detail: dict | None = None
 
 
 def _normalize(value: Any) -> Any:
@@ -38,12 +49,18 @@ def _agent_values(answer: dict, predicate: dict) -> list[Any]:
     return value
 
 
-def _eval_reference_sql(question: Question, answer: dict, ch_client) -> PredicateResult:
+def _sha256_of_sorted(values: set) -> str:
+    joined = "\n".join(sorted(str(v) for v in values))
+    return hashlib.sha256(joined.encode()).hexdigest()
+
+
+def _eval_reference_sql(question: Question, answer: dict, ch_client, tier: str) -> PredicateResult:
     predicate = question.predicate
     rows = ch_client.query(predicate["sql"]).result_rows
     reference = [str(row[0]) for row in rows]
     match = predicate["match"]
     params = predicate.get("params", {})
+    redact = tier == SOVEREIGN_TIER
 
     if match == "numeric_tolerance":
         if not reference:
@@ -55,31 +72,46 @@ def _eval_reference_sql(question: Question, answer: dict, ch_client) -> Predicat
         else:
             allowed = abs(ref) * float(params["tolerance_pct"]) / 100.0
         passed = abs(agent - ref) <= allowed
-        return PredicateResult(
-            passed,
-            "" if passed else f"|{agent}-{ref}| > {allowed}",
-            {"agent": agent, "reference": ref, "allowed": allowed},
-        )
+        raw_detail = {"agent": agent, "reference": ref, "allowed": allowed}
+        if redact:
+            return PredicateResult(
+                passed,
+                "" if passed else "value outside tolerance",
+                {"within_tolerance": passed},
+                raw_detail=raw_detail,
+            )
+        return PredicateResult(passed, "" if passed else f"|{agent}-{ref}| > {allowed}", raw_detail)
 
     agent_set = {str(v) for v in _agent_values(answer, predicate)}
     reference_set = set(reference)
-    detail = {"agent": sorted(agent_set), "reference": sorted(reference_set)}
+    overlap = len(agent_set & reference_set)
+    raw_detail = {"agent": sorted(agent_set), "reference": sorted(reference_set)}
     if match == "exact":
         passed = agent_set == reference_set
-        return PredicateResult(passed, "" if passed else "exact set mismatch", detail)
-    # set_overlap
-    overlap = len(agent_set & reference_set)
-    needed = int(params["min_overlap"])
-    passed = overlap >= needed
-    return PredicateResult(
-        passed,
-        "" if passed else f"overlap {overlap} < required {needed}",
-        {**detail, "overlap": overlap},
-    )
+        reason = "" if passed else "exact set mismatch"
+    else:  # set_overlap
+        needed = int(params["min_overlap"])
+        passed = overlap >= needed
+        reason = "" if passed else f"overlap {overlap} < required {needed}"
+        raw_detail = {**raw_detail, "overlap": overlap}
+
+    if redact:
+        detail = {
+            "agent_count": len(agent_set),
+            "reference_count": len(reference_set),
+            "overlap": overlap,
+            "reference_sha256": _sha256_of_sorted(reference_set),
+        }
+        return PredicateResult(passed, reason, detail, raw_detail=raw_detail)
+    return PredicateResult(passed, reason, raw_detail)
 
 
-def evaluate(question: Question, answer: dict | None, ch_client) -> PredicateResult:
-    """Evaluate one question's predicate against the agent's structured answer."""
+def evaluate(question: Question, answer: dict | None, ch_client, tier: str) -> PredicateResult:
+    """Evaluate one question's predicate against the agent's structured answer.
+
+    `tier` is the manifest's run tier (not the question's own tier), since it
+    determines whether the reference_sql result came from live sovereign data.
+    """
     predicate = question.predicate
     ptype = predicate["type"]
     try:
@@ -95,6 +127,6 @@ def evaluate(question: Question, answer: dict | None, ch_client) -> PredicateRes
                 "" if passed else "answer != expected",
                 {"expected": predicate["expected"], "agent": answer},
             )
-        return _eval_reference_sql(question, answer, ch_client)
+        return _eval_reference_sql(question, answer, ch_client, tier)
     except Exception as exc:  # fail-closed: any predicate error = question fails
         return PredicateResult(False, f"predicate error: {exc}")
