@@ -6,6 +6,7 @@ policies (`... global policy NAME ...`, whose zones appear as `match from-zone/t
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 
 import re
@@ -111,6 +112,8 @@ def parse_security_policies(text: str, device_name: str, now: str) -> list[dict]
         if inactive:
             rule["enabled"] = False
         tokens = remainder.split()
+        if not tokens:
+            continue
         if tokens[:2] == ["match", "source-address"] and len(tokens) > 2:
             rule["source_addresses"].append(tokens[2])
         elif tokens[:2] == ["match", "destination-address"] and len(tokens) > 2:
@@ -142,6 +145,21 @@ def parse_security_policies(text: str, device_name: str, now: str) -> list[dict]
             mapped = _ACTION_MAP.get(tokens[1])
             if mapped:
                 rule["action"] = mapped
+        elif tokens[:1] == ["description"]:
+            pass
+        elif tokens[:1] == ["match"]:
+            # Any match sub-clause not explicitly handled above (a future
+            # Junos keyword, or one of the above with a malformed/missing
+            # value). MEC-992 review (F3): this must never silently vanish
+            # and read as a wildcard match -- fail closed instead.
+            rule["match_unknown"] = True
+            rule["vendor_extras"].setdefault("unparsed_match", []).append(
+                tokens[1] if len(tokens) > 1 else ""
+            )
+        else:
+            # Any other unrecognized policy-level keyword. Same rationale as
+            # the unparsed-match branch above.
+            rule["match_unknown"] = True
     for key, rule in rules.items():
         if key[0] == "global":
             if not rule["from_zone"]:
@@ -195,11 +213,12 @@ _GROUP_APPLICATIONS_RE = re.compile(r"^groups junos-defaults applications (.*)$"
 
 
 def _empty_book() -> dict:
-    return {"addresses": {}, "address_sets": {}}
+    return {"addresses": {}, "address_sets": {}, "attached_zones": []}
 
 
 def _apply_address_tokens(book: dict, tokens: list[str]) -> None:
-    """Apply one `address ...` / `address-set ...` remainder to a book dict.
+    """Apply one `address ...` / `address-set ...` / `attach zone ...` remainder
+    to a book dict.
 
     `tokens` is everything after the book name, e.g. `["address", "A1", "10.1.1.0/24"]`
     or `["address-set", "S1", "address", "A1"]`.
@@ -217,13 +236,33 @@ def _apply_address_tokens(book: dict, tokens: list[str]) -> None:
             }
         elif rest[0] == "wildcard-address" and len(rest) >= 2:
             book["addresses"][name] = {"kind": "wildcard", "value": rest[1]}
+        elif rest[0] == "description":
+            # Sibling of the address value, not a replacement for it --
+            # `address A1 10.1.1.0/24` followed by `address A1 description
+            # web` must not overwrite A1's value with the word "description"
+            # (MEC-992 review F6).
+            pass
         else:
-            book["addresses"][name] = {"kind": "address", "value": rest[0]}
+            # Only accept this as an IP literal if it actually parses as one;
+            # an unrecognized keyword here (some future address-book leaf)
+            # must not be silently stored as though it were the address
+            # value (MEC-992 review F6).
+            try:
+                ipaddress.ip_network(rest[0], strict=False)
+            except ValueError:
+                book["addresses"][name] = {"kind": "unknown", "reason": "unparsed"}
+            else:
+                book["addresses"][name] = {"kind": "address", "value": rest[0]}
     elif tokens[:1] == ["address-set"] and len(tokens) >= 4:
         set_name = tokens[1]
         entry = book["address_sets"].setdefault(set_name, {"members": []})
         if tokens[2] in ("address", "address-set"):
             entry["members"].append(tokens[3])
+    elif tokens[:2] == ["attach", "zone"] and len(tokens) >= 3:
+        # Records which zone(s) this book is attached to so a rule's `from-zone`
+        # can be resolved against the right book instead of guessing between
+        # two books that both define the same address name (MEC-992 review F7).
+        book["attached_zones"].append(tokens[2])
 
 
 def parse_address_book(text: str) -> dict[str, dict]:
@@ -257,13 +296,35 @@ def parse_address_book(text: str) -> dict[str, dict]:
     return books
 
 
+_ALLOWED_APPLICATION_FIELDS = ("protocol", "destination-port", "source-port", "inactivity-timeout")
+
+
 def _apply_application_tokens(apps: dict, app_sets: dict, tokens: list[str]) -> None:
     if tokens[:1] == ["application"] and len(tokens) >= 3:
         name = tokens[1]
         entry = apps.setdefault(name, {"kind": "application"})
-        field, value = tokens[2], tokens[3] if len(tokens) > 3 else ""
-        if field in ("protocol", "destination-port", "source-port", "inactivity-timeout"):
-            entry[field.replace("-", "_")] = value
+        if entry.get("kind") == "unknown":
+            # Already flagged unknown by an earlier line for this same
+            # application (multi-term or unrecognized field) -- once flagged,
+            # stays flagged regardless of what other lines say about it.
+            return
+        field = tokens[2]
+        if field == "term":
+            # Multi-term applications (`application X term T1 protocol tcp
+            # ...`) are not parsed per-term here: reading only tokens[2] would
+            # silently drop every term's protocol/port and let the rule read
+            # as "any" (MEC-992 review F1).
+            apps[name] = {"kind": "unknown", "reason": "multi-term"}
+            return
+        if field not in _ALLOWED_APPLICATION_FIELDS:
+            # Any field outside the allowlist (uuid, rpc-program-number,
+            # icmp-type, icmp-code, application-protocol, ether-type, ...)
+            # must not be silently dropped -- it can change what the
+            # application matches (MEC-992 review F1).
+            apps[name] = {"kind": "unknown", "reason": "unrecognized-field"}
+            return
+        value = tokens[3] if len(tokens) > 3 else ""
+        entry[field.replace("-", "_")] = value
     elif tokens[:1] == ["application-set"] and len(tokens) >= 4:
         set_name = tokens[1]
         entry = app_sets.setdefault(set_name, {"members": []})
@@ -296,9 +357,15 @@ def parse_applications(text: str) -> dict[str, dict]:
 
 def parse_predefined_applications(text: str) -> dict[str, dict]:
     """Parse `show configuration groups junos-defaults applications | display set`
-    into `{name: {...}}` -- the built-in `junos-*` application catalog. Same
-    token shape as a custom `applications application NAME ...` stanza, just
-    nested one level deeper under `groups junos-defaults`."""
+    into `{"applications": {name: {...}}, "application_sets": {name: {"members": [...]}}}`
+    -- the built-in `junos-*` application catalog. Same token shape as a
+    custom `applications application NAME ...` stanza, just nested one level
+    deeper under `groups junos-defaults`.
+
+    Predefined application-*sets* (e.g. `junos-cifs`) are returned alongside
+    the individual applications, not discarded -- a rule matching on one of
+    those sets could not otherwise be resolved (MEC-992 review F2).
+    """
     apps: dict[str, dict] = {}
     app_sets: dict[str, dict] = {}
     for raw in text.splitlines():
@@ -310,7 +377,7 @@ def parse_predefined_applications(text: str) -> dict[str, dict]:
         if not match:
             continue
         _apply_application_tokens(apps, app_sets, match.group(1).split())
-    return apps
+    return {"applications": apps, "application_sets": app_sets}
 
 
 @register("junos")
@@ -428,7 +495,8 @@ class JunosPolicyCollector:
                         "address_books": address_books,
                         "applications": app_result["applications"],
                         "application_sets": app_result["application_sets"],
-                        "predefined_applications": predefined,
+                        "predefined_applications": predefined["applications"],
+                        "predefined_application_sets": predefined["application_sets"],
                     },
                 }
             )

@@ -58,6 +58,11 @@ def _text(entry: ET.Element, tag: str) -> str:
     return el.text.strip() if el is not None and el.text else ""
 
 
+def _restricts(members: list[str]) -> bool:
+    """True if a PAN-OS member list narrows the match beyond "no restriction"."""
+    return members not in ([], ["any"])
+
+
 def parse_security_rules(text: str, device_name: str, now: str) -> list[dict]:
     """Parse a PAN-OS security rulebase into normalized rule dicts (order preserved)."""
     root = _root(text)
@@ -68,6 +73,11 @@ def parse_security_rules(text: str, device_name: str, now: str) -> list[dict]:
         name = entry.get("name", "").strip()
         if not name:
             continue
+        schedule = _text(entry, "schedule")
+        source_user = _members(entry, "source-user")
+        url_category = _members(entry, "category")
+        source_hip = _members(entry, "source-hip")
+        destination_hip = _members(entry, "destination-hip")
         rules.append(
             {
                 "provider": PROVIDER,
@@ -91,7 +101,21 @@ def parse_security_rules(text: str, device_name: str, now: str) -> list[dict]:
                 # binding itself must not be silently dropped).
                 "negate_source": _text(entry, "negate-source").lower() == "yes",
                 "negate_destination": _text(entry, "negate-destination").lower() == "yes",
-                "schedule": _text(entry, "schedule"),
+                "schedule": schedule,
+                "source_user": source_user,
+                "url_category": url_category,
+                "source_hip": source_hip,
+                "destination_hip": destination_hip,
+                # MEC-992 review (F5): a schedule, or a source-user/category/HIP
+                # restriction, are clauses this collector records but does not
+                # evaluate. Without this flag a rule scoped to "corp\\alice" or
+                # a URL category reads as matching every user and every site --
+                # broader than it actually is.
+                "match_unknown": bool(schedule)
+                or _restricts(source_user)
+                or _restricts(url_category)
+                or _restricts(source_hip)
+                or _restricts(destination_hip),
             }
         )
     return rules
@@ -336,10 +360,16 @@ class PanosPolicyCollector:
     def collect_objects(self, client, now: str) -> list[dict]:
         """Read the device's address/service object book (MEC-992).
 
-        Each xpath is fetched and parsed independently: a truncated or
-        unparseable object type must not discard the others, but a truncated
-        one is still refused outright (never emitted as a partial object set)
-        for the same reason RULES_XPATH truncation is refused in collect().
+        Each xpath is fetched independently, but a failed fetch, a truncated
+        envelope, or XML that doesn't parse for ANY one of the five aborts the
+        whole device's object book for this pass (returns `[]`) rather than
+        emitting a partial book. MEC-992 review (F4): the earlier per-key
+        `object_book[key] = {}` behavior looked identical to a legitimately
+        empty container (e.g. `<address/>`), so a single transient failure got
+        recorded as a genuine "object book changed" row in
+        ssdf.object_book_hash -- and every later change_impact query over
+        that window silently couldn't resolve a single address. A skipped
+        pass leaves the previous hash as the latest-known good one instead.
         """
         fetches = (
             ("addresses", ADDRESS_XPATH, parse_address_objects),
@@ -354,25 +384,40 @@ class PanosPolicyCollector:
                 text = client.call_tool("get_panos_config", {"device": self.device, "xpath": xpath})
             except Exception:
                 logger.warning(
-                    "panos %r: %s object fetch failed; skipping", self.device, key, exc_info=True
+                    "panos %r: %s object fetch failed; refusing object book for this pass",
+                    self.device,
+                    key,
+                    exc_info=True,
                 )
-                object_book[key] = {}
-                continue
+                return []
             if envelope_truncated(text):
                 logger.warning(
-                    "panos %r: %s object fetch truncated; refusing partial object set",
+                    "panos %r: %s object fetch truncated; refusing object book for this pass",
                     self.device,
                     key,
                 )
-                object_book[key] = {}
-                continue
+                return []
+            if _root(text) is None:
+                # A container that legitimately has no entries (`<address/>`)
+                # still parses to a real Element; only genuinely unparseable
+                # XML hits this branch, so this can't misclassify "empty" as
+                # "failed".
+                logger.warning(
+                    "panos %r: %s object fetch did not parse; refusing object book for this pass",
+                    self.device,
+                    key,
+                )
+                return []
             try:
                 object_book[key] = parser(text)
             except Exception:
                 logger.warning(
-                    "panos %r: %s object parse failed; skipping", self.device, key, exc_info=True
+                    "panos %r: %s object parse failed; refusing object book for this pass",
+                    self.device,
+                    key,
+                    exc_info=True,
                 )
-                object_book[key] = {}
+                return []
         return [
             {
                 "provider": PROVIDER,

@@ -87,3 +87,21 @@ def test_scheduler_name_is_parsed_and_flags_unknown_without_scheduler_objects():
     )
     assert rule["scheduler_name"] == "BUSINESS-HOURS"
     assert rule["match_unknown"] is True
+
+
+def test_unlisted_match_clause_flags_unknown_instead_of_vanishing():
+    # MEC-992 review (F3): AC2 must be an allowlist, not an enumeration -- a
+    # match keyword this collector has never heard of (source-l3-area here)
+    # must never silently disappear and read as though it were absent.
+    rule = _rule(
+        "set security policies from-zone trust to-zone untrust policy P1 match source-l3-area A1\n"
+    )
+    assert rule["match_unknown"] is True
+    assert rule["vendor_extras"]["unparsed_match"] == ["source-l3-area"]
+
+
+def test_unrecognized_policy_level_keyword_flags_unknown():
+    # Same class as the unlisted-match-clause case, but for a policy-level
+    # keyword that isn't match/then/scheduler-name/description at all.
+    rule = _rule("set security policies from-zone trust to-zone untrust policy P1 policy-rematch\n")
+    assert rule["match_unknown"] is True

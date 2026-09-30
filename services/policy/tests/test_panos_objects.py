@@ -103,6 +103,60 @@ def test_negate_and_schedule_are_parsed_on_rules():
     assert rules[0]["schedule"] == "BUSINESS-HOURS"
 
 
+def test_rule_with_schedule_flags_match_unknown():
+    # MEC-992 review (F5): a schedule binding is recorded but not evaluated by
+    # this collector, so a rule scoped to it must not read as always-active.
+    text = (
+        "<rules><entry name='r1'>"
+        "<from><member>trust</member></from><to><member>untrust</member></to>"
+        "<source><member>any</member></source>"
+        "<destination><member>any</member></destination>"
+        "<application><member>any</member></application>"
+        "<service><member>any</member></service>"
+        "<action>allow</action>"
+        "<schedule>BIZ</schedule>"
+        "</entry></rules>"
+    )
+    rules = parse_security_rules(text, "panosvm", "2026-09-30T00:00:00")
+    assert rules[0]["match_unknown"] is True
+
+
+def test_rule_with_source_user_and_category_flags_match_unknown():
+    text = (
+        "<rules><entry name='r1'>"
+        "<from><member>trust</member></from><to><member>untrust</member></to>"
+        "<source><member>any</member></source>"
+        "<destination><member>any</member></destination>"
+        "<application><member>any</member></application>"
+        "<service><member>any</member></service>"
+        "<action>allow</action>"
+        "<source-user><member>corp\\alice</member></source-user>"
+        "<category><member>gambling</member></category>"
+        "</entry></rules>"
+    )
+    rules = parse_security_rules(text, "panosvm", "2026-09-30T00:00:00")
+    assert rules[0]["source_user"] == ["corp\\alice"]
+    assert rules[0]["url_category"] == ["gambling"]
+    assert rules[0]["match_unknown"] is True
+
+
+def test_rule_with_only_any_members_is_not_flagged_unknown():
+    text = (
+        "<rules><entry name='r1'>"
+        "<from><member>trust</member></from><to><member>untrust</member></to>"
+        "<source><member>any</member></source>"
+        "<destination><member>any</member></destination>"
+        "<application><member>any</member></application>"
+        "<service><member>any</member></service>"
+        "<action>allow</action>"
+        "<source-user><member>any</member></source-user>"
+        "<category><member>any</member></category>"
+        "</entry></rules>"
+    )
+    rules = parse_security_rules(text, "panosvm", "2026-09-30T00:00:00")
+    assert rules[0]["match_unknown"] is False
+
+
 def test_empty_input_yields_empty_objects():
     assert parse_address_objects("") == {}
     assert parse_address_groups("") == {}
@@ -141,7 +195,12 @@ def test_collect_objects_builds_object_book_from_all_xpaths():
     assert "BUSINESS-HOURS" in book["object_book"]["schedules"]
 
 
-def test_collect_objects_truncated_type_refuses_that_type_only():
+def test_collect_objects_truncated_type_aborts_whole_object_book():
+    # MEC-992 review (F4): a truncated fetch for ONE object type used to be
+    # recorded as `{}` for that type while the other four types were still
+    # emitted -- indistinguishable from a legitimately empty container, and
+    # ssdf.object_book_hash would record it as a real content change. A
+    # transient truncation must refuse the whole pass instead.
     from ssdf_policy.collectors.panos import PanosPolicyCollector
 
     class _TruncatingClient:
@@ -162,6 +221,78 @@ def test_collect_objects_truncated_type_refuses_that_type_only():
     books = PanosPolicyCollector("panosvm").collect_objects(
         _TruncatingClient(), "2026-09-30T00:00:00Z"
     )
-    book = books[0]
-    assert book["object_book"]["addresses"] == {}
-    assert book["object_book"]["address_groups"]["GRP-STATIC"]["kind"] == "static"
+    assert books == []
+
+
+def test_collect_objects_unparseable_type_aborts_whole_object_book():
+    from ssdf_policy.collectors.panos import PanosPolicyCollector
+
+    class _UnparseableClient:
+        def call_tool(self, name, args=None):
+            xpath = (args or {}).get("xpath", "")
+            if xpath.endswith("/address"):
+                return "not xml at all <<<"
+            if xpath.endswith("/address-group"):
+                return ADDRESS_GROUP_XML
+            if xpath.endswith("/service-group"):
+                return SERVICE_GROUP_XML
+            if xpath.endswith("/service"):
+                return SERVICE_XML
+            if xpath.endswith("/schedule"):
+                return SCHEDULE_XML
+            raise AssertionError(f"unexpected xpath {xpath}")
+
+    books = PanosPolicyCollector("panosvm").collect_objects(
+        _UnparseableClient(), "2026-09-30T00:00:00Z"
+    )
+    assert books == []
+
+
+def test_collect_objects_fetch_failure_aborts_whole_object_book():
+    from ssdf_policy.collectors.panos import PanosPolicyCollector
+
+    class _BoomClient:
+        def call_tool(self, name, args=None):
+            xpath = (args or {}).get("xpath", "")
+            if xpath.endswith("/address"):
+                raise TimeoutError("device unreachable")
+            if xpath.endswith("/address-group"):
+                return ADDRESS_GROUP_XML
+            if xpath.endswith("/service-group"):
+                return SERVICE_GROUP_XML
+            if xpath.endswith("/service"):
+                return SERVICE_XML
+            if xpath.endswith("/schedule"):
+                return SCHEDULE_XML
+            raise AssertionError(f"unexpected xpath {xpath}")
+
+    books = PanosPolicyCollector("panosvm").collect_objects(_BoomClient(), "2026-09-30T00:00:00Z")
+    assert books == []
+
+
+def test_collect_objects_genuinely_empty_container_is_not_a_failure():
+    # An empty-but-valid container must still resolve to `{}` for that key,
+    # not be misclassified as a parse failure.
+    from ssdf_policy.collectors.panos import PanosPolicyCollector
+
+    class _EmptyAddressClient:
+        def call_tool(self, name, args=None):
+            xpath = (args or {}).get("xpath", "")
+            if xpath.endswith("/address"):
+                return "<address/>"
+            if xpath.endswith("/address-group"):
+                return ADDRESS_GROUP_XML
+            if xpath.endswith("/service-group"):
+                return SERVICE_GROUP_XML
+            if xpath.endswith("/service"):
+                return SERVICE_XML
+            if xpath.endswith("/schedule"):
+                return SCHEDULE_XML
+            raise AssertionError(f"unexpected xpath {xpath}")
+
+    books = PanosPolicyCollector("panosvm").collect_objects(
+        _EmptyAddressClient(), "2026-09-30T00:00:00Z"
+    )
+    assert len(books) == 1
+    assert books[0]["object_book"]["addresses"] == {}
+    assert books[0]["object_book"]["address_groups"]["GRP-STATIC"]["kind"] == "static"
