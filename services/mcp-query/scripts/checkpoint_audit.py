@@ -327,7 +327,13 @@ def run(
     checkpoints_by_chain = fetch_checkpoints_by_chain(client)
     evidence_by_chain = fetch_evidence_rows_by_chain(client, now)
     result = RunResult()
-    for chain, rows in sorted(rows_by_chain.items()):
+    # Walk every chain that has EITHER surviving rows OR a checkpoint, not
+    # just `rows_by_chain`'s keys -- a chain whose rows were all removed
+    # from ssdf.audit has no entry there, and skipping it would also skip
+    # the head_unreachable backstop below for it.
+    all_chains = set(rows_by_chain) | set(checkpoints_by_chain)
+    for chain in sorted(all_chains):
+        rows = rows_by_chain.get(chain, [])
         issues = verify_tier(
             rows,
             checkpoints=checkpoints_by_chain.get(chain, []),
@@ -349,7 +355,6 @@ def run(
             row_hashes = {r["row_hash"] for r in rows}
             head_unreachable = (
                 previous is not None
-                and bool(rows)
                 and previous["head_row_hash"] not in row_hashes
                 and not any(r["prev_hash"] == previous["head_row_hash"] for r in rows)
             )

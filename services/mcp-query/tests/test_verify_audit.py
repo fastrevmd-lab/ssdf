@@ -448,8 +448,8 @@ def _signed_checkpoint(signing_key, head_row_hash: str, checkpoint_ts: str) -> C
 
 
 def test_bridge_through_evidence_rows_anchors_a_predecessor_the_checkpoint_does_not_match():
-    """F1 regression: under a real row-level TTL, the row that has just aged
-    out of ssdf.audit is a checkpoint head only when the TTL boundary happens
+    """Under a real row-level TTL, the row that has just aged out of
+    ssdf.audit is a checkpoint head only when the TTL boundary happens
     to land exactly on a scheduled checkpoint. In general -- hourly rows,
     daily checkpoints, TTL expiry at an arbitrary time of day -- the
     predecessor that most recently expired sits between two checkpoints, not
@@ -517,13 +517,12 @@ def test_bridge_rejects_a_tampered_intermediate_row():
 
 
 def test_recent_checkpoint_head_missing_is_detected_as_tail_truncation():
-    """F1 regression (ssdf#43 security review): a checkpoint anchored at the
-    current chain tip followed by deletion of the rows at and after that
-    head must be caught immediately, not only ~90 days later when genesis
-    itself ages out. The chain's genesis is untouched here -- this is a tail
-    truncation, not ordinary TTL expiry -- so the existing anchor-selection
-    path (which only runs once genesis is absent) never sees it; this check
-    must run regardless of whether genesis survives."""
+    """A checkpoint anchored at the current chain tip followed by deletion
+    of the rows at and after that head must be caught immediately, not only
+    ~90 days later when genesis itself ages out. The chain's genesis is
+    untouched here, so the existing anchor-selection path (which only runs
+    once genesis is absent) never sees it; this check must run regardless of
+    whether genesis survives."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
     signing_key = Ed25519PrivateKey.generate()
@@ -561,3 +560,37 @@ def test_old_enough_checkpoint_head_missing_is_not_flagged_as_truncation():
 
     issues = verify_tier(truncated, checkpoints=[checkpoint], verifying_key=verifying_key, now=now)
     assert not any(i["type"] == "checkpoint_head_missing" for i in issues)
+
+
+def test_main_still_reports_a_chain_whose_rows_are_all_gone(monkeypatch):
+    """A chain can have zero surviving rows in ssdf.audit (every row
+    removed) while still holding a recent checkpoint. main() must still walk
+    it via checkpoints_by_chain, not only via rows parsed from ssdf.audit --
+    otherwise the chain has no key in `by_chain` at all and is silently
+    absent from the run, and ``_checkpoint_head_issues`` never gets a chance
+    to flag its checkpoint."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from ssdf_mcp_query import verify_audit
+
+    signing_key = Ed25519PrivateKey.generate()
+    verifying_key = signing_key.public_key().public_bytes_raw()
+
+    full_chain = _chain(2)
+    recent = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)
+    recent_ts = recent.strftime("%Y-%m-%dT%H:%M:%S.") + f"{recent.microsecond // 1000:03d}Z"
+    checkpoint = _signed_checkpoint(signing_key, full_chain[-1]["row_hash"], recent_ts)
+
+    class _Config:
+        ch_audit_verify_password = "pw"
+        ch_checkpoint_verify_key_path = "unused"
+
+    monkeypatch.setattr(verify_audit, "load_config", lambda: _Config())
+    monkeypatch.setattr(verify_audit, "_fetch_rows", lambda config: [])
+    monkeypatch.setattr(
+        verify_audit, "_fetch_checkpoints", lambda config: {("sovereign", ""): [checkpoint]}
+    )
+    monkeypatch.setattr(verify_audit, "_fetch_evidence_rows", lambda config, now: {})
+    monkeypatch.setattr(verify_audit, "_load_verifying_key", lambda config: verifying_key)
+
+    assert verify_audit.main() == 1

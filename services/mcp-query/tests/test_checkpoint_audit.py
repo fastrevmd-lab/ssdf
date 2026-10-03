@@ -338,8 +338,8 @@ def test_run_refuses_to_checkpoint_a_chain_with_a_content_edit(monkeypatch):
 
 
 def test_run_self_verifies_past_an_expired_genesis_via_the_evidence_bridge(monkeypatch):
-    """F1 regression: once a chain's genesis has aged out of ssdf.audit, a
-    daily checkpoint schedule almost never sits at exactly the row the TTL
+    """Once a chain's genesis has aged out of ssdf.audit, a daily checkpoint
+    schedule almost never sits at exactly the row the TTL
     most recently evicted -- it sits wherever the chain tip was when the job
     last ran. Self-verification must be able to bridge that gap through
     ssdf.audit_evidence the same way verify_audit.py does, or the
@@ -401,9 +401,9 @@ def test_run_self_verifies_past_an_expired_genesis_via_the_evidence_bridge(monke
 
 
 def test_run_flags_previous_checkpoint_head_unreachable_as_skipped_not_silent(monkeypatch):
-    """F1 regression (ssdf#43 security review): if the previous checkpoint's
-    head row is gone from the chain's current rows and nothing chains from
-    it either, compute_next_checkpoint legitimately returns None -- but
+    """If the previous checkpoint's head row is gone from the chain's current
+    rows and nothing chains from it either, compute_next_checkpoint
+    legitimately returns None -- but
     run() must not let that fall through in silence. Without this backstop,
     a deleted checkpointed head (e.g. by someone with ClickHouse admin
     access, after the checkpoint was taken) stops the chain from ever being
@@ -443,9 +443,36 @@ def test_run_flags_previous_checkpoint_head_unreachable_as_skipped_not_silent(mo
     assert result.skipped == [("sovereign", "")]
 
 
+def test_run_flags_a_fully_deleted_chain_as_skipped_not_silent(monkeypatch):
+    """A chain with ZERO rows left in ssdf.audit (every row removed) must
+    still be walked and flagged, not silently absent from both `inserted`
+    and `skipped` just because it has no entry in `rows_by_chain`."""
+    _, row0_hash = _audit_row(0, "sovereign", "")
+    checkpoint_row = (
+        "sovereign",
+        "",
+        1,
+        row0_hash,
+        "2026-06-05T00:00:00.000Z",
+        "sig",
+        "k1",
+    )
+    client = _FakeClient(audit_rows=[], checkpoint_rows=[checkpoint_row])
+
+    def fail_sign(*args, **kwargs):
+        raise AssertionError("should not sign a chain with no rows")
+
+    monkeypatch.setattr(checkpoint_audit, "sign_checkpoint", fail_sign)
+
+    result = checkpoint_audit.run(client, "binary", "key")
+
+    assert result.inserted == []
+    assert result.skipped == [("sovereign", "")]
+
+
 def test_main_requires_verify_key_path(monkeypatch):
-    """F4 (ssdf#43 security review): without a verifying key, self-
-    verification of a chain whose genesis has expired silently skips the
+    """Without a verifying key, self-verification of a chain whose genesis
+    has expired silently skips the
     anchor check instead of failing closed. main() must require the key
     path up front, the same as the signing key and password."""
     monkeypatch.setattr(sys, "argv", ["checkpoint_audit.py"])

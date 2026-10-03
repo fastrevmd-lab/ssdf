@@ -1,4 +1,14 @@
 -- infra/clickhouse/023_audit_evidence.sql
+--
+-- Apply (same envsubst pattern as 008_public_views.sql): inject ARCHIVER_PW
+-- before applying (never commit a real value). The `: "${ARCHIVER_PW:?}"`
+-- guard aborts on an unset/empty variable instead of letting envsubst
+-- substitute an empty string, which would otherwise create a
+-- passworded-by-empty-string user with INSERT on audit_evidence:
+--   : "${ARCHIVER_PW:?}" && ARCHIVER_PW="$CH_ARCHIVER_PASSWORD" \
+--     envsubst < 023_audit_evidence.sql \
+--     | clickhouse-client --host <ct104> --multiquery
+--
 -- MEC-565: retention-safe evidence tier. ssdf.audit (007_audit.sql) carries a
 -- 90-day TTL -- fine for operational use, not for a 13-month audit. This
 -- table is a durable archive of audit rows, populated by scripts/archive_audit.py

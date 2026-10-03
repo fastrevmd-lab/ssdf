@@ -1,4 +1,14 @@
 -- infra/clickhouse/022_audit_checkpoints.sql
+--
+-- Apply (same envsubst pattern as 008_public_views.sql): inject
+-- CHECKPOINT_PW before applying (never commit a real value). The
+-- `: "${CHECKPOINT_PW:?}"` guard aborts on an unset/empty variable instead
+-- of letting envsubst substitute an empty string, which would otherwise
+-- create a passworded-by-empty-string user with INSERT on audit_checkpoints:
+--   : "${CHECKPOINT_PW:?}" && CHECKPOINT_PW="$CH_CHECKPOINT_PASSWORD" \
+--     envsubst < 022_audit_checkpoints.sql \
+--     | clickhouse-client --host <ct104> --multiquery
+--
 -- MEC-565: signed chain-head checkpoints anchoring ssdf.audit (007_audit.sql)
 -- beyond its 90-day TTL (009_audit_hash_chain.sql). Once a chain's genesis row
 -- (prev_hash=="") ages out, verify_audit.py has nothing to walk from -- a

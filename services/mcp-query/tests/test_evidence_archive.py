@@ -61,9 +61,9 @@ def test_naive_datetimes_are_treated_as_utc():
 
 
 def test_a_legacy_row_already_archived_by_content_key_is_skipped():
-    """Regression test for MEC-565/F5: a legacy row has no usable row_hash, so
-    re-running the archiver between day 75 and day 90 must not keep
-    re-inserting the same row -- it has to be recognised by content instead."""
+    """A legacy row has no usable row_hash, so re-running the archiver
+    between day 75 and day 90 must not keep re-inserting the same row --
+    it has to be recognised by content instead."""
     row = _row(80, row_hash="")
     key = legacy_content_key(row)
     assert rows_due_for_archiving([row], NOW, already_archived_legacy_keys=frozenset({key})) == []

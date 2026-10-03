@@ -1,7 +1,7 @@
-"""MEC-565 security review F3 (ssdf#43): infra/clickhouse/024_audit_ocsf_export.sql
-must grant ssdf_audit_export the view only, never the underlying tables, so
-it cannot read audit_evidence columns (args, error, data_classes, model_id,
-client_name) the view deliberately leaves out."""
+"""infra/clickhouse/024_audit_ocsf_export.sql must grant ssdf_audit_export
+the view only, never the underlying tables, so it cannot read audit_evidence
+columns (args, error, data_classes, model_id, client_name) the view
+deliberately leaves out."""
 
 from __future__ import annotations
 

@@ -228,14 +228,13 @@ def _checkpoint_head_issues(
     falsifiable right now: its ``head_row_hash`` must be findable either in
     the chain's current rows or its evidence-tier bridge. If it is not,
     something removed rows at or after that head more recently than the
-    checkpoint schedule's own cadence would explain -- e.g. a prefix
-    deletion after the checkpoint was taken, not ordinary TTL expiry.
+    checkpoint schedule's own cadence would explain, which ordinary TTL
+    expiry cannot.
 
     Unlike anchor selection in ``_select_checkpoint_anchors``, this runs for
     every checkpoint handed in regardless of whether this chain's genesis
-    row is still present -- a tail truncation leaves the genesis untouched,
-    so gating this on ``not has_genesis`` would miss exactly the case it
-    exists to catch.
+    row is still present, so gating this on ``not has_genesis`` would miss
+    cases where genesis is untouched but the checkpointed head is not.
     """
     issues: list[dict] = []
     for checkpoint in checkpoints:
@@ -352,10 +351,9 @@ def verify_tier(
         if compute_row_hash(r["prev_hash"], r) != r["row_hash"]:
             issues.append({"type": "content_edit", "row_hash": r["row_hash"]})
 
-    # 1.5 Checkpoint head presence (security review F1, ssdf#43): every
-    # checkpoint still within its recent window must have its head
-    # findable, independent of whether this chain's genesis survives --
-    # see _checkpoint_head_issues.
+    # 1.5 Checkpoint head presence: every checkpoint still within its recent
+    # window must have its head findable, independent of whether this
+    # chain's genesis survives -- see _checkpoint_head_issues.
     issues.extend(
         _checkpoint_head_issues(list(checkpoints), by_hash, bridge_by_hash, verifying_key, now)
     )
@@ -520,7 +518,13 @@ def main() -> int:
     for r in rows:
         by_chain[group_key(r)].append(r)
     total = 0
-    for (tier, server_id), chain_rows in sorted(by_chain.items()):
+    # Iterate every chain that has EITHER surviving rows OR a checkpoint --
+    # not just `by_chain`'s keys. A chain whose rows were all removed from
+    # ssdf.audit has no entry in `by_chain` at all, and skipping it here
+    # would skip verify_tier()'s checkpoint-head check for it too.
+    all_chains = set(by_chain) | set(checkpoints_by_chain)
+    for tier, server_id in sorted(all_chains):
+        chain_rows = by_chain.get((tier, server_id), [])
         issues = verify_tier(
             chain_rows,
             checkpoints=checkpoints_by_chain.get((tier, server_id), []),
