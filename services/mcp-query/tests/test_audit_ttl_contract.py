@@ -93,7 +93,7 @@ def table(raw):
         )
         ENGINE = MergeTree
         ORDER BY (ts, principal)
-        TTL ts + INTERVAL 2 SECOND
+        TTL toDateTime(ts) + INTERVAL 2 SECOND
         """
     )
     yield
