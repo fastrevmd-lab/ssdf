@@ -19,31 +19,39 @@
 -- `is_checkpoint_anchored`: true when a signed checkpoint exists for this row's
 -- chain with checkpoint_ts >= this row's ts, i.e. this row's integrity can be
 -- traced to a signed anchor even if its chain's genesis has since expired out
--- of ssdf.audit. Computed with a correlated scalar subquery rather than a
--- JOIN: audit_checkpoints is small (~one row per writer per day) and a JOIN
--- against it per audit_evidence row would multiply rows when more than one
--- checkpoint exists for a chain, which a scalar EXISTS avoids.
+-- of ssdf.audit. Computed by pre-aggregating each chain's latest checkpoint_ts
+-- and LEFT JOINing that onto audit_evidence, not a per-row correlated EXISTS
+-- subquery: ClickHouse's planner does not support a subquery referencing
+-- columns from its enclosing SELECT ("Resolve identifier ... from parent scope
+-- only supported for constants and CTE" -- confirmed by a live run against a
+-- throwaway ClickHouse instance; the EXISTS form this migration originally
+-- shipped with does not execute at all). A LEFT JOIN against each chain's
+-- max(checkpoint_ts) is equivalent to the EXISTS check -- if the latest
+-- checkpoint's ts is >= this row's ts, at least one qualifying checkpoint
+-- exists -- and keeps row cardinality unchanged because the right side is
+-- pre-aggregated to one row per (tier, server_id) before joining.
 CREATE VIEW IF NOT EXISTS ssdf.audit_ocsf_export AS
 SELECT
     toUnixTimestamp64Milli(e.ts)                                   AS time,
     'record_integrity (mapped-for-export; not a registered OCSF 1.9 class)' AS class_name,
     e.tool                                                         AS activity_name,
     e.principal                                                    AS actor_user_name,
-    e.decision                                                      AS status,
-    e.tier                                                          AS tier,
-    e.row_count                                                     AS row_count,
-    e.prev_hash                                                     AS prev_hash,
-    e.row_hash                                                      AS row_hash,
-    EXISTS(
-        SELECT 1 FROM ssdf.audit_checkpoints c
-        WHERE c.tier = e.tier
-          AND parseDateTime64BestEffort(c.checkpoint_ts) >= e.ts
-          AND (
-              c.server_id = JSONExtractString(e.args, 'server_id')
-              OR (c.server_id = '' AND JSONExtractString(e.args, 'server_id') = '')
-          )
-    )                                                                AS is_checkpoint_anchored
-FROM ssdf.audit_evidence AS e;
+    e.decision                                                     AS status,
+    e.tier                                                         AS tier,
+    e.row_count                                                    AS row_count,
+    e.prev_hash                                                    AS prev_hash,
+    e.row_hash                                                     AS row_hash,
+    (latest.max_checkpoint_ts != '')
+        AND (parseDateTime64BestEffort(latest.max_checkpoint_ts) >= e.ts)
+                                                                    AS is_checkpoint_anchored
+FROM ssdf.audit_evidence AS e
+LEFT JOIN
+(
+    SELECT tier, server_id, max(checkpoint_ts) AS max_checkpoint_ts
+    FROM ssdf.audit_checkpoints
+    GROUP BY tier, server_id
+) AS latest
+ON latest.tier = e.tier AND latest.server_id = JSONExtractString(e.args, 'server_id');
 
 -- ssdf_audit_export: the ONLY identity with read access to the export view.
 -- Deliberately not granted to ssdf_ro -- audit content (who did what) stays
