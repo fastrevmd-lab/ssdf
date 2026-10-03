@@ -2,11 +2,11 @@
 --
 -- Apply (same envsubst pattern as 008_public_views.sql): inject both
 -- OCSF_DEFINER_PW and AUDIT_EXPORT_PW before applying (never commit real
--- values). The `: "${VAR:?}"` guards abort on an unset/empty variable
--- instead of letting envsubst substitute an empty string, which would
--- otherwise create a passworded-by-empty-string user -- the definer user in
+-- values). The `: "${VAR:?}"` guards abort on an unset/empty source
+-- variable instead of letting envsubst substitute an empty string, which
+-- would otherwise create a passworded-by-empty-string user -- the definer user in
 -- particular can read all of audit_evidence and audit_checkpoints:
---   : "${OCSF_DEFINER_PW:?}" "${AUDIT_EXPORT_PW:?}" \
+--   : "${CH_OCSF_DEFINER_PASSWORD:?}" "${CH_AUDIT_EXPORT_PASSWORD:?}" \
 --     && OCSF_DEFINER_PW="$CH_OCSF_DEFINER_PASSWORD" AUDIT_EXPORT_PW="$CH_AUDIT_EXPORT_PASSWORD" \
 --     envsubst < 024_audit_ocsf_export.sql \
 --     | clickhouse-client --host <ct104> --multiquery

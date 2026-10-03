@@ -1,11 +1,12 @@
 -- infra/clickhouse/023_audit_evidence.sql
 --
 -- Apply (same envsubst pattern as 008_public_views.sql): inject ARCHIVER_PW
--- before applying (never commit a real value). The `: "${ARCHIVER_PW:?}"`
--- guard aborts on an unset/empty variable instead of letting envsubst
--- substitute an empty string, which would otherwise create a
--- passworded-by-empty-string user with INSERT on audit_evidence:
---   : "${ARCHIVER_PW:?}" && ARCHIVER_PW="$CH_ARCHIVER_PASSWORD" \
+-- before applying (never commit a real value). The
+-- `: "${CH_ARCHIVER_PASSWORD:?}"` guard aborts on an unset/empty source
+-- variable instead of letting envsubst substitute an empty string, which
+-- would otherwise create a passworded-by-empty-string user with INSERT on
+-- audit_evidence:
+--   : "${CH_ARCHIVER_PASSWORD:?}" && ARCHIVER_PW="$CH_ARCHIVER_PASSWORD" \
 --     envsubst < 023_audit_evidence.sql \
 --     | clickhouse-client --host <ct104> --multiquery
 --

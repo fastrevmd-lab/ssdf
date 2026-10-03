@@ -2,10 +2,11 @@
 --
 -- Apply (same envsubst pattern as 008_public_views.sql): inject
 -- CHECKPOINT_PW before applying (never commit a real value). The
--- `: "${CHECKPOINT_PW:?}"` guard aborts on an unset/empty variable instead
--- of letting envsubst substitute an empty string, which would otherwise
--- create a passworded-by-empty-string user with INSERT on audit_checkpoints:
---   : "${CHECKPOINT_PW:?}" && CHECKPOINT_PW="$CH_CHECKPOINT_PASSWORD" \
+-- `: "${CH_CHECKPOINT_PASSWORD:?}"` guard aborts on an unset/empty source
+-- variable instead of letting envsubst substitute an empty string, which
+-- would otherwise create a passworded-by-empty-string user with INSERT on
+-- audit_checkpoints:
+--   : "${CH_CHECKPOINT_PASSWORD:?}" && CHECKPOINT_PW="$CH_CHECKPOINT_PASSWORD" \
 --     envsubst < 022_audit_checkpoints.sql \
 --     | clickhouse-client --host <ct104> --multiquery
 --

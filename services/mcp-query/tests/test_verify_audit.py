@@ -516,7 +516,7 @@ def test_bridge_rejects_a_tampered_intermediate_row():
     assert any(i["type"] == "missing_predecessor" for i in issues)
 
 
-def test_recent_checkpoint_head_missing_is_detected_as_tail_truncation():
+def test_recent_checkpoint_head_missing_is_detected():
     """A checkpoint anchored at the current chain tip followed by deletion
     of the rows at and after that head must be caught immediately, not only
     ~90 days later when genesis itself ages out. The chain's genesis is
@@ -542,7 +542,7 @@ def test_recent_checkpoint_head_missing_is_detected_as_tail_truncation():
     )
 
 
-def test_old_enough_checkpoint_head_missing_is_not_flagged_as_truncation():
+def test_old_enough_checkpoint_head_missing_is_not_flagged():
     """The same absent head is NOT reported once the checkpoint is old
     enough that its rows could have legitimately TTL-expired -- this check
     only covers the window where expiry cannot yet explain the gap."""
