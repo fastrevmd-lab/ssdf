@@ -1,0 +1,59 @@
+-- infra/clickhouse/024_audit_ocsf_export.sql
+-- MEC-565: an export projection of ssdf.audit_evidence (023) for consumers
+-- that want audit-chain integrity events in an OCSF-flavoured shape.
+--
+-- DEVIATION FROM OCSF 1.9, STATED EXPLICITLY: OCSF 1.9 has no canonical
+-- "record_integrity" event class. This view is a best-effort, mapped-for-export
+-- projection using OCSF's common base-event field names (time, activity_name,
+-- actor.*, status) where they apply cleanly, plus three ssdf-specific integrity
+-- fields (prev_hash, row_hash, is_checkpoint_anchored) that have no OCSF
+-- equivalent. `class_name` is set to the literal string
+-- 'record_integrity (mapped-for-export; not a registered OCSF 1.9 class)' so no
+-- downstream consumer mistakes this for a conformant class_uid. Treat this as
+-- "OCSF-shaped", not "OCSF-certified".
+--
+-- Sourced from audit_evidence (410-day retention), not audit (90-day TTL):
+-- export is for long-horizon compliance review, which is exactly the case the
+-- 90-day table cannot serve alone.
+--
+-- `is_checkpoint_anchored`: true when a signed checkpoint exists for this row's
+-- chain with checkpoint_ts >= this row's ts, i.e. this row's integrity can be
+-- traced to a signed anchor even if its chain's genesis has since expired out
+-- of ssdf.audit. Computed with a correlated scalar subquery rather than a
+-- JOIN: audit_checkpoints is small (~one row per writer per day) and a JOIN
+-- against it per audit_evidence row would multiply rows when more than one
+-- checkpoint exists for a chain, which a scalar EXISTS avoids.
+CREATE VIEW IF NOT EXISTS ssdf.audit_ocsf_export AS
+SELECT
+    toUnixTimestamp64Milli(e.ts)                                   AS time,
+    'record_integrity (mapped-for-export; not a registered OCSF 1.9 class)' AS class_name,
+    e.tool                                                         AS activity_name,
+    e.principal                                                    AS actor_user_name,
+    e.decision                                                      AS status,
+    e.tier                                                          AS tier,
+    e.row_count                                                     AS row_count,
+    e.prev_hash                                                     AS prev_hash,
+    e.row_hash                                                      AS row_hash,
+    EXISTS(
+        SELECT 1 FROM ssdf.audit_checkpoints c
+        WHERE c.tier = e.tier
+          AND parseDateTime64BestEffort(c.checkpoint_ts) >= e.ts
+          AND (
+              c.server_id = JSONExtractString(e.args, 'server_id')
+              OR (c.server_id = '' AND JSONExtractString(e.args, 'server_id') = '')
+          )
+    )                                                                AS is_checkpoint_anchored
+FROM ssdf.audit_evidence AS e;
+
+-- ssdf_audit_export: the ONLY identity with read access to the export view.
+-- Deliberately not granted to ssdf_ro -- audit content (who did what) stays
+-- out of the general query surface for the same reason ssdf.audit itself is
+-- never granted to ssdf_ro (007_audit.sql, 018_ssdf_ro_grants.sql). Export
+-- tooling authenticates as this identity specifically, not through run_sql.
+CREATE USER IF NOT EXISTS ssdf_audit_export IDENTIFIED WITH sha256_password BY '${AUDIT_EXPORT_PW}';
+GRANT SELECT ON ssdf.audit_ocsf_export TO ssdf_audit_export;
+-- The view's own SELECT runs with the *view's definer* privileges by default
+-- in ClickHouse only when DEFINER is set; without it, the querying user needs
+-- underlying read rights too. Grant those narrowly to the export identity only.
+GRANT SELECT ON ssdf.audit_evidence TO ssdf_audit_export;
+GRANT SELECT ON ssdf.audit_checkpoints TO ssdf_audit_export;

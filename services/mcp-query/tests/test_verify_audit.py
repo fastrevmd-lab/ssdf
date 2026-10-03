@@ -1,12 +1,15 @@
+import base64
 import datetime as dt
+
 from ssdf_mcp_query.audit_chain import compute_row_hash
+from ssdf_mcp_query.checkpoint_verify import Checkpoint
 from ssdf_mcp_query.verify_audit import verify_tier
 
 
-def _chain(n, tier="sovereign"):
+def _chain(n, tier="sovereign", first_prev=""):
     """Build n correctly-chained rows for one tier."""
     rows = []
-    prev = ""
+    prev = first_prev
     for i in range(n):
         row = dict(
             ts=dt.datetime(2026, 6, 10, 12, 0, i, 0, tzinfo=dt.timezone.utc),
@@ -237,3 +240,114 @@ def test_dedup_token_counts_utf8_bytes_not_code_points():
 
     # The encoding is injective even when an identifier contains the separator.
     assert dedup_token("a:b", "c", 1) != dedup_token("a", "b:c", 1)
+
+
+# MEC-565: checkpoint-anchored verification. The fixtures below (key +
+# signature) were produced by the actual Rust `mecmcp-audit-checkpoint`
+# binary (mechubsec/mecmcp, v0.26.0) against the exact `head_row_hash` used
+# here -- see test_checkpoint_verify.py's module docstring for the generation
+# commands. This is the same precedent as the dedup_token known-answer
+# vectors: an independently "equivalent-looking" fixture is exactly the thing
+# that would hide a real cross-implementation mismatch.
+_VERIFYING_KEY = base64.b64decode("eq9vdjiCq9yRMn3C7MQmI6QFOkxq52Bb4PRExbLQ0GM=")
+_OTHER_KEY = base64.b64decode("AtqHG8dIiOhQanjTfmfJcED8/U6XfQLxeyANTVzwusk=")
+
+
+def _expired_genesis_scenario():
+    """A chain whose genesis has aged out of ssdf.audit: two fresh rows
+    continuing from a first_run whose own rows are no longer present. Returns
+    (surviving_rows, checkpoint_for_the_expired_genesis_run)."""
+    first_run = _chain(2)
+    surviving = _chain(2, first_prev=first_run[-1]["row_hash"])
+    checkpoint = Checkpoint(
+        tier="sovereign",
+        server_id="",
+        row_count=2,
+        head_row_hash=first_run[-1]["row_hash"],
+        checkpoint_ts="2026-09-15T00:00:00.000Z",
+        signature=(
+            "YpCXYBv7x5nVgoxe8z2HFu5jAKUQIb8xrAhJ/9TP20bMwm20AqgEB0b4"
+            "fsRpshlCUAFFYSXzhnYNwGhAIzLYBg=="
+        ),
+        key_id="7b5c53a1eeb8048b",
+    )
+    return surviving, checkpoint
+
+
+def test_expired_genesis_with_no_checkpoint_is_still_unreachable():
+    """Unchanged legacy behaviour: no checkpoint configured means an expired
+    genesis still reports every surviving row as unreachable (plus
+    missing_predecessor for the row whose prev_hash names the now-gone
+    genesis -- both are legitimate without a checkpoint to vouch for it)."""
+    surviving, _ = _expired_genesis_scenario()
+    issues = verify_tier(surviving)
+    assert {i["type"] for i in issues} == {"unreachable", "missing_predecessor"}
+    assert len([i for i in issues if i["type"] == "unreachable"]) == len(surviving)
+
+
+def test_expired_genesis_with_valid_checkpoint_verifies_clean():
+    surviving, checkpoint = _expired_genesis_scenario()
+    issues = verify_tier(surviving, checkpoints=[checkpoint], verifying_key=_VERIFYING_KEY)
+    assert issues == []
+
+
+def test_expired_genesis_with_checkpoint_but_no_verifying_key_stays_unreachable():
+    """A checkpoint exists but there is nothing to verify it against -- must
+    fail closed to 'unverifiable', not silently trust it."""
+    surviving, checkpoint = _expired_genesis_scenario()
+    issues = verify_tier(surviving, checkpoints=[checkpoint], verifying_key=None)
+    assert any(i["type"] == "unverifiable_checkpoint" for i in issues)
+    assert all(
+        i["type"] in ("unverifiable_checkpoint", "unreachable", "missing_predecessor")
+        for i in issues
+    )
+
+
+def test_expired_genesis_with_checkpoint_signed_by_wrong_key_stays_unreachable():
+    surviving, checkpoint = _expired_genesis_scenario()
+    issues = verify_tier(surviving, checkpoints=[checkpoint], verifying_key=_OTHER_KEY)
+    assert any(i["type"] == "unverifiable_checkpoint" for i in issues)
+    assert all(
+        i["type"] in ("unverifiable_checkpoint", "unreachable", "missing_predecessor")
+        for i in issues
+    )
+
+
+def test_a_checkpoint_that_does_not_match_any_dangling_row_does_not_mask_a_gap():
+    """A checkpoint that verifies but names a hash no surviving row's
+    prev_hash actually points to (e.g. an entire later run was deleted after
+    the checkpoint was taken) must not suppress the missing_predecessor it
+    would otherwise report -- the anchor only exempts rows that actually
+    chain from it."""
+    _, checkpoint = _expired_genesis_scenario()
+    unrelated = _chain(2, first_prev="some-other-already-expired-run-head")
+    issues = verify_tier(unrelated, checkpoints=[checkpoint], verifying_key=_VERIFYING_KEY)
+    assert any(i["type"] == "missing_predecessor" for i in issues)
+
+
+def test_genesis_still_present_ignores_even_a_malformed_checkpoint():
+    """A chain that still has its genesis must not consult checkpoints at all
+    -- not even to the point of trying to verify one and failing. A stale or
+    malformed checkpoint handed in for a healthy chain must have zero effect."""
+    rows = _chain(4)
+    malformed = Checkpoint(
+        tier="sovereign",
+        server_id="",
+        row_count=1,
+        head_row_hash="irrelevant",
+        checkpoint_ts="2026-01-01T00:00:00.000Z",
+        signature="not-valid-base64!!",
+        key_id="deadbeef",
+    )
+    issues = verify_tier(rows, checkpoints=[malformed], verifying_key=_VERIFYING_KEY)
+    assert issues == []
+
+
+def test_checkpoint_does_not_mask_a_real_tamper_on_the_surviving_rows():
+    """A valid checkpoint anchors reachability; it must not blind the other
+    checks (content_edit, missing_predecessor) to tampering within the rows
+    that DO still survive."""
+    surviving, checkpoint = _expired_genesis_scenario()
+    surviving[1]["tool"] = "TAMPERED"
+    issues = verify_tier(surviving, checkpoints=[checkpoint], verifying_key=_VERIFYING_KEY)
+    assert any(i["type"] == "content_edit" for i in issues)

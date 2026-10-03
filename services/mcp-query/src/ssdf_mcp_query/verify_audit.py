@@ -29,6 +29,11 @@ import sys
 from collections import defaultdict
 
 from .audit_chain import compute_row_hash
+from .checkpoint_verify import (
+    Checkpoint,
+    CheckpointVerificationError,
+    verify_checkpoint_signature,
+)
 from .config import ch_tls_kwargs, load_config
 
 _VERIFY_COLUMNS = [
@@ -100,13 +105,56 @@ def writer_issue(row: dict) -> dict | None:
     return {"type": "unidentified_writer", "row_hash": row.get("row_hash", "")}
 
 
-def verify_tier(rows: list[dict]) -> list[dict]:
+def _select_checkpoint_anchor(
+    checkpoints: list[Checkpoint],
+    verifying_key: bytes | None,
+) -> tuple[str | None, list[dict]]:
+    """Pick a checkpoint's head hash to trust as a stand-in for an expired
+    genesis row (MEC-565).
+
+    The returned hash is deliberately NOT required to belong to a row still
+    present in ``rows``: the entire reason a checkpoint exists is to anchor a
+    chain whose genesis (and, after enough checkpoint cycles, whose earlier
+    checkpointed heads too) has already aged out of ssdf.audit. A signed
+    checkpoint is itself the durable proof that a row with this hash once
+    existed at the stated position in the chain — ``verify_tier`` uses it as
+    a trusted ``prev_hash`` value a surviving row may legitimately point to,
+    exactly as it would trust ``prev_hash == ""`` for a real genesis row.
+
+    Never trusts a checkpoint it cannot verify (fail closed): a missing
+    verifying key or a bad signature both fall back to no anchor at all,
+    which (via the normal missing_predecessor/unreachable checks) reports the
+    chain exactly as it would have before this feature existed, rather than
+    silently accepting an unproven anchor.
+    """
+    if not checkpoints:
+        return None, []
+    latest = max(checkpoints, key=lambda c: c.checkpoint_ts)
+    if verifying_key is None:
+        return None, [{"type": "unverifiable_checkpoint", "row_hash": latest.head_row_hash}]
+    try:
+        verify_checkpoint_signature(latest, verifying_key)
+    except CheckpointVerificationError:
+        return None, [{"type": "unverifiable_checkpoint", "row_hash": latest.head_row_hash}]
+    return latest.head_row_hash, []
+
+
+def verify_tier(
+    rows: list[dict],
+    checkpoints: list[Checkpoint] = (),
+    verifying_key: bytes | None = None,
+) -> list[dict]:
     """Verify one tier's rows. Returns a list of issue dicts (empty == clean).
 
     Rows written before migration 009 carry prev_hash='' / row_hash='' (column
     DEFAULT) and are excluded: the first hashed row per tier is that tier's
     chain start. A blanked-hash tamper on a chained row is still caught — its
     successor's prev_hash names a now-missing row_hash (missing_predecessor).
+
+    ``checkpoints`` and ``verifying_key`` (MEC-565) are only consulted when
+    this chain's genesis row is absent from ``rows`` -- i.e. it has expired
+    past the 90-day TTL. Callers that never pass them get exactly today's
+    behaviour: an expired genesis makes every surviving row ``unreachable``.
     """
     rows = [r for r in rows if r["row_hash"] != ""]
     issues: list[dict] = []
@@ -131,17 +179,35 @@ def verify_tier(rows: list[dict]) -> list[dict]:
         if compute_row_hash(r["prev_hash"], r) != r["row_hash"]:
             issues.append({"type": "content_edit", "row_hash": r["row_hash"]})
 
-    # 2. Linkage: a non-genesis prev_hash must name a present row.
+    # Genesis-or-checkpoint anchor selection, done once up front so both the
+    # linkage check (2) and reachability (3) below agree on what counts as a
+    # legitimate root. A checkpoint is only consulted when this chain's own
+    # genesis row (prev_hash == "") is absent -- a chain that still has its
+    # genesis needs no anchor and MUST ignore any checkpoint it is handed
+    # (stale or even malformed), since consulting one it does not need would
+    # let a bad checkpoint affect a chain it has nothing to do with.
+    has_genesis = any(r["prev_hash"] == "" for r in rows)
+    anchor_hash: str | None = None
+    if not has_genesis and rows:
+        anchor_hash, anchor_issues = _select_checkpoint_anchor(list(checkpoints), verifying_key)
+        issues.extend(anchor_issues)
+
+    # 2. Linkage: a non-genesis prev_hash must name a present row, UNLESS it
+    #    names the trusted checkpoint anchor (MEC-565) -- that hash stands in
+    #    for a row that once existed but has since expired out of ssdf.audit.
     for r in rows:
-        if r["prev_hash"] != "" and r["prev_hash"] not in by_hash:
+        if r["prev_hash"] != "" and r["prev_hash"] not in by_hash and r["prev_hash"] != anchor_hash:
             issues.append({"type": "missing_predecessor", "row_hash": r["row_hash"]})
 
-    # 3. Reachability from genesis (prev_hash == "").
+    # 3. Reachability from genesis (prev_hash == ""), extended by any row
+    #    chaining directly from a verified checkpoint anchor (MEC-565).
     children: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         children[r["prev_hash"]].append(r)
     reachable: set[str] = set()
     stack = list(children.get("", []))
+    if anchor_hash is not None:
+        stack.extend(children.get(anchor_hash, []))
     while stack:
         r = stack.pop()
         if r["row_hash"] in reachable:
@@ -155,10 +221,21 @@ def verify_tier(rows: list[dict]) -> list[dict]:
     return issues
 
 
-def _fetch_rows(config) -> list[dict]:
+_CHECKPOINT_COLUMNS = [
+    "tier",
+    "server_id",
+    "row_count",
+    "head_row_hash",
+    "checkpoint_ts",
+    "signature",
+    "key_id",
+]
+
+
+def _make_client(config):
     import clickhouse_connect
 
-    client = clickhouse_connect.get_client(
+    return clickhouse_connect.get_client(
         host=config.ch_host,
         port=config.ch_port,
         username="ssdf_audit_verify",
@@ -166,8 +243,49 @@ def _fetch_rows(config) -> list[dict]:
         database=config.ch_database,
         **ch_tls_kwargs(config),
     )
+
+
+def _fetch_rows(config) -> list[dict]:
+    client = _make_client(config)
     res = client.query(f"SELECT {', '.join(_VERIFY_COLUMNS)} FROM ssdf.audit ORDER BY ts ASC")
     return [dict(zip(_VERIFY_COLUMNS, row)) for row in res.result_rows]
+
+
+def _fetch_checkpoints(config) -> dict[tuple[str, str], list[Checkpoint]]:
+    client = _make_client(config)
+    res = client.query(
+        f"SELECT {', '.join(_CHECKPOINT_COLUMNS)} FROM ssdf.audit_checkpoints "
+        "ORDER BY checkpoint_ts ASC"
+    )
+    by_chain: dict[tuple[str, str], list[Checkpoint]] = defaultdict(list)
+    for values in res.result_rows:
+        row = dict(zip(_CHECKPOINT_COLUMNS, values))
+        checkpoint = Checkpoint(
+            tier=row["tier"],
+            server_id=row["server_id"],
+            row_count=int(row["row_count"]),
+            head_row_hash=row["head_row_hash"],
+            checkpoint_ts=row["checkpoint_ts"],
+            signature=row["signature"],
+            key_id=row["key_id"],
+        )
+        by_chain[(checkpoint.tier, checkpoint.server_id)].append(checkpoint)
+    return by_chain
+
+
+def _load_verifying_key(config) -> bytes | None:
+    """Load the checkpoint verifying key, or None when checkpoint-based
+    verification is not configured (fail closed to today's behaviour, not to
+    an exception, since most deployments will not have rolled this out yet)."""
+    if not config.ch_checkpoint_verify_key_path:
+        return None
+    from .checkpoint_verify import load_verifying_key
+
+    try:
+        return load_verifying_key(config.ch_checkpoint_verify_key_path)
+    except CheckpointVerificationError as exc:
+        print(f"warning: could not load checkpoint verifying key: {exc}", file=sys.stderr)
+        return None
 
 
 def main() -> int:
@@ -176,12 +294,18 @@ def main() -> int:
         print("CH_AUDIT_VERIFY_PASSWORD is required to verify the audit chain", file=sys.stderr)
         return 2
     rows = _fetch_rows(config)
+    checkpoints_by_chain = _fetch_checkpoints(config)
+    verifying_key = _load_verifying_key(config)
     by_chain: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for r in rows:
         by_chain[group_key(r)].append(r)
     total = 0
     for (tier, server_id), chain_rows in sorted(by_chain.items()):
-        issues = verify_tier(chain_rows)
+        issues = verify_tier(
+            chain_rows,
+            checkpoints=checkpoints_by_chain.get((tier, server_id), []),
+            verifying_key=verifying_key,
+        )
         # An evidence row with no usable writer cannot be chained to anything,
         # so it is reported rather than quietly folded into the tier bucket.
         issues.extend(issue for row in chain_rows if (issue := writer_issue(row)))
