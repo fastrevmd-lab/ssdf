@@ -25,12 +25,15 @@ class _FakeResult:
 
 
 class _FakeClient:
-    def __init__(self, audit_rows=(), checkpoint_rows=()):
+    def __init__(self, audit_rows=(), checkpoint_rows=(), evidence_rows=()):
         self._audit_rows = list(audit_rows)
         self._checkpoint_rows = list(checkpoint_rows)
+        self._evidence_rows = list(evidence_rows)
         self.inserted: list[tuple[str, list, list]] = []
 
     def query(self, sql, parameters=None):
+        if "audit_evidence" in sql:
+            return _FakeResult(list(self._evidence_rows))
         if "FROM ssdf.audit " in sql or sql.rstrip().endswith("ssdf.audit"):
             return _FakeResult(list(self._audit_rows))
         if "audit_checkpoints" in sql:
@@ -89,9 +92,9 @@ def test_fetch_previous_checkpoints_keeps_latest_per_chain():
 
 
 def test_fetch_checkpoints_by_chain_returns_every_checkpoint():
-    """Unlike fetch_previous_checkpoints, self-verification (MEC-565 review
-    F3) needs every checkpoint for a chain, not just the latest -- verify_tier
-    matches by head_row_hash, which may belong to an older one."""
+    """Unlike fetch_previous_checkpoints, self-verification needs every
+    checkpoint for a chain, not just the latest -- verify_tier matches by
+    head_row_hash, which may belong to an older one."""
     rows = [
         ("sovereign", "", 4, "h1", "2026-09-01T00:00:00.000Z", "sig1", "k1"),
         ("sovereign", "", 7, "h2", "2026-09-02T00:00:00.000Z", "sig2", "k2"),
@@ -102,6 +105,17 @@ def test_fetch_checkpoints_by_chain_returns_every_checkpoint():
 
     checkpoints = by_chain[("sovereign", "")]
     assert {c.head_row_hash for c in checkpoints} == {"h1", "h2"}
+
+
+def test_fetch_evidence_rows_by_chain_groups_and_bounds_by_age():
+    sovereign_row, _ = _audit_row(0, "sovereign", "")
+    client = _FakeClient(evidence_rows=[sovereign_row])
+    now = dt.datetime(2026, 9, 28, tzinfo=dt.timezone.utc)
+
+    by_chain = checkpoint_audit.fetch_evidence_rows_by_chain(client, now)
+
+    assert ("sovereign", "") in by_chain
+    assert len(by_chain[("sovereign", "")]) == 1
 
 
 def test_format_checkpoint_ts_is_millisecond_precision_utc():
@@ -172,9 +186,9 @@ def test_sign_checkpoint_returns_parsed_output(monkeypatch):
 
 
 def test_sign_checkpoint_raises_when_signer_alters_a_payload_field(monkeypatch):
-    """Regression test for MEC-565 review F3: the signer must echo back the
-    exact fields it was asked to sign. A signer that silently substitutes a
-    different row_count must not be trusted."""
+    """The signer must echo back the exact fields it was asked to sign. A
+    signer that silently substitutes a different row_count must not be
+    trusted."""
     payload = {
         "tier": "sovereign",
         "server_id": "",
@@ -196,7 +210,7 @@ def test_sign_checkpoint_raises_when_signer_alters_a_payload_field(monkeypatch):
 
 def test_sign_checkpoint_raises_when_signature_does_not_verify(monkeypatch):
     """When a verifying key is supplied, an invalid signature must be caught
-    before the checkpoint ever reaches the insert path (MEC-565 review F3)."""
+    before the checkpoint ever reaches the insert path."""
     payload = {
         "tier": "sovereign",
         "server_id": "",
@@ -297,13 +311,13 @@ def test_run_skips_chains_with_nothing_new(monkeypatch):
 
 
 def test_run_refuses_to_checkpoint_a_chain_with_a_content_edit(monkeypatch):
-    """Regression test for MEC-565 review F3: compute_next_checkpoint only
-    walks prev_hash -> row_hash linkage and never recomputes a row's content
-    hash, so a row edited after being written (stored row_hash no longer
-    matches its content, but linkage to the next row is untouched) would
-    otherwise become part of a signed, trusted head. The self-verification
-    step in run() must catch this via verify_tier's content-integrity check
-    and refuse to checkpoint the chain at all."""
+    """compute_next_checkpoint only walks prev_hash -> row_hash linkage and
+    never recomputes a row's content hash, so a row edited after being
+    written (stored row_hash no longer matches its content, but linkage to
+    the next row is untouched) would otherwise become part of a signed,
+    trusted head. The self-verification step in run() must catch this via
+    verify_tier's content-integrity check and refuse to checkpoint the chain
+    at all."""
     genesis_tuple, genesis_hash = _audit_row(0, "sovereign", "")
     tampered_row = dict(
         zip(checkpoint_audit._ROW_COLUMNS, _audit_row(1, "sovereign", genesis_hash)[0])
@@ -321,3 +335,66 @@ def test_run_refuses_to_checkpoint_a_chain_with_a_content_edit(monkeypatch):
 
     assert result.inserted == []
     assert result.skipped == [("sovereign", "")]
+
+
+def test_run_self_verifies_past_an_expired_genesis_via_the_evidence_bridge(monkeypatch):
+    """F1 regression: once a chain's genesis has aged out of ssdf.audit, a
+    daily checkpoint schedule almost never sits at exactly the row the TTL
+    most recently evicted -- it sits wherever the chain tip was when the job
+    last ran. Self-verification must be able to bridge that gap through
+    ssdf.audit_evidence the same way verify_audit.py does, or the
+    checkpointer stalls the first time any chain's genesis expires."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from ssdf_mcp_query.checkpoint_verify import Checkpoint, canonical_digest
+
+    _, genesis_hash = _audit_row(0, "sovereign", "")
+    bridge_values, bridge_hash = _audit_row(1, "sovereign", genesis_hash)
+    bridge_row = dict(zip(checkpoint_audit._ROW_COLUMNS, bridge_values))
+    s1_tuple, s1_hash = _audit_row(2, "sovereign", bridge_hash)
+    s2_tuple, s2_hash = _audit_row(3, "sovereign", s1_hash)
+
+    signing_key = Ed25519PrivateKey.generate()
+    verifying_key = signing_key.public_key().public_bytes_raw()
+
+    def _sign(head_row_hash: str, row_count: int, checkpoint_ts: str, key_id: str) -> tuple:
+        unsigned = Checkpoint(
+            tier="sovereign",
+            server_id="",
+            row_count=row_count,
+            head_row_hash=head_row_hash,
+            checkpoint_ts=checkpoint_ts,
+            signature="",
+            key_id=key_id,
+        )
+        signature = base64.b64encode(signing_key.sign(canonical_digest(unsigned))).decode()
+        return ("sovereign", "", row_count, head_row_hash, checkpoint_ts, signature, key_id)
+
+    # Anchors the now-expired genesis; old enough to stand in for it.
+    anchor_checkpoint = _sign(genesis_hash, 1, "2026-01-01T00:00:00.000Z", "k1")
+    # The most recent checkpoint, used by compute_next_checkpoint's forward
+    # walk -- unrelated to the self-verification bridge above.
+    recent_checkpoint = _sign(s1_hash, 3, "2026-05-28T00:00:00.000Z", "k2")
+
+    client = _FakeClient(
+        audit_rows=[s1_tuple, s2_tuple],
+        checkpoint_rows=[anchor_checkpoint, recent_checkpoint],
+        evidence_rows=[tuple(bridge_row[c] for c in checkpoint_audit._ROW_COLUMNS)],
+    )
+
+    signed = {
+        "tier": "sovereign",
+        "server_id": "",
+        "row_count": 4,
+        "head_row_hash": s2_hash,
+        "checkpoint_ts": "2026-06-01T00:00:00.000Z",
+        "signature": "sig",
+        "key_id": "k3",
+    }
+    monkeypatch.setattr(checkpoint_audit, "sign_checkpoint", lambda *a, **k: signed)
+
+    now = dt.datetime(2026, 6, 1, tzinfo=dt.timezone.utc)  # ~151 days after the anchor
+    result = checkpoint_audit.run(client, "binary", "key", now=now, verifying_key=verifying_key)
+
+    assert result.skipped == [], "self-verification must bridge through audit_evidence, not stall"
+    assert result.inserted == [signed]

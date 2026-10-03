@@ -128,16 +128,15 @@ def _parse_checkpoint_ts(checkpoint_ts: str) -> dt.datetime:
 
 def _is_old_enough_to_anchor(checkpoint_ts: str, now: dt.datetime) -> bool:
     """Whether the rows a checkpoint stands in for could actually have
-    expired by ``now`` (MEC-565 review F2).
+    expired by ``now``.
 
-    Without this, a checkpoint taken moments after an attacker deletes a
-    *recent*, not-yet-TTL-expired prefix of the chain would verify just as
-    cleanly as a checkpoint anchoring a genuinely expired genesis -- the
-    checkpoint mechanism would then make an otherwise-detectable prefix
-    deletion invisible instead of merely tolerating real TTL expiry. A
-    checkpoint is only trusted as an anchor once it is old enough that the
-    rows up to its head are past (or almost past) the TTL boundary on their
-    own.
+    A checkpoint taken moments after a recent, not-yet-TTL-expired prefix of
+    the chain was removed would otherwise verify just as cleanly as one
+    anchoring a genuinely expired genesis, which would make an
+    otherwise-detectable early deletion indistinguishable from ordinary TTL
+    expiry. A checkpoint is only trusted as an anchor once it is old enough
+    that the rows up to its head are past (or almost past) the TTL boundary
+    on their own.
     """
     try:
         checkpoint_time = _parse_checkpoint_ts(checkpoint_ts)
@@ -147,59 +146,121 @@ def _is_old_enough_to_anchor(checkpoint_ts: str, now: dt.datetime) -> bool:
     return age >= dt.timedelta(days=_AUDIT_TTL_DAYS - _CHECKPOINT_INTERVAL_SLACK_DAYS)
 
 
+def _verify_checkpoint_anchor(
+    checkpoint: Checkpoint, verifying_key: bytes | None, now: dt.datetime
+) -> dict | None:
+    """Whether ``checkpoint`` may be trusted as an anchor: its signature must
+    verify against ``verifying_key``, and it must be old enough that the rows
+    it stands in for could actually have expired. Returns the issue to report
+    when it fails either check, or ``None`` when it passes.
+    """
+    if verifying_key is None:
+        return {"type": "unverifiable_checkpoint", "row_hash": checkpoint.head_row_hash}
+    try:
+        verify_checkpoint_signature(checkpoint, verifying_key)
+    except CheckpointVerificationError:
+        return {"type": "unverifiable_checkpoint", "row_hash": checkpoint.head_row_hash}
+    if not _is_old_enough_to_anchor(checkpoint.checkpoint_ts, now):
+        return {"type": "premature_truncation", "row_hash": checkpoint.head_row_hash}
+    return None
+
+
+def _anchor_dangling_hash(
+    prev_hash: str,
+    checkpoints_by_head: dict[str, list[Checkpoint]],
+    bridge_by_hash: dict[str, dict],
+    verifying_key: bytes | None,
+    now: dt.datetime,
+) -> tuple[bool, list[dict]]:
+    """Try to anchor one dangling ``prev_hash``: either directly against a
+    checkpoint whose ``head_row_hash`` matches it, or by walking backward
+    through evidence-tier rows (``bridge_by_hash``) until reaching one that
+    does.
+
+    A checkpoint taken on a fixed schedule does not generally sit at exactly
+    the row that has just aged out of ``ssdf.audit`` -- it sits wherever the
+    chain tip was when the job last ran, which under a per-row TTL is almost
+    always a different row from whichever one expired most recently. The gap
+    between the two is bridged through ``ssdf.audit_evidence``
+    (023_audit_evidence.sql), which retains rows for far longer than
+    ``ssdf.audit``'s TTL. Each bridge row's own content is recomputed and
+    checked before its ``prev_hash`` is trusted to continue the walk, so a
+    tampered bridge row cannot be used to extend the anchor further back. The
+    direct-match case is simply a walk of length zero.
+
+    Bounded by the number of distinct bridge rows available, so a cyclic or
+    unresolvable bridge terminates rather than looping forever.
+    """
+    current = prev_hash
+    visited: set[str] = set()
+    issues: list[dict] = []
+    for _ in range(len(bridge_by_hash) + 1):
+        candidates = checkpoints_by_head.get(current)
+        if candidates:
+            for checkpoint in candidates:
+                issue = _verify_checkpoint_anchor(checkpoint, verifying_key, now)
+                if issue is None:
+                    return True, issues
+                issues.append(issue)
+            return False, issues
+        if current in visited:
+            return False, issues
+        visited.add(current)
+        bridge_row = bridge_by_hash.get(current)
+        if bridge_row is None:
+            return False, issues
+        if compute_row_hash(bridge_row["prev_hash"], bridge_row) != bridge_row["row_hash"]:
+            issues.append({"type": "content_edit", "row_hash": bridge_row["row_hash"]})
+            return False, issues
+        current = bridge_row["prev_hash"]
+    return False, issues
+
+
 def _select_checkpoint_anchors(
     checkpoints: list[Checkpoint],
     verifying_key: bytes | None,
     dangling_prev_hashes: set[str],
+    bridge_rows: list[dict],
     now: dt.datetime,
 ) -> tuple[set[str], list[dict]]:
-    """Pick which checkpoints to trust as stand-ins for expired predecessors
-    (MEC-565).
+    """Pick which dangling predecessors can be anchored, either directly
+    against a checkpoint or by bridging through evidence-tier rows
+    (``_anchor_dangling_hash``).
 
-    A checkpoint is only even considered when its ``head_row_hash`` matches a
-    ``prev_hash`` some surviving row actually names but cannot find among
-    ``rows`` (``dangling_prev_hashes``) -- *not* simply "the most recent
-    checkpoint for this chain" (review F1). With a daily checkpoint schedule,
-    the most recent checkpoint's head sits at or near the current chain tip,
-    which is never what an expired genesis's successor points to; selecting
-    it anyway means every chain reports tamper indefinitely once its genesis
-    ages out, which is the exact failure MEC-565 set out to fix.
+    Only a dangling ``prev_hash`` is ever considered as a starting point --
+    not simply "the most recent checkpoint for this chain". With a regular
+    checkpoint schedule, the most recent checkpoint's head sits at or near
+    the current chain tip, which is never what an expired genesis's
+    successor points to; selecting it anyway would mean every chain reports
+    tamper indefinitely once its genesis ages out.
 
-    Each matching checkpoint must then pass two independent fail-closed
-    checks before it is trusted:
-      - its signature verifies against ``verifying_key`` (unchanged from the
-        original anchor-selection logic), and
-      - it is old enough that the rows it stands in for could actually have
-        expired (``_is_old_enough_to_anchor``, F2) -- otherwise a checkpoint
-        could anchor a prefix deletion of rows that have not expired at all.
-
-    A checkpoint that matches no dangling hash is never even verified: it is
-    irrelevant to this chain's reachability and would only add a spurious
-    ``unverifiable_checkpoint`` issue for a signature nobody needed.
+    A checkpoint reached by neither a direct match nor a bridge walk from any
+    dangling hash is never even verified: it is irrelevant to this chain's
+    reachability and would only add a spurious ``unverifiable_checkpoint``
+    issue for a signature nobody needed.
     """
+    checkpoints_by_head: dict[str, list[Checkpoint]] = defaultdict(list)
+    for checkpoint in checkpoints:
+        checkpoints_by_head[checkpoint.head_row_hash].append(checkpoint)
+    bridge_by_hash = {r["row_hash"]: r for r in bridge_rows}
+
     anchors: set[str] = set()
     issues: list[dict] = []
-    for checkpoint in checkpoints:
-        if checkpoint.head_row_hash not in dangling_prev_hashes:
-            continue
-        if verifying_key is None:
-            issues.append({"type": "unverifiable_checkpoint", "row_hash": checkpoint.head_row_hash})
-            continue
-        try:
-            verify_checkpoint_signature(checkpoint, verifying_key)
-        except CheckpointVerificationError:
-            issues.append({"type": "unverifiable_checkpoint", "row_hash": checkpoint.head_row_hash})
-            continue
-        if not _is_old_enough_to_anchor(checkpoint.checkpoint_ts, now):
-            issues.append({"type": "premature_truncation", "row_hash": checkpoint.head_row_hash})
-            continue
-        anchors.add(checkpoint.head_row_hash)
+    for prev_hash in dangling_prev_hashes:
+        anchored, hash_issues = _anchor_dangling_hash(
+            prev_hash, checkpoints_by_head, bridge_by_hash, verifying_key, now
+        )
+        if anchored:
+            anchors.add(prev_hash)
+        else:
+            issues.extend(hash_issues)
     return anchors, issues
 
 
 def verify_tier(
     rows: list[dict],
     checkpoints: list[Checkpoint] = (),
+    bridge_rows: list[dict] = (),
     verifying_key: bytes | None = None,
     now: dt.datetime | None = None,
 ) -> list[dict]:
@@ -210,14 +271,22 @@ def verify_tier(
     chain start. A blanked-hash tamper on a chained row is still caught — its
     successor's prev_hash names a now-missing row_hash (missing_predecessor).
 
-    ``checkpoints`` and ``verifying_key`` (MEC-565) are only consulted when
-    this chain's genesis row is absent from ``rows`` -- i.e. it has expired
-    past the 90-day TTL. Callers that never pass them get exactly today's
+    ``checkpoints`` and ``verifying_key`` are only consulted when this
+    chain's genesis row is absent from ``rows`` -- i.e. it has expired past
+    the 90-day TTL. Callers that never pass them get exactly today's
     behaviour: an expired genesis makes every surviving row ``unreachable``.
 
-    ``now`` (MEC-565 review F2) is when "old enough to have expired" is
-    measured from; defaults to the real current time. Only matters together
-    with ``checkpoints`` -- see ``_is_old_enough_to_anchor``.
+    ``bridge_rows`` are this chain's evidence-tier rows (``ssdf.audit_evidence``),
+    which outlive ``ssdf.audit``'s TTL by a wide margin. They let a dangling
+    predecessor be traced back to a checkpoint that does not sit exactly at
+    the row the TTL most recently evicted -- see ``_anchor_dangling_hash``.
+    Callers that never pass them get only the direct-match case: a dangling
+    hash anchors only when some checkpoint's ``head_row_hash`` matches it
+    exactly.
+
+    ``now`` is when "old enough to have expired" is measured from; defaults
+    to the real current time. Only matters together with ``checkpoints`` --
+    see ``_is_old_enough_to_anchor``.
     """
     now = now or dt.datetime.now(dt.timezone.utc)
     rows = [r for r in rows if r["row_hash"] != ""]
@@ -245,11 +314,12 @@ def verify_tier(
 
     # Genesis-or-checkpoint anchor selection, done once up front so both the
     # linkage check (2) and reachability (3) below agree on what counts as a
-    # legitimate root. A checkpoint is only consulted when this chain's own
-    # genesis row (prev_hash == "") is absent -- a chain that still has its
-    # genesis needs no anchor and MUST ignore any checkpoint it is handed
-    # (stale or even malformed), since consulting one it does not need would
-    # let a bad checkpoint affect a chain it has nothing to do with.
+    # legitimate root. A checkpoint (direct or bridged) is only consulted
+    # when this chain's own genesis row (prev_hash == "") is absent -- a
+    # chain that still has its genesis needs no anchor and MUST ignore any
+    # checkpoint it is handed (stale or even malformed), since consulting one
+    # it does not need would let a bad checkpoint affect a chain it has
+    # nothing to do with.
     has_genesis = any(r["prev_hash"] == "" for r in rows)
     anchor_hashes: set[str] = set()
     if not has_genesis and rows:
@@ -257,13 +327,13 @@ def verify_tier(
             r["prev_hash"] for r in rows if r["prev_hash"] != "" and r["prev_hash"] not in by_hash
         }
         anchor_hashes, anchor_issues = _select_checkpoint_anchors(
-            list(checkpoints), verifying_key, dangling, now
+            list(checkpoints), verifying_key, dangling, list(bridge_rows), now
         )
         issues.extend(anchor_issues)
 
     # 2. Linkage: a non-genesis prev_hash must name a present row, UNLESS it
-    #    names a trusted checkpoint anchor (MEC-565) -- that hash stands in
-    #    for a row that once existed but has since expired out of ssdf.audit.
+    #    is itself a trusted anchor -- a hash that stands in for a row that
+    #    once existed but has since expired out of ssdf.audit.
     for r in rows:
         if (
             r["prev_hash"] != ""
@@ -273,7 +343,7 @@ def verify_tier(
             issues.append({"type": "missing_predecessor", "row_hash": r["row_hash"]})
 
     # 3. Reachability from genesis (prev_hash == ""), extended by any row
-    #    chaining directly from a verified checkpoint anchor (MEC-565).
+    #    chaining directly from a trusted anchor.
     children: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         children[r["prev_hash"]].append(r)
@@ -324,6 +394,33 @@ def _fetch_rows(config) -> list[dict]:
     return [dict(zip(_VERIFY_COLUMNS, row)) for row in res.result_rows]
 
 
+# How far back to read ssdf.audit_evidence for bridge rows. The walk only
+# ever needs to reach from the current TTL boundary to the nearest
+# checkpoint, which under a daily schedule is at most a few days -- this
+# bound is generous relative to that, so it never limits what a real
+# deployment can anchor while keeping the query's result set small.
+_EVIDENCE_BRIDGE_LOOKBACK_DAYS = 120
+
+
+def _fetch_evidence_rows(config, now: dt.datetime) -> dict[tuple[str, str], list[dict]]:
+    """This chain's evidence-tier rows available as bridge material, grouped
+    the same way as ``_fetch_rows``. Requires ``ssdf_audit_verify`` to hold
+    SELECT on ``ssdf.audit_evidence`` (022_audit_checkpoints.sql /
+    023_audit_evidence.sql)."""
+    since = now - dt.timedelta(days=_EVIDENCE_BRIDGE_LOOKBACK_DAYS)
+    client = _make_client(config)
+    res = client.query(
+        f"SELECT {', '.join(_VERIFY_COLUMNS)} FROM ssdf.audit_evidence "
+        "WHERE ts >= {since:DateTime64(3)} ORDER BY ts ASC",
+        parameters={"since": since},
+    )
+    by_chain: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for values in res.result_rows:
+        row = dict(zip(_VERIFY_COLUMNS, values))
+        by_chain[group_key(row)].append(row)
+    return by_chain
+
+
 def _fetch_checkpoints(config) -> dict[tuple[str, str], list[Checkpoint]]:
     client = _make_client(config)
     res = client.query(
@@ -369,6 +466,8 @@ def main() -> int:
     rows = _fetch_rows(config)
     checkpoints_by_chain = _fetch_checkpoints(config)
     verifying_key = _load_verifying_key(config)
+    now = dt.datetime.now(dt.timezone.utc)
+    evidence_by_chain = _fetch_evidence_rows(config, now)
     by_chain: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for r in rows:
         by_chain[group_key(r)].append(r)
@@ -377,7 +476,9 @@ def main() -> int:
         issues = verify_tier(
             chain_rows,
             checkpoints=checkpoints_by_chain.get((tier, server_id), []),
+            bridge_rows=evidence_by_chain.get((tier, server_id), []),
             verifying_key=verifying_key,
+            now=now,
         )
         # An evidence row with no usable writer cannot be chained to anything,
         # so it is reported rather than quietly folded into the tier bucket.

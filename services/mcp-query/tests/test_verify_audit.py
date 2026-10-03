@@ -275,10 +275,10 @@ def _expired_genesis_scenario():
 
 
 # "now" instants used by the fixed MEC-565 checkpoint fixture above
-# (checkpoint_ts="2026-09-15T00:00:00.000Z"). The anchor-selection logic
-# (MEC-565 review F2) only trusts a checkpoint once it is old enough that the
-# rows it stands in for could have actually expired past the 90-day TTL
-# (minus the schedule's slack) -- see _is_old_enough_to_anchor.
+# (checkpoint_ts="2026-09-15T00:00:00.000Z"). The anchor-selection logic only
+# trusts a checkpoint once it is old enough that the rows it stands in for
+# could have actually expired past the 90-day TTL (minus the schedule's
+# slack) -- see _is_old_enough_to_anchor.
 _NOW_CHECKPOINT_OLD_ENOUGH = dt.datetime(2026, 12, 15, tzinfo=dt.timezone.utc)  # ~91 days later
 _NOW_CHECKPOINT_TOO_FRESH = dt.datetime(2026, 9, 20, tzinfo=dt.timezone.utc)  # 5 days later
 
@@ -352,15 +352,14 @@ def test_a_checkpoint_that_does_not_match_any_dangling_row_does_not_mask_a_gap()
 
 
 def test_a_checkpoint_near_the_chain_tip_is_not_selected_over_the_matching_one():
-    """Regression test for MEC-565 review F1: with a daily checkpoint
-    schedule, the *latest* checkpoint for a chain sits at or near the current
-    tip, not at the expired genesis's successor. Selecting "the latest
-    checkpoint" (the original bug) rather than "the checkpoint whose
-    head_row_hash matches the actual dangling prev_hash" meant every chain
-    reported tamper indefinitely once its genesis aged out. A second,
-    unrelated checkpoint that is more recent (by checkpoint_ts) but does not
-    match any dangling prev_hash must be ignored, and the one that does match
-    must still be used."""
+    """With a daily checkpoint schedule, the *latest* checkpoint for a chain
+    sits at or near the current tip, not at the expired genesis's successor.
+    Selecting "the latest checkpoint" rather than "the checkpoint whose
+    head_row_hash matches (directly or via a bridge) the actual dangling
+    prev_hash" would mean every chain reports tamper indefinitely once its
+    genesis ages out. A second, unrelated checkpoint that is more recent (by
+    checkpoint_ts) but does not match any dangling prev_hash must be ignored,
+    and the one that does match must still be used."""
     surviving, matching_checkpoint = _expired_genesis_scenario()
     near_tip_checkpoint = Checkpoint(
         tier="sovereign",
@@ -381,11 +380,11 @@ def test_a_checkpoint_near_the_chain_tip_is_not_selected_over_the_matching_one()
 
 
 def test_a_checkpoint_too_fresh_to_have_expired_rows_is_premature_truncation():
-    """Regression test for MEC-565 review F2: a checkpoint taken only days
-    ago cannot legitimately be standing in for rows that are supposed to
-    survive another ~85 days under the 90-day TTL. Trusting it anyway would
-    let an attacker delete a recent, unexpired prefix and immediately take a
-    checkpoint anchoring the gap, defeating tamper-evidence entirely."""
+    """A checkpoint taken only days ago cannot legitimately be standing in
+    for rows that are supposed to survive another ~85 days under the 90-day
+    TTL. Trusting it anyway would let a recent, unexpired prefix be deleted
+    and immediately covered by a checkpoint anchoring the gap, defeating
+    tamper-evidence entirely."""
     surviving, checkpoint = _expired_genesis_scenario()
     issues = verify_tier(
         surviving,
@@ -430,3 +429,88 @@ def test_checkpoint_does_not_mask_a_real_tamper_on_the_surviving_rows():
         now=_NOW_CHECKPOINT_OLD_ENOUGH,
     )
     assert any(i["type"] == "content_edit" for i in issues)
+
+
+def _signed_checkpoint(signing_key, head_row_hash: str, checkpoint_ts: str) -> Checkpoint:
+    from ssdf_mcp_query.checkpoint_verify import canonical_digest
+
+    unsigned = Checkpoint(
+        tier="sovereign",
+        server_id="",
+        row_count=1,
+        head_row_hash=head_row_hash,
+        checkpoint_ts=checkpoint_ts,
+        signature="",
+        key_id="k1",
+    )
+    signature = base64.b64encode(signing_key.sign(canonical_digest(unsigned))).decode()
+    return Checkpoint(**{**unsigned.__dict__, "signature": signature})
+
+
+def test_bridge_through_evidence_rows_anchors_a_predecessor_the_checkpoint_does_not_match():
+    """F1 regression: under a real row-level TTL, the row that has just aged
+    out of ssdf.audit is a checkpoint head only when the TTL boundary happens
+    to land exactly on a scheduled checkpoint. In general -- hourly rows,
+    daily checkpoints, TTL expiry at an arbitrary time of day -- the
+    predecessor that most recently expired sits between two checkpoints, not
+    at one. Bridging through the evidence tier (which outlives ssdf.audit's
+    TTL by a wide margin) is what lets the chain still anchor in that case."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    signing_key = Ed25519PrivateKey.generate()
+    verifying_key = signing_key.public_key().public_bytes_raw()
+
+    full_chain = _chain(5)
+    checkpoint = _signed_checkpoint(
+        signing_key, full_chain[0]["row_hash"], "2026-01-01T00:00:00.000Z"
+    )
+    bridge_rows = full_chain[1:3]  # rows between the checkpoint head and the TTL boundary
+    surviving = full_chain[3:]  # all that remains in ssdf.audit
+    now = dt.datetime(2026, 4, 15, tzinfo=dt.timezone.utc)  # ~104 days later: old enough
+
+    issues_without_bridge = verify_tier(
+        surviving, checkpoints=[checkpoint], verifying_key=verifying_key, now=now
+    )
+    assert any(i["type"] == "missing_predecessor" for i in issues_without_bridge), (
+        "the checkpoint head does not match the dangling prev_hash directly, "
+        "so without a bridge the gap must still be reported"
+    )
+
+    issues_with_bridge = verify_tier(
+        surviving,
+        checkpoints=[checkpoint],
+        bridge_rows=bridge_rows,
+        verifying_key=verifying_key,
+        now=now,
+    )
+    assert issues_with_bridge == []
+
+
+def test_bridge_rejects_a_tampered_intermediate_row():
+    """A bridge row's own content is recomputed and checked before its
+    prev_hash is trusted to continue the walk -- a row changed after it was
+    archived must not be usable to extend an anchor past where it actually
+    reaches."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    signing_key = Ed25519PrivateKey.generate()
+    verifying_key = signing_key.public_key().public_bytes_raw()
+
+    full_chain = _chain(5)
+    checkpoint = _signed_checkpoint(
+        signing_key, full_chain[0]["row_hash"], "2026-01-01T00:00:00.000Z"
+    )
+    bridge_rows = [dict(full_chain[1]), dict(full_chain[2])]
+    bridge_rows[0]["tool"] = "TAMPERED"  # content changed after row_hash was stored
+    surviving = full_chain[3:]
+    now = dt.datetime(2026, 4, 15, tzinfo=dt.timezone.utc)
+
+    issues = verify_tier(
+        surviving,
+        checkpoints=[checkpoint],
+        bridge_rows=bridge_rows,
+        verifying_key=verifying_key,
+        now=now,
+    )
+    assert any(i["type"] == "content_edit" for i in issues)
+    assert any(i["type"] == "missing_predecessor" for i in issues)

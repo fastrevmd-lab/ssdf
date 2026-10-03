@@ -23,17 +23,18 @@ Run periodically (e.g. daily) from the deploy's scheduler of choice -- this
 script does not schedule itself, matching the signing binary's own stance
 that it is not the orchestrator either.
 
-Self-verification before signing (MEC-565 review F3): this job must not sign
-a chain it has not itself confirmed clean. `compute_next_checkpoint`'s own
-docstring says checkpointing an unverified chain is "the caller's mistake to
-avoid" -- this is that check. Without it, an injected or forked row (two rows
-naming the same prev_hash) can become a signed head via
-`compute_next_checkpoint`'s first-seen-child walk, and once its predecessors
-age out it becomes a trusted anchor for everything after it. Configuring
+Self-verification before signing: this job must not sign a chain it has not
+itself confirmed clean. `compute_next_checkpoint`'s own docstring says
+checkpointing an unverified chain is "the caller's mistake to avoid" -- this
+is that check. Without it, an injected or forked row (two rows naming the
+same prev_hash) can become a signed head via `compute_next_checkpoint`'s
+first-seen-child walk, and once its predecessors age out it becomes a
+trusted anchor for everything after it. Configuring
 CH_CHECKPOINT_VERIFY_KEY_PATH lets this check also anchor past an already
-checkpointed, since-expired predecessor the same way verify_audit.py does;
-without it, a chain whose genesis has expired cannot be self-verified and is
-skipped (fail closed) until that key is configured.
+checkpointed, since-expired predecessor the same way verify_audit.py does
+(including bridging through ssdf.audit_evidence); without it, a chain whose
+genesis has expired cannot be self-verified and is skipped (fail closed)
+until that key is configured.
 
 Usage (from services/mcp-query, where the package is installed):
     export CH_HOST=... CH_CHECKPOINT_PASSWORD=...
@@ -67,7 +68,7 @@ from ssdf_mcp_query.verify_audit import group_key, verify_tier
 # only needs tier/args/prev_hash/row_hash, but verify_tier's content-integrity
 # check needs every field compute_row_hash folds into a row's hash -- this
 # job must see exactly what verify_audit.py would see to self-verify
-# meaningfully (MEC-565 review F3).
+# meaningfully.
 _ROW_COLUMNS = [
     "ts",
     "principal",
@@ -94,10 +95,9 @@ _CHECKPOINT_COLUMNS = [
     "key_id",
 ]
 
-# The payload fields the signer is handed and must echo back unchanged
-# (MEC-565 review F3): a signer that silently substitutes a different
-# row_count/head_row_hash/etc. would otherwise sign and commit something this
-# job never asked for.
+# The payload fields the signer is handed and must echo back unchanged: a
+# signer that silently substitutes a different row_count/head_row_hash/etc.
+# would otherwise sign and commit something this job never asked for.
 _PAYLOAD_FIELDS = ("tier", "server_id", "row_count", "head_row_hash", "checkpoint_ts")
 
 
@@ -126,6 +126,33 @@ def fetch_rows_by_chain(client) -> dict[tuple[str, str], list[dict]]:
     return by_chain
 
 
+# How far back to read ssdf.audit_evidence for bridge material. Matches
+# verify_audit.py's own bound -- the walk only ever needs to reach from the
+# current TTL boundary to the nearest checkpoint, which under a daily
+# schedule is at most a few days.
+_EVIDENCE_BRIDGE_LOOKBACK_DAYS = 120
+
+
+def fetch_evidence_rows_by_chain(client, now: dt.datetime) -> dict[tuple[str, str], list[dict]]:
+    """Each chain's evidence-tier rows available as bridge material for
+    self-verification, grouped the same way as `fetch_rows_by_chain`.
+    Requires `ssdf_checkpoint` to hold SELECT on `ssdf.audit_evidence`
+    (022_audit_checkpoints.sql / 023_audit_evidence.sql)."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=dt.timezone.utc)
+    since = now - dt.timedelta(days=_EVIDENCE_BRIDGE_LOOKBACK_DAYS)
+    res = client.query(
+        f"SELECT {', '.join(_ROW_COLUMNS)} FROM ssdf.audit_evidence "
+        "WHERE ts >= {since:DateTime64(3)} ORDER BY ts ASC",
+        parameters={"since": since},
+    )
+    by_chain: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for values in res.result_rows:
+        row = dict(zip(_ROW_COLUMNS, values))
+        by_chain[group_key(row)].append(row)
+    return by_chain
+
+
 def fetch_previous_checkpoints(client) -> dict[tuple[str, str], dict]:
     """Each chain's most recent prior checkpoint, as compute_next_checkpoint expects.
 
@@ -145,9 +172,9 @@ def fetch_previous_checkpoints(client) -> dict[tuple[str, str], dict]:
 
 
 def fetch_checkpoints_by_chain(client) -> dict[tuple[str, str], list[Checkpoint]]:
-    """Every chain's full checkpoint history, for self-verification
-    (MEC-565 review F3) -- `verify_tier` needs every checkpoint, not just the
-    latest, to find the one whose head matches a dangling prev_hash."""
+    """Every chain's full checkpoint history, for self-verification --
+    `verify_tier` needs every checkpoint, not just the latest, to find the
+    one whose head matches a dangling prev_hash."""
     res = client.query(
         f"SELECT {', '.join(_CHECKPOINT_COLUMNS)} "
         "FROM ssdf.audit_checkpoints ORDER BY checkpoint_ts ASC"
@@ -216,8 +243,8 @@ def sign_checkpoint(
     raises rather than letting an unsigned or partially-signed checkpoint
     reach the caller's insert path.
 
-    Two additional checks (MEC-565 review F3), run after a successful parse:
-    the signer must echo back the exact content fields it was asked to sign
+    Two additional checks, run after a successful parse: the signer must
+    echo back the exact content fields it was asked to sign
     (a signer that silently substituted a different row_count/head_row_hash
     would otherwise go uncaught), and, when `verifying_key` is given, its
     signature must itself verify -- a buggy or compromised signer producing
@@ -286,23 +313,25 @@ def run(
 ) -> RunResult:
     """Checkpoint every chain that has rows newer than its last checkpoint.
 
-    Self-verifies each chain with `verify_tier` before checkpointing it
-    (MEC-565 review F3) -- a chain `compute_next_checkpoint` has not first
-    been confirmed clean on is never signed; it is skipped (fail closed)
-    instead, surfaced via `RunResult.skipped`. This catches a fork (two rows
-    naming the same prev_hash) or a content edit that `compute_next_checkpoint`
-    itself does not check for -- it only walks the first-seen child and never
-    recomputes a row_hash.
+    Self-verifies each chain with `verify_tier` before checkpointing it -- a
+    chain `compute_next_checkpoint` has not first been confirmed clean on is
+    never signed; it is skipped (fail closed) instead, surfaced via
+    `RunResult.skipped`. This catches a fork (two rows naming the same
+    prev_hash) or a content edit that `compute_next_checkpoint` itself does
+    not check for -- it only walks the first-seen child and never recomputes
+    a row_hash.
     """
     now = now or dt.datetime.now(dt.timezone.utc)
     rows_by_chain = fetch_rows_by_chain(client)
     previous_by_chain = fetch_previous_checkpoints(client)
     checkpoints_by_chain = fetch_checkpoints_by_chain(client)
+    evidence_by_chain = fetch_evidence_rows_by_chain(client, now)
     result = RunResult()
     for chain, rows in sorted(rows_by_chain.items()):
         issues = verify_tier(
             rows,
             checkpoints=checkpoints_by_chain.get(chain, []),
+            bridge_rows=evidence_by_chain.get(chain, []),
             verifying_key=verifying_key,
             now=now,
         )

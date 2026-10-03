@@ -39,9 +39,19 @@ TTL toDateTime(ts) + INTERVAL 410 DAY;
 -- read rows due for archiving, INSERT+SELECT on audit_evidence -- SELECT so
 -- the archiver can skip rows it already copied (by row_hash) on a re-run,
 -- making the job idempotent rather than relying on dedup tokens alone.
--- Deliberately no grant on ssdf.audit_evidence to ssdf_audit_verify or
--- ssdf_ro here: who may read archived audit content is scoped in
--- 024_audit_ocsf_export.sql, not opened broadly by this migration.
+-- Bulk read access to archived audit content for reporting/export purposes
+-- stays scoped to 024_audit_ocsf_export.sql's ssdf_audit_export identity, not
+-- opened to ssdf_ro here.
 CREATE USER IF NOT EXISTS ssdf_archiver IDENTIFIED WITH sha256_password BY '${ARCHIVER_PW}';
 GRANT SELECT ON ssdf.audit TO ssdf_archiver;
 GRANT INSERT, SELECT ON ssdf.audit_evidence TO ssdf_archiver;
+
+-- ssdf_audit_verify (verify_audit.py) and ssdf_checkpoint
+-- (scripts/checkpoint_audit.py, 022_audit_checkpoints.sql) both need to read
+-- audit_evidence rows: once a dangling predecessor's own row has aged out of
+-- ssdf.audit, the nearest checkpoint head rarely matches it directly, and
+-- the evidence tier is where the rows between the two still live. This
+-- grant is read-only and limited to these two existing read identities;
+-- ssdf_ro remains excluded.
+GRANT SELECT ON ssdf.audit_evidence TO ssdf_audit_verify;
+GRANT SELECT ON ssdf.audit_evidence TO ssdf_checkpoint;

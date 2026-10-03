@@ -45,9 +45,16 @@ def test_grants_archiver_select_and_insert_only():
     assert "DELETE" not in text
 
 
-def test_does_not_grant_ssdf_ro_or_ssdf_audit_verify():
-    """Who may read archived audit content is scoped narrowly in
-    024_audit_ocsf_export.sql, not opened broadly here."""
+def test_does_not_grant_ssdf_ro():
+    """Bulk export access stays scoped narrowly to ssdf_audit_export in
+    024_audit_ocsf_export.sql; ssdf_ro is never opened to audit content."""
+    assert "TO ssdf_ro" not in _text()
+
+
+def test_grants_select_to_verify_and_checkpoint_identities():
+    """ssdf_audit_verify and ssdf_checkpoint need to read audit_evidence to
+    bridge a dangling predecessor across ssdf.audit's TTL boundary to a
+    checkpoint anchor."""
     text = _text()
-    assert "TO ssdf_ro" not in text
-    assert "TO ssdf_audit_verify" not in text
+    assert "GRANT SELECT ON ssdf.audit_evidence TO ssdf_audit_verify" in text
+    assert "GRANT SELECT ON ssdf.audit_evidence TO ssdf_checkpoint" in text

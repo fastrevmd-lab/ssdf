@@ -19,13 +19,12 @@
 -- `has_later_checkpoint_unverified`: true when *some* row exists in
 -- audit_checkpoints for this row's chain with checkpoint_ts >= this row's ts.
 -- Deliberately named and documented as unverified, not as a signature-backed
--- guarantee (MEC-565 review F4): this view does not check the checkpoint's
--- Ed25519 signature, and GRANT INSERT on audit_checkpoints is the only bar to
--- flipping every row in a chain to "true" by inserting one unsigned row with
--- a far-future checkpoint_ts. `verify_audit.py` (which does check the
--- signature, via checkpoint_verify.py) is the authoritative integrity check;
--- this column is a cheap, advisory hint for export consumers only, and must
--- not be read as proof of anchoring.
+-- guarantee: this view does not check the checkpoint's Ed25519 signature, so
+-- it is only as trustworthy as INSERT access to audit_checkpoints.
+-- `verify_audit.py` (which does check the signature, via
+-- checkpoint_verify.py) is the authoritative integrity check; this column is
+-- a cheap, advisory hint for export consumers only, and must not be read as
+-- proof of anchoring.
 --
 -- Computed by pre-aggregating each chain's latest checkpoint_ts and LEFT
 -- JOINing that onto audit_evidence, not a per-row correlated EXISTS subquery:
