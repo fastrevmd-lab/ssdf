@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import datetime as dt
 
-from ssdf_mcp_query.evidence_archive import rows_due_for_archiving
+from ssdf_mcp_query.evidence_archive import legacy_content_key, rows_due_for_archiving
 
 NOW = dt.datetime(2026, 10, 3, 0, 0, 0, tzinfo=dt.timezone.utc)
 
 
-def _row(days_old, row_hash=""):
+def _row(days_old, row_hash="", args="{}"):
     return {
         "ts": NOW - dt.timedelta(days=days_old),
         "principal": "agent",
         "tool": "t",
+        "args": args,
         "row_hash": row_hash,
     }
 
@@ -57,3 +58,38 @@ def test_naive_datetimes_are_treated_as_utc():
     naive_now = dt.datetime(2026, 10, 3, 0, 0, 0)
     naive_row = {"ts": dt.datetime(2026, 7, 1, 0, 0, 0), "row_hash": ""}
     assert rows_due_for_archiving([naive_row], naive_now, archive_after_days=75) == [naive_row]
+
+
+def test_a_legacy_row_already_archived_by_content_key_is_skipped():
+    """Regression test for MEC-565/F5: a legacy row has no usable row_hash, so
+    re-running the archiver between day 75 and day 90 must not keep
+    re-inserting the same row -- it has to be recognised by content instead."""
+    row = _row(80, row_hash="")
+    key = legacy_content_key(row)
+    assert rows_due_for_archiving([row], NOW, already_archived_legacy_keys=frozenset({key})) == []
+
+
+def test_a_different_legacy_row_is_still_due():
+    """Guards the content-key match against being too broad: a legacy row
+    that does NOT match any already-archived key must still be archived."""
+    row = _row(80, row_hash="")
+    other_key = legacy_content_key(_row(80, row_hash="", args='{"other":1}'))
+    assert rows_due_for_archiving(
+        [row], NOW, already_archived_legacy_keys=frozenset({other_key})
+    ) == [row]
+
+
+def test_legacy_content_key_normalizes_naive_timestamps():
+    naive = {
+        "ts": dt.datetime(2026, 7, 1, 0, 0, 0),
+        "principal": "agent",
+        "tool": "t",
+        "args": "{}",
+    }
+    aware = {
+        "ts": dt.datetime(2026, 7, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+        "principal": "agent",
+        "tool": "t",
+        "args": "{}",
+    }
+    assert legacy_content_key(naive) == legacy_content_key(aware)

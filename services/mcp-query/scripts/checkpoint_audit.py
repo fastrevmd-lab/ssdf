@@ -23,9 +23,22 @@ Run periodically (e.g. daily) from the deploy's scheduler of choice -- this
 script does not schedule itself, matching the signing binary's own stance
 that it is not the orchestrator either.
 
+Self-verification before signing (MEC-565 review F3): this job must not sign
+a chain it has not itself confirmed clean. `compute_next_checkpoint`'s own
+docstring says checkpointing an unverified chain is "the caller's mistake to
+avoid" -- this is that check. Without it, an injected or forked row (two rows
+naming the same prev_hash) can become a signed head via
+`compute_next_checkpoint`'s first-seen-child walk, and once its predecessors
+age out it becomes a trusted anchor for everything after it. Configuring
+CH_CHECKPOINT_VERIFY_KEY_PATH lets this check also anchor past an already
+checkpointed, since-expired predecessor the same way verify_audit.py does;
+without it, a chain whose genesis has expired cannot be self-verified and is
+skipped (fail closed) until that key is configured.
+
 Usage (from services/mcp-query, where the package is installed):
     export CH_HOST=... CH_CHECKPOINT_PASSWORD=...
     export CHECKPOINT_SIGNING_KEY_PATH=/etc/ssdf/checkpoint-signing.key
+    export CH_CHECKPOINT_VERIFY_KEY_PATH=/etc/ssdf/checkpoint-verify.key
     uv run python scripts/checkpoint_audit.py [--binary mecmcp-audit-checkpoint]
 """
 
@@ -38,12 +51,39 @@ import os
 import subprocess
 import sys
 from collections import defaultdict
+from dataclasses import dataclass, field
 
 from ssdf_common.config import ConfigError, require_tls_or_loopback
 from ssdf_mcp_query.checkpoint_orchestrator import compute_next_checkpoint
-from ssdf_mcp_query.verify_audit import group_key
+from ssdf_mcp_query.checkpoint_verify import (
+    Checkpoint,
+    CheckpointVerificationError,
+    load_verifying_key,
+    verify_checkpoint_signature,
+)
+from ssdf_mcp_query.verify_audit import group_key, verify_tier
 
-_ROW_COLUMNS = ["tier", "args", "prev_hash", "row_hash"]
+# Same shape verify_audit.py reads (_VERIFY_COLUMNS): compute_next_checkpoint
+# only needs tier/args/prev_hash/row_hash, but verify_tier's content-integrity
+# check needs every field compute_row_hash folds into a row's hash -- this
+# job must see exactly what verify_audit.py would see to self-verify
+# meaningfully (MEC-565 review F3).
+_ROW_COLUMNS = [
+    "ts",
+    "principal",
+    "tier",
+    "tool",
+    "args",
+    "data_classes",
+    "decision",
+    "row_count",
+    "error",
+    "client_name",
+    "model_id",
+    "actor_type",
+    "prev_hash",
+    "row_hash",
+]
 _CHECKPOINT_COLUMNS = [
     "tier",
     "server_id",
@@ -53,6 +93,20 @@ _CHECKPOINT_COLUMNS = [
     "signature",
     "key_id",
 ]
+
+# The payload fields the signer is handed and must echo back unchanged
+# (MEC-565 review F3): a signer that silently substitutes a different
+# row_count/head_row_hash/etc. would otherwise sign and commit something this
+# job never asked for.
+_PAYLOAD_FIELDS = ("tier", "server_id", "row_count", "head_row_hash", "checkpoint_ts")
+
+
+@dataclass
+class RunResult:
+    """What one `run()` invocation did, per chain."""
+
+    inserted: list[dict] = field(default_factory=list)
+    skipped: list[tuple[str, str]] = field(default_factory=list)
 
 
 def fetch_rows_by_chain(client) -> dict[tuple[str, str], list[dict]]:
@@ -90,6 +144,46 @@ def fetch_previous_checkpoints(client) -> dict[tuple[str, str], dict]:
     return latest
 
 
+def fetch_checkpoints_by_chain(client) -> dict[tuple[str, str], list[Checkpoint]]:
+    """Every chain's full checkpoint history, for self-verification
+    (MEC-565 review F3) -- `verify_tier` needs every checkpoint, not just the
+    latest, to find the one whose head matches a dangling prev_hash."""
+    res = client.query(
+        f"SELECT {', '.join(_CHECKPOINT_COLUMNS)} "
+        "FROM ssdf.audit_checkpoints ORDER BY checkpoint_ts ASC"
+    )
+    by_chain: dict[tuple[str, str], list[Checkpoint]] = defaultdict(list)
+    for values in res.result_rows:
+        row = dict(zip(_CHECKPOINT_COLUMNS, values))
+        checkpoint = Checkpoint(
+            tier=row["tier"],
+            server_id=row["server_id"],
+            row_count=int(row["row_count"]),
+            head_row_hash=row["head_row_hash"],
+            checkpoint_ts=row["checkpoint_ts"],
+            signature=row["signature"],
+            key_id=row["key_id"],
+        )
+        by_chain[(checkpoint.tier, checkpoint.server_id)].append(checkpoint)
+    return by_chain
+
+
+def load_checkpoint_verifying_key() -> bytes | None:
+    """The checkpoint verifying key for self-verification, or None when it is
+    not configured (fail closed to skipping self-verification for chains
+    whose genesis has expired, not to an exception -- a fresh chain that
+    still has its genesis needs no anchor and self-verifies fine either
+    way)."""
+    path = os.environ.get("CH_CHECKPOINT_VERIFY_KEY_PATH")
+    if not path:
+        return None
+    try:
+        return load_verifying_key(path)
+    except CheckpointVerificationError as exc:
+        print(f"warning: could not load checkpoint verifying key: {exc}", file=sys.stderr)
+        return None
+
+
 def format_checkpoint_ts(now: dt.datetime) -> str:
     """Millisecond-precision RFC3339 with a literal 'Z', matching the Rust
     signer's expected `checkpoint_ts` field (checkpoint.rs's usage string)."""
@@ -110,12 +204,25 @@ def build_payload(pending, now: dt.datetime) -> dict:
     }
 
 
-def sign_checkpoint(binary: str, key_path: str, payload: dict) -> dict:
+def sign_checkpoint(
+    binary: str,
+    key_path: str,
+    payload: dict,
+    verifying_key: bytes | None = None,
+) -> dict:
     """Shell out to the Rust signer. Deterministic, no model in the loop.
 
     Fails closed: a non-zero exit, a timeout, or unparsable/incomplete stdout
     raises rather than letting an unsigned or partially-signed checkpoint
     reach the caller's insert path.
+
+    Two additional checks (MEC-565 review F3), run after a successful parse:
+    the signer must echo back the exact content fields it was asked to sign
+    (a signer that silently substituted a different row_count/head_row_hash
+    would otherwise go uncaught), and, when `verifying_key` is given, its
+    signature must itself verify -- a buggy or compromised signer producing
+    output that merely *parses* like a checkpoint must not reach the insert
+    path either.
     """
     try:
         proc = subprocess.run(
@@ -136,6 +243,29 @@ def sign_checkpoint(binary: str, key_path: str, payload: dict) -> dict:
     missing = [c for c in _CHECKPOINT_COLUMNS if c not in signed]
     if missing:
         raise RuntimeError(f"{binary} output missing field(s): {missing}")
+
+    for field_name in _PAYLOAD_FIELDS:
+        if field_name in payload and signed[field_name] != payload[field_name]:
+            raise RuntimeError(
+                f"{binary} returned {field_name}={signed[field_name]!r}, "
+                f"expected {payload[field_name]!r}"
+            )
+
+    if verifying_key is not None:
+        checkpoint = Checkpoint(
+            tier=signed["tier"],
+            server_id=signed["server_id"],
+            row_count=int(signed["row_count"]),
+            head_row_hash=signed["head_row_hash"],
+            checkpoint_ts=signed["checkpoint_ts"],
+            signature=signed["signature"],
+            key_id=signed["key_id"],
+        )
+        try:
+            verify_checkpoint_signature(checkpoint, verifying_key)
+        except CheckpointVerificationError as exc:
+            raise RuntimeError(f"{binary} produced an invalid signature: {exc}") from exc
+
     return signed
 
 
@@ -147,24 +277,52 @@ def insert_checkpoint(client, signed: dict) -> None:
     )
 
 
-def run(client, binary: str, key_path: str, now: dt.datetime | None = None) -> list[dict]:
+def run(
+    client,
+    binary: str,
+    key_path: str,
+    now: dt.datetime | None = None,
+    verifying_key: bytes | None = None,
+) -> RunResult:
     """Checkpoint every chain that has rows newer than its last checkpoint.
 
-    Returns the signed checkpoints that were inserted (empty list when every
-    chain is already caught up), for logging and for tests.
+    Self-verifies each chain with `verify_tier` before checkpointing it
+    (MEC-565 review F3) -- a chain `compute_next_checkpoint` has not first
+    been confirmed clean on is never signed; it is skipped (fail closed)
+    instead, surfaced via `RunResult.skipped`. This catches a fork (two rows
+    naming the same prev_hash) or a content edit that `compute_next_checkpoint`
+    itself does not check for -- it only walks the first-seen child and never
+    recomputes a row_hash.
     """
     now = now or dt.datetime.now(dt.timezone.utc)
     rows_by_chain = fetch_rows_by_chain(client)
     previous_by_chain = fetch_previous_checkpoints(client)
-    inserted: list[dict] = []
+    checkpoints_by_chain = fetch_checkpoints_by_chain(client)
+    result = RunResult()
     for chain, rows in sorted(rows_by_chain.items()):
+        issues = verify_tier(
+            rows,
+            checkpoints=checkpoints_by_chain.get(chain, []),
+            verifying_key=verifying_key,
+            now=now,
+        )
+        if issues:
+            print(
+                f"skipping chain tier={chain[0]} server={chain[1]!r}: "
+                f"{len(issues)} unresolved issue(s), refusing to checkpoint an unverified chain",
+                file=sys.stderr,
+            )
+            result.skipped.append(chain)
+            continue
         pending = compute_next_checkpoint(rows, previous_by_chain.get(chain))
         if pending is None:
             continue
-        signed = sign_checkpoint(binary, key_path, build_payload(pending, now))
+        signed = sign_checkpoint(
+            binary, key_path, build_payload(pending, now), verifying_key=verifying_key
+        )
         insert_checkpoint(client, signed)
-        inserted.append(signed)
-    return inserted
+        result.inserted.append(signed)
+    return result
 
 
 def main() -> int:
@@ -211,20 +369,22 @@ def main() -> int:
         **kwargs,
     )
 
+    verifying_key = load_checkpoint_verifying_key()
+
     try:
-        inserted = run(client, args.binary, key_path)
+        result = run(client, args.binary, key_path, verifying_key=verifying_key)
     except RuntimeError as exc:
         print(f"checkpointing failed: {exc}", file=sys.stderr)
         return 1
 
-    for cp in inserted:
+    for cp in result.inserted:
         writer = f" server={cp['server_id']}" if cp["server_id"] else ""
         print(
             f"checkpointed tier={cp['tier']}{writer} "
             f"row_count={cp['row_count']} head={cp['head_row_hash'][:16]}…"
         )
-    print(f"{len(inserted)} chain(s) checkpointed")
-    return 0
+    print(f"{len(result.inserted)} chain(s) checkpointed, {len(result.skipped)} skipped")
+    return 1 if result.skipped else 0
 
 
 if __name__ == "__main__":

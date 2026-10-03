@@ -24,6 +24,7 @@ Exit code 0 = all tiers clean; 1 = at least one issue (or 2 = config error).
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import sys
 from collections import defaultdict
@@ -35,6 +36,17 @@ from .checkpoint_verify import (
     verify_checkpoint_signature,
 )
 from .config import ch_tls_kwargs, load_config
+
+# ssdf.audit's TTL (007_audit.sql / 009_audit_hash_chain.sql). A checkpoint
+# can only legitimately stand in for rows that have actually had time to
+# expire -- see _is_old_enough_to_anchor.
+_AUDIT_TTL_DAYS = 90
+
+# How much slack to give the checkpoint schedule (nominally daily) against
+# _AUDIT_TTL_DAYS: a checkpoint taken up to this many days before the TTL
+# boundary is still trusted, so an anchor is not rejected purely because the
+# checkpoint job ran a little early relative to the exact expiry instant.
+_CHECKPOINT_INTERVAL_SLACK_DAYS = 2
 
 _VERIFY_COLUMNS = [
     "ts",
@@ -105,44 +117,91 @@ def writer_issue(row: dict) -> dict | None:
     return {"type": "unidentified_writer", "row_hash": row.get("row_hash", "")}
 
 
-def _select_checkpoint_anchor(
+def _parse_checkpoint_ts(checkpoint_ts: str) -> dt.datetime:
+    """Parse a checkpoint's RFC3339 ``checkpoint_ts`` (millisecond precision,
+    literal 'Z' -- the exact shape scripts/checkpoint_audit.py's
+    ``format_checkpoint_ts`` produces)."""
+    return dt.datetime.strptime(checkpoint_ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+        tzinfo=dt.timezone.utc
+    )
+
+
+def _is_old_enough_to_anchor(checkpoint_ts: str, now: dt.datetime) -> bool:
+    """Whether the rows a checkpoint stands in for could actually have
+    expired by ``now`` (MEC-565 review F2).
+
+    Without this, a checkpoint taken moments after an attacker deletes a
+    *recent*, not-yet-TTL-expired prefix of the chain would verify just as
+    cleanly as a checkpoint anchoring a genuinely expired genesis -- the
+    checkpoint mechanism would then make an otherwise-detectable prefix
+    deletion invisible instead of merely tolerating real TTL expiry. A
+    checkpoint is only trusted as an anchor once it is old enough that the
+    rows up to its head are past (or almost past) the TTL boundary on their
+    own.
+    """
+    try:
+        checkpoint_time = _parse_checkpoint_ts(checkpoint_ts)
+    except ValueError:
+        return False
+    age = now - checkpoint_time
+    return age >= dt.timedelta(days=_AUDIT_TTL_DAYS - _CHECKPOINT_INTERVAL_SLACK_DAYS)
+
+
+def _select_checkpoint_anchors(
     checkpoints: list[Checkpoint],
     verifying_key: bytes | None,
-) -> tuple[str | None, list[dict]]:
-    """Pick a checkpoint's head hash to trust as a stand-in for an expired
-    genesis row (MEC-565).
+    dangling_prev_hashes: set[str],
+    now: dt.datetime,
+) -> tuple[set[str], list[dict]]:
+    """Pick which checkpoints to trust as stand-ins for expired predecessors
+    (MEC-565).
 
-    The returned hash is deliberately NOT required to belong to a row still
-    present in ``rows``: the entire reason a checkpoint exists is to anchor a
-    chain whose genesis (and, after enough checkpoint cycles, whose earlier
-    checkpointed heads too) has already aged out of ssdf.audit. A signed
-    checkpoint is itself the durable proof that a row with this hash once
-    existed at the stated position in the chain — ``verify_tier`` uses it as
-    a trusted ``prev_hash`` value a surviving row may legitimately point to,
-    exactly as it would trust ``prev_hash == ""`` for a real genesis row.
+    A checkpoint is only even considered when its ``head_row_hash`` matches a
+    ``prev_hash`` some surviving row actually names but cannot find among
+    ``rows`` (``dangling_prev_hashes``) -- *not* simply "the most recent
+    checkpoint for this chain" (review F1). With a daily checkpoint schedule,
+    the most recent checkpoint's head sits at or near the current chain tip,
+    which is never what an expired genesis's successor points to; selecting
+    it anyway means every chain reports tamper indefinitely once its genesis
+    ages out, which is the exact failure MEC-565 set out to fix.
 
-    Never trusts a checkpoint it cannot verify (fail closed): a missing
-    verifying key or a bad signature both fall back to no anchor at all,
-    which (via the normal missing_predecessor/unreachable checks) reports the
-    chain exactly as it would have before this feature existed, rather than
-    silently accepting an unproven anchor.
+    Each matching checkpoint must then pass two independent fail-closed
+    checks before it is trusted:
+      - its signature verifies against ``verifying_key`` (unchanged from the
+        original anchor-selection logic), and
+      - it is old enough that the rows it stands in for could actually have
+        expired (``_is_old_enough_to_anchor``, F2) -- otherwise a checkpoint
+        could anchor a prefix deletion of rows that have not expired at all.
+
+    A checkpoint that matches no dangling hash is never even verified: it is
+    irrelevant to this chain's reachability and would only add a spurious
+    ``unverifiable_checkpoint`` issue for a signature nobody needed.
     """
-    if not checkpoints:
-        return None, []
-    latest = max(checkpoints, key=lambda c: c.checkpoint_ts)
-    if verifying_key is None:
-        return None, [{"type": "unverifiable_checkpoint", "row_hash": latest.head_row_hash}]
-    try:
-        verify_checkpoint_signature(latest, verifying_key)
-    except CheckpointVerificationError:
-        return None, [{"type": "unverifiable_checkpoint", "row_hash": latest.head_row_hash}]
-    return latest.head_row_hash, []
+    anchors: set[str] = set()
+    issues: list[dict] = []
+    for checkpoint in checkpoints:
+        if checkpoint.head_row_hash not in dangling_prev_hashes:
+            continue
+        if verifying_key is None:
+            issues.append({"type": "unverifiable_checkpoint", "row_hash": checkpoint.head_row_hash})
+            continue
+        try:
+            verify_checkpoint_signature(checkpoint, verifying_key)
+        except CheckpointVerificationError:
+            issues.append({"type": "unverifiable_checkpoint", "row_hash": checkpoint.head_row_hash})
+            continue
+        if not _is_old_enough_to_anchor(checkpoint.checkpoint_ts, now):
+            issues.append({"type": "premature_truncation", "row_hash": checkpoint.head_row_hash})
+            continue
+        anchors.add(checkpoint.head_row_hash)
+    return anchors, issues
 
 
 def verify_tier(
     rows: list[dict],
     checkpoints: list[Checkpoint] = (),
     verifying_key: bytes | None = None,
+    now: dt.datetime | None = None,
 ) -> list[dict]:
     """Verify one tier's rows. Returns a list of issue dicts (empty == clean).
 
@@ -155,7 +214,12 @@ def verify_tier(
     this chain's genesis row is absent from ``rows`` -- i.e. it has expired
     past the 90-day TTL. Callers that never pass them get exactly today's
     behaviour: an expired genesis makes every surviving row ``unreachable``.
+
+    ``now`` (MEC-565 review F2) is when "old enough to have expired" is
+    measured from; defaults to the real current time. Only matters together
+    with ``checkpoints`` -- see ``_is_old_enough_to_anchor``.
     """
+    now = now or dt.datetime.now(dt.timezone.utc)
     rows = [r for r in rows if r["row_hash"] != ""]
     issues: list[dict] = []
     by_hash = {r["row_hash"]: r for r in rows}
@@ -187,16 +251,25 @@ def verify_tier(
     # (stale or even malformed), since consulting one it does not need would
     # let a bad checkpoint affect a chain it has nothing to do with.
     has_genesis = any(r["prev_hash"] == "" for r in rows)
-    anchor_hash: str | None = None
+    anchor_hashes: set[str] = set()
     if not has_genesis and rows:
-        anchor_hash, anchor_issues = _select_checkpoint_anchor(list(checkpoints), verifying_key)
+        dangling = {
+            r["prev_hash"] for r in rows if r["prev_hash"] != "" and r["prev_hash"] not in by_hash
+        }
+        anchor_hashes, anchor_issues = _select_checkpoint_anchors(
+            list(checkpoints), verifying_key, dangling, now
+        )
         issues.extend(anchor_issues)
 
     # 2. Linkage: a non-genesis prev_hash must name a present row, UNLESS it
-    #    names the trusted checkpoint anchor (MEC-565) -- that hash stands in
+    #    names a trusted checkpoint anchor (MEC-565) -- that hash stands in
     #    for a row that once existed but has since expired out of ssdf.audit.
     for r in rows:
-        if r["prev_hash"] != "" and r["prev_hash"] not in by_hash and r["prev_hash"] != anchor_hash:
+        if (
+            r["prev_hash"] != ""
+            and r["prev_hash"] not in by_hash
+            and r["prev_hash"] not in anchor_hashes
+        ):
             issues.append({"type": "missing_predecessor", "row_hash": r["row_hash"]})
 
     # 3. Reachability from genesis (prev_hash == ""), extended by any row
@@ -206,7 +279,7 @@ def verify_tier(
         children[r["prev_hash"]].append(r)
     reachable: set[str] = set()
     stack = list(children.get("", []))
-    if anchor_hash is not None:
+    for anchor_hash in anchor_hashes:
         stack.extend(children.get(anchor_hash, []))
     while stack:
         r = stack.pop()

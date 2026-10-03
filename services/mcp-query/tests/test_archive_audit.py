@@ -17,16 +17,21 @@ class _FakeResult:
 
 
 class _FakeClient:
-    def __init__(self, audit_rows=(), evidence_row_hashes=()):
+    def __init__(self, audit_rows=(), evidence_row_hashes=(), evidence_rows=None):
         self._audit_rows = list(audit_rows)
-        self._evidence_row_hashes = list(evidence_row_hashes)
+        if evidence_rows is not None:
+            self._evidence_rows = list(evidence_rows)
+        else:
+            self._evidence_rows = [
+                (h, NOW - dt.timedelta(days=80), "agent", "tool", "{}") for h in evidence_row_hashes
+            ]
         self.inserted: list[tuple[str, list, list]] = []
         self.queries: list[str] = []
 
     def query(self, sql, parameters=None):
         self.queries.append(sql)
         if "FROM ssdf.audit_evidence" in sql:
-            return _FakeResult([(h,) for h in self._evidence_row_hashes])
+            return _FakeResult(list(self._evidence_rows))
         if "FROM ssdf.audit" in sql:
             return _FakeResult(list(self._audit_rows))
         raise AssertionError(f"unexpected query: {sql}")
@@ -42,12 +47,21 @@ def _audit_row(days_old: int, row_hash: str = "") -> tuple:
 
 def test_fetch_already_archived_queries_the_evidence_table():
     client = _FakeClient(evidence_row_hashes=["abc"])
-    assert archive_audit.fetch_already_archived(client) == frozenset({"abc"})
+    hashes, legacy_keys = archive_audit.fetch_already_archived(client, NOW)
+    assert hashes == frozenset({"abc"})
+    assert legacy_keys == frozenset()
     assert "ssdf.audit_evidence" in client.queries[0]
-    # The empty-string legacy sentinel is excluded in SQL (WHERE row_hash !=
-    # ''), not reconstructed in Python -- belt-and-suspenders with
-    # rows_due_for_archiving's own guard against the same sentinel.
-    assert "row_hash != ''" in client.queries[0]
+
+
+def test_fetch_already_archived_returns_legacy_content_keys():
+    """Legacy (pre-chain) rows share the empty row_hash sentinel, so they are
+    matched by content (ts, principal, tool, args) instead -- see
+    evidence_archive.legacy_content_key. This is what makes a second run not
+    re-insert the same legacy row it already copied."""
+    ts = NOW - dt.timedelta(days=80)
+    client = _FakeClient(evidence_rows=[("", ts, "agent", "tool", "{}")])
+    _, legacy_keys = archive_audit.fetch_already_archived(client, NOW)
+    assert legacy_keys == {(ts, "agent", "tool", "{}")}
 
 
 def test_run_archives_old_rows_not_already_copied(monkeypatch):

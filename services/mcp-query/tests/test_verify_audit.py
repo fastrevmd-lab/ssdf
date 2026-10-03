@@ -274,6 +274,15 @@ def _expired_genesis_scenario():
     return surviving, checkpoint
 
 
+# "now" instants used by the fixed MEC-565 checkpoint fixture above
+# (checkpoint_ts="2026-09-15T00:00:00.000Z"). The anchor-selection logic
+# (MEC-565 review F2) only trusts a checkpoint once it is old enough that the
+# rows it stands in for could have actually expired past the 90-day TTL
+# (minus the schedule's slack) -- see _is_old_enough_to_anchor.
+_NOW_CHECKPOINT_OLD_ENOUGH = dt.datetime(2026, 12, 15, tzinfo=dt.timezone.utc)  # ~91 days later
+_NOW_CHECKPOINT_TOO_FRESH = dt.datetime(2026, 9, 20, tzinfo=dt.timezone.utc)  # 5 days later
+
+
 def test_expired_genesis_with_no_checkpoint_is_still_unreachable():
     """Unchanged legacy behaviour: no checkpoint configured means an expired
     genesis still reports every surviving row as unreachable (plus
@@ -287,7 +296,12 @@ def test_expired_genesis_with_no_checkpoint_is_still_unreachable():
 
 def test_expired_genesis_with_valid_checkpoint_verifies_clean():
     surviving, checkpoint = _expired_genesis_scenario()
-    issues = verify_tier(surviving, checkpoints=[checkpoint], verifying_key=_VERIFYING_KEY)
+    issues = verify_tier(
+        surviving,
+        checkpoints=[checkpoint],
+        verifying_key=_VERIFYING_KEY,
+        now=_NOW_CHECKPOINT_OLD_ENOUGH,
+    )
     assert issues == []
 
 
@@ -295,7 +309,9 @@ def test_expired_genesis_with_checkpoint_but_no_verifying_key_stays_unreachable(
     """A checkpoint exists but there is nothing to verify it against -- must
     fail closed to 'unverifiable', not silently trust it."""
     surviving, checkpoint = _expired_genesis_scenario()
-    issues = verify_tier(surviving, checkpoints=[checkpoint], verifying_key=None)
+    issues = verify_tier(
+        surviving, checkpoints=[checkpoint], verifying_key=None, now=_NOW_CHECKPOINT_OLD_ENOUGH
+    )
     assert any(i["type"] == "unverifiable_checkpoint" for i in issues)
     assert all(
         i["type"] in ("unverifiable_checkpoint", "unreachable", "missing_predecessor")
@@ -305,7 +321,12 @@ def test_expired_genesis_with_checkpoint_but_no_verifying_key_stays_unreachable(
 
 def test_expired_genesis_with_checkpoint_signed_by_wrong_key_stays_unreachable():
     surviving, checkpoint = _expired_genesis_scenario()
-    issues = verify_tier(surviving, checkpoints=[checkpoint], verifying_key=_OTHER_KEY)
+    issues = verify_tier(
+        surviving,
+        checkpoints=[checkpoint],
+        verifying_key=_OTHER_KEY,
+        now=_NOW_CHECKPOINT_OLD_ENOUGH,
+    )
     assert any(i["type"] == "unverifiable_checkpoint" for i in issues)
     assert all(
         i["type"] in ("unverifiable_checkpoint", "unreachable", "missing_predecessor")
@@ -321,8 +342,61 @@ def test_a_checkpoint_that_does_not_match_any_dangling_row_does_not_mask_a_gap()
     chain from it."""
     _, checkpoint = _expired_genesis_scenario()
     unrelated = _chain(2, first_prev="some-other-already-expired-run-head")
-    issues = verify_tier(unrelated, checkpoints=[checkpoint], verifying_key=_VERIFYING_KEY)
+    issues = verify_tier(
+        unrelated,
+        checkpoints=[checkpoint],
+        verifying_key=_VERIFYING_KEY,
+        now=_NOW_CHECKPOINT_OLD_ENOUGH,
+    )
     assert any(i["type"] == "missing_predecessor" for i in issues)
+
+
+def test_a_checkpoint_near_the_chain_tip_is_not_selected_over_the_matching_one():
+    """Regression test for MEC-565 review F1: with a daily checkpoint
+    schedule, the *latest* checkpoint for a chain sits at or near the current
+    tip, not at the expired genesis's successor. Selecting "the latest
+    checkpoint" (the original bug) rather than "the checkpoint whose
+    head_row_hash matches the actual dangling prev_hash" meant every chain
+    reported tamper indefinitely once its genesis aged out. A second,
+    unrelated checkpoint that is more recent (by checkpoint_ts) but does not
+    match any dangling prev_hash must be ignored, and the one that does match
+    must still be used."""
+    surviving, matching_checkpoint = _expired_genesis_scenario()
+    near_tip_checkpoint = Checkpoint(
+        tier="sovereign",
+        server_id="",
+        row_count=4,
+        head_row_hash=surviving[-1]["row_hash"],  # the current chain tip
+        checkpoint_ts="2026-09-16T00:00:00.000Z",  # more recent than the matching one
+        signature="not-a-real-signature-but-irrelevant-since-it-should-never-be-checked",
+        key_id="deadbeef",
+    )
+    issues = verify_tier(
+        surviving,
+        checkpoints=[near_tip_checkpoint, matching_checkpoint],
+        verifying_key=_VERIFYING_KEY,
+        now=_NOW_CHECKPOINT_OLD_ENOUGH,
+    )
+    assert issues == []
+
+
+def test_a_checkpoint_too_fresh_to_have_expired_rows_is_premature_truncation():
+    """Regression test for MEC-565 review F2: a checkpoint taken only days
+    ago cannot legitimately be standing in for rows that are supposed to
+    survive another ~85 days under the 90-day TTL. Trusting it anyway would
+    let an attacker delete a recent, unexpired prefix and immediately take a
+    checkpoint anchoring the gap, defeating tamper-evidence entirely."""
+    surviving, checkpoint = _expired_genesis_scenario()
+    issues = verify_tier(
+        surviving,
+        checkpoints=[checkpoint],
+        verifying_key=_VERIFYING_KEY,
+        now=_NOW_CHECKPOINT_TOO_FRESH,
+    )
+    assert any(i["type"] == "premature_truncation" for i in issues)
+    # The rejected anchor must not be substituted with silent trust either --
+    # the surviving rows fall back to exactly the no-checkpoint behaviour.
+    assert any(i["type"] == "unreachable" for i in issues)
 
 
 def test_genesis_still_present_ignores_even_a_malformed_checkpoint():
@@ -349,5 +423,10 @@ def test_checkpoint_does_not_mask_a_real_tamper_on_the_surviving_rows():
     that DO still survive."""
     surviving, checkpoint = _expired_genesis_scenario()
     surviving[1]["tool"] = "TAMPERED"
-    issues = verify_tier(surviving, checkpoints=[checkpoint], verifying_key=_VERIFYING_KEY)
+    issues = verify_tier(
+        surviving,
+        checkpoints=[checkpoint],
+        verifying_key=_VERIFYING_KEY,
+        now=_NOW_CHECKPOINT_OLD_ENOUGH,
+    )
     assert any(i["type"] == "content_edit" for i in issues)

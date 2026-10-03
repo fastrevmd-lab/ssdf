@@ -16,20 +16,34 @@
 -- export is for long-horizon compliance review, which is exactly the case the
 -- 90-day table cannot serve alone.
 --
--- `is_checkpoint_anchored`: true when a signed checkpoint exists for this row's
--- chain with checkpoint_ts >= this row's ts, i.e. this row's integrity can be
--- traced to a signed anchor even if its chain's genesis has since expired out
--- of ssdf.audit. Computed by pre-aggregating each chain's latest checkpoint_ts
--- and LEFT JOINing that onto audit_evidence, not a per-row correlated EXISTS
--- subquery: ClickHouse's planner does not support a subquery referencing
--- columns from its enclosing SELECT ("Resolve identifier ... from parent scope
--- only supported for constants and CTE" -- confirmed by a live run against a
+-- `has_later_checkpoint_unverified`: true when *some* row exists in
+-- audit_checkpoints for this row's chain with checkpoint_ts >= this row's ts.
+-- Deliberately named and documented as unverified, not as a signature-backed
+-- guarantee (MEC-565 review F4): this view does not check the checkpoint's
+-- Ed25519 signature, and GRANT INSERT on audit_checkpoints is the only bar to
+-- flipping every row in a chain to "true" by inserting one unsigned row with
+-- a far-future checkpoint_ts. `verify_audit.py` (which does check the
+-- signature, via checkpoint_verify.py) is the authoritative integrity check;
+-- this column is a cheap, advisory hint for export consumers only, and must
+-- not be read as proof of anchoring.
+--
+-- Computed by pre-aggregating each chain's latest checkpoint_ts and LEFT
+-- JOINing that onto audit_evidence, not a per-row correlated EXISTS subquery:
+-- ClickHouse's planner does not support a subquery referencing columns from
+-- its enclosing SELECT ("Resolve identifier ... from parent scope only
+-- supported for constants and CTE" -- confirmed by a live run against a
 -- throwaway ClickHouse instance; the EXISTS form this migration originally
 -- shipped with does not execute at all). A LEFT JOIN against each chain's
 -- max(checkpoint_ts) is equivalent to the EXISTS check -- if the latest
 -- checkpoint's ts is >= this row's ts, at least one qualifying checkpoint
 -- exists -- and keeps row cardinality unchanged because the right side is
 -- pre-aggregated to one row per (tier, server_id) before joining.
+--
+-- parseDateTime64BestEffortOrNull, not parseDateTime64BestEffort: an
+-- unparsable checkpoint_ts (malformed or absent) must fall through to NULL
+-- (`>=` against NULL is NULL, which this column's `AND` turns into NULL ->
+-- treated as not-anchored) rather than throwing and breaking the entire
+-- export view for every row.
 CREATE VIEW IF NOT EXISTS ssdf.audit_ocsf_export AS
 SELECT
     toUnixTimestamp64Milli(e.ts)                                   AS time,
@@ -41,9 +55,11 @@ SELECT
     e.row_count                                                    AS row_count,
     e.prev_hash                                                    AS prev_hash,
     e.row_hash                                                     AS row_hash,
-    (latest.max_checkpoint_ts != '')
-        AND (parseDateTime64BestEffort(latest.max_checkpoint_ts) >= e.ts)
-                                                                    AS is_checkpoint_anchored
+    coalesce(
+        (latest.max_checkpoint_ts != '')
+            AND (parseDateTime64BestEffortOrNull(latest.max_checkpoint_ts) >= e.ts),
+        false
+    )                                                               AS has_later_checkpoint_unverified
 FROM ssdf.audit_evidence AS e
 LEFT JOIN
 (
