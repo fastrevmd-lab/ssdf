@@ -357,23 +357,32 @@ def test_a_checkpoint_near_the_chain_tip_is_not_selected_over_the_matching_one()
     Selecting "the latest checkpoint" rather than "the checkpoint whose
     head_row_hash matches (directly or via a bridge) the actual dangling
     prev_hash" would mean every chain reports tamper indefinitely once its
-    genesis ages out. A second, unrelated checkpoint that is more recent (by
-    checkpoint_ts) but does not match any dangling prev_hash must be ignored,
-    and the one that does match must still be used."""
-    surviving, matching_checkpoint = _expired_genesis_scenario()
-    near_tip_checkpoint = Checkpoint(
-        tier="sovereign",
-        server_id="",
-        row_count=4,
-        head_row_hash=surviving[-1]["row_hash"],  # the current chain tip
-        checkpoint_ts="2026-09-16T00:00:00.000Z",  # more recent than the matching one
-        signature="not-a-real-signature-but-irrelevant-since-it-should-never-be-checked",
-        key_id="deadbeef",
+    genesis ages out. A second, unrelated, validly-signed checkpoint that is
+    more recent (by checkpoint_ts) but does not match any dangling prev_hash
+    must not be selected as the anchor, and the one that does match must
+    still be used.
+
+    Both checkpoints are given real signatures here (MEC-565 F1 made every
+    checkpoint's signature checked, not just the one selected as anchor, so
+    a deliberately-unverifiable "irrelevant" checkpoint would otherwise make
+    this test fail for an unrelated reason)."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    signing_key = Ed25519PrivateKey.generate()
+    verifying_key = signing_key.public_key().public_bytes_raw()
+
+    first_run = _chain(2)
+    surviving = _chain(2, first_prev=first_run[-1]["row_hash"])
+    matching_checkpoint = _signed_checkpoint(
+        signing_key, first_run[-1]["row_hash"], "2026-09-15T00:00:00.000Z"
+    )
+    near_tip_checkpoint = _signed_checkpoint(
+        signing_key, surviving[-1]["row_hash"], "2026-09-16T00:00:00.000Z"
     )
     issues = verify_tier(
         surviving,
         checkpoints=[near_tip_checkpoint, matching_checkpoint],
-        verifying_key=_VERIFYING_KEY,
+        verifying_key=verifying_key,
         now=_NOW_CHECKPOINT_OLD_ENOUGH,
     )
     assert issues == []
@@ -398,10 +407,16 @@ def test_a_checkpoint_too_fresh_to_have_expired_rows_is_premature_truncation():
     assert any(i["type"] == "unreachable" for i in issues)
 
 
-def test_genesis_still_present_ignores_even_a_malformed_checkpoint():
-    """A chain that still has its genesis must not consult checkpoints at all
-    -- not even to the point of trying to verify one and failing. A stale or
-    malformed checkpoint handed in for a healthy chain must have zero effect."""
+def test_genesis_still_present_ignores_a_checkpoint_for_reachability_but_still_checks_its_signature():
+    """A chain that still has its genesis needs no checkpoint to establish
+    reachability -- anchor selection is skipped entirely, and a checkpoint's
+    head_row_hash has no bearing on this chain's linkage/reachability checks.
+    But a malformed or unsigned row in ``audit_checkpoints`` is itself
+    evidence that whoever can INSERT there wrote something that was never
+    actually signed, independent of which chain's genesis happens to still
+    survive, so its signature is still checked and reported (MEC-565 F1:
+    an unsigned checkpoint must not be free to sit unflagged just because the
+    chain it is filed under has not yet had its genesis expire)."""
     rows = _chain(4)
     malformed = Checkpoint(
         tier="sovereign",
@@ -413,6 +428,25 @@ def test_genesis_still_present_ignores_even_a_malformed_checkpoint():
         key_id="deadbeef",
     )
     issues = verify_tier(rows, checkpoints=[malformed], verifying_key=_VERIFYING_KEY)
+    assert issues == [{"type": "unverifiable_checkpoint", "row_hash": "irrelevant"}]
+
+
+def test_genesis_still_present_and_no_verifying_key_ignores_a_malformed_checkpoint():
+    """Without a verifying key there is nothing to check a checkpoint's
+    signature against, so self-verification stays exactly as silent for a
+    malformed checkpoint as it always has -- this is the one case where a
+    checkpoint genuinely has zero effect."""
+    rows = _chain(4)
+    malformed = Checkpoint(
+        tier="sovereign",
+        server_id="",
+        row_count=1,
+        head_row_hash="irrelevant",
+        checkpoint_ts="2026-01-01T00:00:00.000Z",
+        signature="not-valid-base64!!",
+        key_id="deadbeef",
+    )
+    issues = verify_tier(rows, checkpoints=[malformed])
     assert issues == []
 
 

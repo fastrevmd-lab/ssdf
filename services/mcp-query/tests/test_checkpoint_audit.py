@@ -524,6 +524,46 @@ def test_run_flags_a_fully_deleted_chain_as_skipped_not_silent(monkeypatch):
     assert result.skipped == [("sovereign", "")]
 
 
+def test_run_refuses_to_extend_an_unsigned_previous_checkpoint(monkeypatch):
+    """MEC-565 F1: `run()` must not trust `fetch_previous_checkpoints`' row at
+    face value just because it is shaped like a checkpoint. An unsigned (or
+    forged) row in `ssdf.audit_checkpoints` -- inserted by anyone with INSERT
+    on that table but without the signing key -- must not have its row_count
+    carried forward into a genuinely, validly signed checkpoint. Without this
+    check, `compute_next_checkpoint` happily walks forward from the forged
+    row's head/row_count and `sign_checkpoint` would sign the result, since
+    neither one re-verifies `previous`'s own signature."""
+    genesis_tuple, genesis_hash = _audit_row(0, "sovereign", "")
+    tip_tuple, tip_hash = _audit_row(1, "sovereign", genesis_hash)
+
+    private_key = Ed25519PrivateKey.generate()
+    verifying_key = private_key.public_key().public_bytes_raw()
+
+    forged_checkpoint_row = (
+        "sovereign",
+        "",
+        1_000_000,  # attacker-chosen row_count, never signed
+        genesis_hash,
+        "2020-01-01T00:00:00.000Z",
+        base64.b64encode(b"\x00" * 64).decode(),  # never produced by the real signer
+        "deadbeef",
+    )
+    client = _FakeClient(
+        audit_rows=[genesis_tuple, tip_tuple], checkpoint_rows=[forged_checkpoint_row]
+    )
+
+    def fail_sign(*args, **kwargs):
+        raise AssertionError("should not sign on top of an unverified previous checkpoint")
+
+    monkeypatch.setattr(checkpoint_audit, "sign_checkpoint", fail_sign)
+
+    result = checkpoint_audit.run(client, "binary", "key", verifying_key=verifying_key)
+
+    assert result.inserted == []
+    assert result.skipped == [("sovereign", "")]
+    assert client.inserted == []
+
+
 def test_main_requires_verify_key_path(monkeypatch):
     """Without a verifying key, self-verification of a chain whose genesis
     has expired silently skips the

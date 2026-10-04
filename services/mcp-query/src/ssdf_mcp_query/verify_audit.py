@@ -223,32 +223,43 @@ def _checkpoint_head_issues(
     verifying_key: bytes | None,
     now: dt.datetime,
 ) -> list[dict]:
-    """A checkpoint not yet old enough to stand in for ordinary TTL eviction
-    (see ``_is_old_enough_to_anchor``) makes a claim that is still
-    falsifiable right now: its ``head_row_hash`` must be findable either in
-    the chain's current rows or its evidence-tier bridge. If it is not,
-    something removed rows at or after that head more recently than the
-    checkpoint schedule's own cadence would explain, which ordinary TTL
-    expiry cannot.
+    """Every checkpoint row is signature-checked regardless of its age: an
+    invalid signature means someone with INSERT on ``audit_checkpoints``
+    wrote something that was never actually signed by the Rust signer, and
+    that is evidence of tampering at any age, not only once the row is old
+    enough that anchor selection might otherwise rely on it. Checking the
+    signature only for old-enough checkpoints would let a freshly-forged,
+    backdated-``checkpoint_ts`` row sit unverified forever whenever this
+    chain's genesis is still present (anchor selection is never reached, since
+    it only runs when genesis is absent) -- the signature check here is the
+    only place in self-verification that still looks at such a row.
+
+    Once a checkpoint's signature verifies, a checkpoint not yet old enough to
+    stand in for ordinary TTL eviction (see ``_is_old_enough_to_anchor``)
+    makes a further claim that is still falsifiable right now: its
+    ``head_row_hash`` must be findable either in the chain's current rows or
+    its evidence-tier bridge. If it is not, something removed rows at or
+    after that head more recently than the checkpoint schedule's own cadence
+    would explain, which ordinary TTL expiry cannot.
 
     Unlike anchor selection in ``_select_checkpoint_anchors``, this runs for
     every checkpoint handed in regardless of whether this chain's genesis
     row is still present, so gating this on ``not has_genesis`` would miss
     cases where genesis is untouched but the checkpointed head is not.
     """
+    if verifying_key is None:
+        return []
     issues: list[dict] = []
     for checkpoint in checkpoints:
-        if _is_old_enough_to_anchor(checkpoint.checkpoint_ts, now):
-            continue
-        if verifying_key is None:
-            continue
         try:
             verify_checkpoint_signature(checkpoint, verifying_key)
         except CheckpointVerificationError:
             # A row in audit_checkpoints that does not verify means someone
             # with INSERT on that table wrote something wrong -- that has to
-            # be visible, not silently skipped.
+            # be visible at any age, not silently skipped.
             issues.append({"type": "unverifiable_checkpoint", "row_hash": checkpoint.head_row_hash})
+            continue
+        if _is_old_enough_to_anchor(checkpoint.checkpoint_ts, now):
             continue
         if (
             checkpoint.head_row_hash not in by_hash

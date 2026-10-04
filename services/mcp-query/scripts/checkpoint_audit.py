@@ -350,6 +350,26 @@ def run(
             result.skipped.append(chain)
             continue
         previous = previous_by_chain.get(chain)
+        if previous is not None and verifying_key is not None:
+            previous_checkpoint = Checkpoint(
+                tier=previous["tier"],
+                server_id=previous["server_id"],
+                row_count=int(previous["row_count"]),
+                head_row_hash=previous["head_row_hash"],
+                checkpoint_ts=previous["checkpoint_ts"],
+                signature=previous["signature"],
+                key_id=previous["key_id"],
+            )
+            try:
+                verify_checkpoint_signature(previous_checkpoint, verifying_key)
+            except CheckpointVerificationError as exc:
+                print(
+                    f"skipping chain tier={chain[0]} server={chain[1]!r}: "
+                    f"previous checkpoint does not verify, refusing to extend it: {exc}",
+                    file=sys.stderr,
+                )
+                result.skipped.append(chain)
+                continue
         try:
             pending = compute_next_checkpoint(rows, previous)
         except ForkDetectedError as exc:
