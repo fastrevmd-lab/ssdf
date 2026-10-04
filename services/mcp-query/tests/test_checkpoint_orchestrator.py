@@ -103,9 +103,20 @@ def test_rows_unreachable_from_previous_is_empty_when_chain_extends_cleanly():
     first_run = _chain(2)
     previous = {"row_count": 2, "head_row_hash": first_run[-1]["row_hash"]}
     second_run = _chain(2, first_prev=first_run[-1]["row_hash"])
-    still_live = [first_run[-1]] + second_run
+    still_live = first_run + second_run
 
     assert rows_unreachable_from_previous(still_live, previous) == set()
+
+
+def test_rows_unreachable_from_previous_is_empty_for_an_idle_chain():
+    """A chain with no new rows since the last checkpoint is the normal
+    idle case: the previous head's still-live ancestors must not be
+    flagged as stray just because they are not reachable *forward* from
+    that head."""
+    rows = _chain(2)
+    previous = {"row_count": 2, "head_row_hash": rows[-1]["row_hash"]}
+
+    assert rows_unreachable_from_previous(rows, previous) == set()
 
 
 def test_rows_unreachable_from_previous_flags_rows_that_never_chained_from_the_head():

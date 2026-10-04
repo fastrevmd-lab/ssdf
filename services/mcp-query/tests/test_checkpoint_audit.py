@@ -310,6 +310,37 @@ def test_run_skips_chains_with_nothing_new(monkeypatch):
     assert client.inserted == []
 
 
+def test_run_skips_a_multi_row_idle_chain_without_flagging_it_as_stray(monkeypatch):
+    """A chain with more than one row, checkpointed at its current tip, is
+    the normal idle case (no new rows since the last run) -- not tampering.
+    rows_unreachable_from_previous must not flag the previous head's own
+    still-live ancestors as stray just because they are not reachable
+    *forward* from that head."""
+    genesis_tuple, genesis_hash = _audit_row(0, "sovereign", "")
+    tip_tuple, tip_hash = _audit_row(1, "sovereign", genesis_hash)
+    checkpoint_row = (
+        "sovereign",
+        "",
+        2,
+        tip_hash,
+        "2026-06-10T00:00:00.000Z",
+        "sig",
+        "k1",
+    )
+    client = _FakeClient(audit_rows=[genesis_tuple, tip_tuple], checkpoint_rows=[checkpoint_row])
+
+    def fail_sign(*args, **kwargs):
+        raise AssertionError("should not sign an unchanged chain")
+
+    monkeypatch.setattr(checkpoint_audit, "sign_checkpoint", fail_sign)
+
+    result = checkpoint_audit.run(client, "binary", "key")
+
+    assert result.inserted == []
+    assert result.skipped == []
+    assert client.inserted == []
+
+
 def test_run_refuses_to_checkpoint_a_chain_with_a_content_edit(monkeypatch):
     """compute_next_checkpoint only walks prev_hash -> row_hash linkage and
     never recomputes a row's content hash, so a row edited after being

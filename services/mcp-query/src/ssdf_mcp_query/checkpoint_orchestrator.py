@@ -122,12 +122,19 @@ def rows_unreachable_from_previous(rows: list[dict], previous: dict | None) -> s
     reachable from it -- rows that showed up without ever chaining onto the
     already-checkpointed head, which the first-seen-child walk above would
     otherwise ignore rather than flag.
+
+    Rows behind the previous head (its ancestors still inside the TTL) are
+    not stray either: a chain with no new rows since the last checkpoint is
+    the normal idle case, not tampering, so walk backward from the previous
+    head via prev_hash and exclude everything still on that path too.
     """
     if previous is None:
         return set()
     children_of: dict[str, list[dict]] = {}
+    by_hash: dict[str, dict] = {}
     for row in rows:
         children_of.setdefault(row["prev_hash"], []).append(row)
+        by_hash[row["row_hash"]] = row
     reachable: set[str] = set()
     stack = list(children_of.get(previous["head_row_hash"], []))
     while stack:
@@ -137,4 +144,9 @@ def rows_unreachable_from_previous(rows: list[dict], previous: dict | None) -> s
         reachable.add(row["row_hash"])
         stack.extend(children_of.get(row["row_hash"], []))
     head_hash = previous["head_row_hash"]
-    return {r["row_hash"] for r in rows if r["row_hash"] != head_hash} - reachable
+    ancestors: set[str] = set()
+    cur = head_hash
+    while cur in by_hash and cur not in ancestors:
+        ancestors.add(cur)
+        cur = by_hash[cur]["prev_hash"]
+    return {r["row_hash"] for r in rows if r["row_hash"] != head_hash} - reachable - ancestors
