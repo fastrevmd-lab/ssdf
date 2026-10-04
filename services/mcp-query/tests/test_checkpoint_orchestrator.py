@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
+
 from ssdf_mcp_query.audit_chain import compute_row_hash
-from ssdf_mcp_query.checkpoint_orchestrator import compute_next_checkpoint
+from ssdf_mcp_query.checkpoint_orchestrator import (
+    ForkDetectedError,
+    compute_next_checkpoint,
+    rows_unreachable_from_previous,
+)
 
 
 def _chain(n, tier="sovereign", first_prev=""):
@@ -72,6 +78,53 @@ def test_previous_checkpoint_head_fully_expired_yields_none_not_a_guess():
     rows = _chain(3, first_prev="deadbeef-stale-checkpoint-head")
     previous = {"row_count": 10, "head_row_hash": "deadbeef-stale-checkpoint-head-does-not-match"}
     assert compute_next_checkpoint(rows, previous) is None
+
+
+def test_a_forked_chain_raises_instead_of_picking_a_branch():
+    """Two rows naming the same prev_hash must refuse the walk, not silently
+    take the first-seen child and anchor past the other -- doing so would
+    let the real branch grow unchecked and never get checkpointed."""
+    rows = _chain(2)
+    genuine_child = rows[-1]
+    sibling = dict(genuine_child, tool="sibling", row_count=99)
+    sibling["row_hash"] = compute_row_hash(sibling["prev_hash"], sibling)
+    rows.append(sibling)
+
+    with pytest.raises(ForkDetectedError):
+        compute_next_checkpoint(rows, previous=None)
+
+
+def test_rows_unreachable_from_previous_is_empty_with_no_previous():
+    rows = _chain(2)
+    assert rows_unreachable_from_previous(rows, None) == set()
+
+
+def test_rows_unreachable_from_previous_is_empty_when_chain_extends_cleanly():
+    first_run = _chain(2)
+    previous = {"row_count": 2, "head_row_hash": first_run[-1]["row_hash"]}
+    second_run = _chain(2, first_prev=first_run[-1]["row_hash"])
+    still_live = [first_run[-1]] + second_run
+
+    assert rows_unreachable_from_previous(still_live, previous) == set()
+
+
+def test_rows_unreachable_from_previous_flags_rows_that_never_chained_from_the_head():
+    """A row that appears in the chain's current rows without chaining
+    forward from the previous checkpoint's head -- e.g. the real branch
+    continuing a fork's genesis while the checkpoint head sits on the
+    fork's other, now-abandoned branch -- must be flagged rather than
+    treated the same as "nothing new"."""
+    rows = _chain(1)
+    genesis = rows[0]
+    fork_head = dict(genesis, tool="fork-head", row_count=50)
+    fork_head["row_hash"] = compute_row_hash(genesis["prev_hash"], fork_head)
+    previous = {"row_count": 1, "head_row_hash": fork_head["row_hash"]}
+
+    real_branch = _chain(2, first_prev=genesis["row_hash"])
+    current_rows = [genesis] + real_branch
+
+    stray = rows_unreachable_from_previous(current_rows, previous)
+    assert stray == {r["row_hash"] for r in current_rows}
 
 
 def test_evidence_chain_carries_its_writer_id():

@@ -26,12 +26,11 @@ that it is not the orchestrator either.
 Self-verification before signing: this job must not sign a chain it has not
 itself confirmed clean. `compute_next_checkpoint`'s own docstring says
 checkpointing an unverified chain is "the caller's mistake to avoid" -- this
-is that check. Without it, an injected or forked row (two rows naming the
-same prev_hash) can become a signed head via `compute_next_checkpoint`'s
-first-seen-child walk, and once its predecessors age out it becomes a
-trusted anchor for everything after it. `CH_CHECKPOINT_VERIFY_KEY_PATH` is
-required (not merely recommended) so this self-verification step can always
-anchor past an already checkpointed, since-expired predecessor the same way
+is that check, and `compute_next_checkpoint` separately refuses outright on
+the one tamper shape it can detect directly while walking the chain, rather
+than quietly picking a branch. `CH_CHECKPOINT_VERIFY_KEY_PATH` is required
+(not merely recommended) so this self-verification step can always anchor
+past an already checkpointed, since-expired predecessor the same way
 verify_audit.py does (including bridging through ssdf.audit_evidence); a job
 that ran without it would silently skip self-verifying any chain whose
 genesis has expired, rather than fail closed up front.
@@ -55,7 +54,11 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from ssdf_common.config import ConfigError, require_tls_or_loopback
-from ssdf_mcp_query.checkpoint_orchestrator import compute_next_checkpoint
+from ssdf_mcp_query.checkpoint_orchestrator import (
+    ForkDetectedError,
+    compute_next_checkpoint,
+    rows_unreachable_from_previous,
+)
 from ssdf_mcp_query.checkpoint_verify import (
     Checkpoint,
     CheckpointVerificationError,
@@ -316,10 +319,7 @@ def run(
     Self-verifies each chain with `verify_tier` before checkpointing it -- a
     chain `compute_next_checkpoint` has not first been confirmed clean on is
     never signed; it is skipped (fail closed) instead, surfaced via
-    `RunResult.skipped`. This catches a fork (two rows naming the same
-    prev_hash) or a content edit that `compute_next_checkpoint` itself does
-    not check for -- it only walks the first-seen child and never recomputes
-    a row_hash.
+    `RunResult.skipped`.
     """
     now = now or dt.datetime.now(dt.timezone.utc)
     rows_by_chain = fetch_rows_by_chain(client)
@@ -350,7 +350,15 @@ def run(
             result.skipped.append(chain)
             continue
         previous = previous_by_chain.get(chain)
-        pending = compute_next_checkpoint(rows, previous)
+        try:
+            pending = compute_next_checkpoint(rows, previous)
+        except ForkDetectedError as exc:
+            print(
+                f"skipping chain tier={chain[0]} server={chain[1]!r}: {exc}",
+                file=sys.stderr,
+            )
+            result.skipped.append(chain)
+            continue
         if pending is None:
             row_hashes = {r["row_hash"] for r in rows}
             head_unreachable = (
@@ -358,7 +366,8 @@ def run(
                 and previous["head_row_hash"] not in row_hashes
                 and not any(r["prev_hash"] == previous["head_row_hash"] for r in rows)
             )
-            if head_unreachable:
+            stray = rows_unreachable_from_previous(rows, previous)
+            if head_unreachable or stray:
                 print(
                     f"skipping chain tier={chain[0]} server={chain[1]!r}: "
                     "previous checkpoint's head is unreachable from the chain's current "

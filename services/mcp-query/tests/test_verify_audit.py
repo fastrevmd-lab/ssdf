@@ -562,6 +562,72 @@ def test_old_enough_checkpoint_head_missing_is_not_flagged():
     assert not any(i["type"] == "checkpoint_head_missing" for i in issues)
 
 
+def test_detects_a_forked_chain():
+    """Two rows naming the same prev_hash each still link and reach
+    correctly on their own -- neither content-integrity nor reachability
+    sees anything wrong with either branch, so forks need their own check.
+    An exact duplicate (identical row_hash) must not also count as a fork;
+    that is already `duplicate_row`'s job."""
+    rows = _chain(3)
+    genuine_child = rows[-1]
+    sibling = dict(genuine_child, tool="sibling", row_count=99)
+    sibling["row_hash"] = compute_row_hash(sibling["prev_hash"], sibling)
+    rows.append(sibling)
+
+    issues = verify_tier(rows)
+
+    forks = [i for i in issues if i["type"] == "fork"]
+    assert {f["row_hash"] for f in forks} == {genuine_child["row_hash"], sibling["row_hash"]}
+
+
+def test_two_genesis_rows_is_also_a_fork():
+    """A second row with prev_hash == "" is the same shape of ambiguity as a
+    fork deeper in the chain, and must be caught the same way."""
+    rows = _chain(2)
+    second_genesis = dict(rows[0], tool="other-genesis", row_count=100)
+    second_genesis["row_hash"] = compute_row_hash("", second_genesis)
+    rows.append(second_genesis)
+
+    issues = verify_tier(rows)
+
+    forks = [i for i in issues if i["type"] == "fork"]
+    assert {f["row_hash"] for f in forks} == {rows[0]["row_hash"], second_genesis["row_hash"]}
+
+
+def test_a_replayed_duplicate_is_not_also_reported_as_a_fork():
+    rows = _chain(4)
+    rows.append(dict(rows[2]))  # byte-for-byte replay, same row_hash
+
+    issues = verify_tier(rows)
+
+    assert not [i for i in issues if i["type"] == "fork"]
+
+
+def test_recent_checkpoint_with_invalid_signature_is_not_skipped_silently():
+    """A row in audit_checkpoints that fails signature verification means
+    someone with INSERT on that table wrote something wrong -- that must be
+    visible, not swallowed by `continue`."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    signing_key = Ed25519PrivateKey.generate()
+    wrong_key = Ed25519PrivateKey.generate()
+    verifying_key = wrong_key.public_key().public_bytes_raw()
+
+    full_chain = _chain(5)
+    checkpoint = _signed_checkpoint(
+        signing_key, full_chain[-1]["row_hash"], "2026-04-01T00:00:00.000Z"
+    )
+    truncated = full_chain[:3]
+    now = dt.datetime(2026, 4, 15, tzinfo=dt.timezone.utc)  # not old enough to anchor
+
+    issues = verify_tier(truncated, checkpoints=[checkpoint], verifying_key=verifying_key, now=now)
+
+    assert any(
+        i["type"] == "unverifiable_checkpoint" and i["row_hash"] == full_chain[-1]["row_hash"]
+        for i in issues
+    )
+
+
 def test_main_still_reports_a_chain_whose_rows_are_all_gone(monkeypatch):
     """A chain can have zero surviving rows in ssdf.audit (every row
     removed) while still holding a recent checkpoint. main() must still walk

@@ -33,6 +33,18 @@ class PendingCheckpoint:
     head_row_hash: str
 
 
+class ForkDetectedError(RuntimeError):
+    """Raised when two rows in ``rows`` name the same prev_hash.
+
+    verify_audit.verify_tier reports the same condition as a ``fork`` issue,
+    and scripts/checkpoint_audit.py never reaches this: it only calls
+    compute_next_checkpoint for chains verify_tier has already confirmed
+    clean, so a fork there would already have caused the chain to be
+    skipped. This exists so a future caller that forgets to self-verify
+    first can't silently anchor past a fork by only checking for ``None``.
+    """
+
+
 def compute_next_checkpoint(
     rows: list[dict],
     previous: dict | None,
@@ -55,13 +67,12 @@ def compute_next_checkpoint(
 
     Walks forward via prev_hash -> row_hash linkage (not ts order) for the
     same reason verify_tier does: same-millisecond ties never mis-order the
-    walk. A chain with a genuine tamper (a fork: two rows naming the same
-    prev_hash) takes the first-seen child in ``rows`` order and silently
-    anchors past the other -- that is a verify_audit.py finding
-    (`unreachable`/`content_edit` on the other branch), not something this
-    checkpointer is responsible for catching. Checkpointing a chain that
+    walk. Raises :class:`ForkDetectedError` when two rows name the same
+    prev_hash during the walk, rather than silently taking the first-seen
+    child and anchoring past the other -- checkpointing a chain that
     verify_audit.py has NOT first confirmed clean is the caller's mistake to
-    avoid, not this function's.
+    avoid, not this function's, but this function still refuses rather than
+    guessing which branch is real.
     """
     if not rows:
         return None
@@ -77,7 +88,14 @@ def compute_next_checkpoint(
     tip: dict | None = None
     current = start_hash
     while current in children_of:
-        tip = children_of[current][0]
+        children = children_of[current]
+        distinct = {child["row_hash"] for child in children}
+        if len(distinct) > 1:
+            raise ForkDetectedError(
+                f"{len(distinct)} rows name prev_hash={current!r}; "
+                "verify_tier should have caught this as a fork issue before checkpointing"
+            )
+        tip = children[0]
         new_rows += 1
         current = tip["row_hash"]
 
@@ -91,3 +109,32 @@ def compute_next_checkpoint(
         row_count=base_count + new_rows,
         head_row_hash=tip["row_hash"],
     )
+
+
+def rows_unreachable_from_previous(rows: list[dict], previous: dict | None) -> set[str]:
+    """``row_hash`` values in ``rows`` that cannot be reached by walking
+    forward from ``previous``'s head.
+
+    Used when ``compute_next_checkpoint`` returns ``None``: that alone only
+    means no row chains forward from the previous head, which also happens
+    whenever the chain is simply unchanged. This tells the caller whether
+    there are rows present that are neither the previous head itself nor
+    reachable from it -- rows that showed up without ever chaining onto the
+    already-checkpointed head, which the first-seen-child walk above would
+    otherwise ignore rather than flag.
+    """
+    if previous is None:
+        return set()
+    children_of: dict[str, list[dict]] = {}
+    for row in rows:
+        children_of.setdefault(row["prev_hash"], []).append(row)
+    reachable: set[str] = set()
+    stack = list(children_of.get(previous["head_row_hash"], []))
+    while stack:
+        row = stack.pop()
+        if row["row_hash"] in reachable:
+            continue
+        reachable.add(row["row_hash"])
+        stack.extend(children_of.get(row["row_hash"], []))
+    head_hash = previous["head_row_hash"]
+    return {r["row_hash"] for r in rows if r["row_hash"] != head_hash} - reachable

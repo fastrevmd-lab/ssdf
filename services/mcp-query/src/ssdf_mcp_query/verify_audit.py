@@ -245,6 +245,10 @@ def _checkpoint_head_issues(
         try:
             verify_checkpoint_signature(checkpoint, verifying_key)
         except CheckpointVerificationError:
+            # A row in audit_checkpoints that does not verify means someone
+            # with INSERT on that table wrote something wrong -- that has to
+            # be visible, not silently skipped.
+            issues.append({"type": "unverifiable_checkpoint", "row_hash": checkpoint.head_row_hash})
             continue
         if (
             checkpoint.head_row_hash not in by_hash
@@ -345,6 +349,21 @@ def verify_tier(
     for row_hash, count in seen.items():
         if count > 1:
             issues.append({"type": "duplicate_row", "row_hash": row_hash})
+
+    # 0.5 Forks: two rows naming the same prev_hash (including two genesis
+    #     rows, prev_hash == "") split the chain into branches that each still
+    #     link and reach correctly on their own -- neither the content-
+    #     integrity check below nor reachability (3) sees anything wrong with
+    #     either branch, so this has to be checked on its own. Grouped by
+    #     distinct row_hash so an exact duplicate (already reported above) is
+    #     never also counted as a fork.
+    children_by_prev: dict[str, set[str]] = defaultdict(set)
+    for r in rows:
+        children_by_prev[r["prev_hash"]].add(r["row_hash"])
+    for children in children_by_prev.values():
+        if len(children) > 1:
+            for child_hash in children:
+                issues.append({"type": "fork", "row_hash": child_hash})
 
     # 1. Content integrity: each stored row_hash must equal H(prev_hash, fields).
     for r in rows:

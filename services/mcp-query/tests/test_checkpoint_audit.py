@@ -337,6 +337,30 @@ def test_run_refuses_to_checkpoint_a_chain_with_a_content_edit(monkeypatch):
     assert result.skipped == [("sovereign", "")]
 
 
+def test_run_refuses_to_checkpoint_a_forked_chain(monkeypatch):
+    """A forked chain (two rows naming the same prev_hash, e.g. an injected
+    sibling of a real row) must never capture the checkpoint head and stall
+    the real branch. verify_tier's self-verification in run() must catch the
+    fork and skip the chain before compute_next_checkpoint ever runs."""
+    genesis_tuple, genesis_hash = _audit_row(0, "sovereign", "")
+    real_child_tuple, _ = _audit_row(1, "sovereign", genesis_hash)
+    sibling_row = dict(
+        zip(checkpoint_audit._ROW_COLUMNS, _audit_row(2, "sovereign", genesis_hash)[0])
+    )
+    sibling_tuple = tuple(sibling_row[c] for c in checkpoint_audit._ROW_COLUMNS)
+    client = _FakeClient(audit_rows=[genesis_tuple, real_child_tuple, sibling_tuple])
+
+    def fail_sign(*args, **kwargs):
+        raise AssertionError("should not sign a forked chain")
+
+    monkeypatch.setattr(checkpoint_audit, "sign_checkpoint", fail_sign)
+
+    result = checkpoint_audit.run(client, "binary", "key")
+
+    assert result.inserted == []
+    assert result.skipped == [("sovereign", "")]
+
+
 def test_run_self_verifies_past_an_expired_genesis_via_the_evidence_bridge(monkeypatch):
     """Once a chain's genesis has aged out of ssdf.audit, a daily checkpoint
     schedule almost never sits at exactly the row the TTL
